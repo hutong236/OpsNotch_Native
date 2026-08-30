@@ -67,6 +67,10 @@ enum L10n {
             "safeURL": "HTTP/HTTPS URL",
             "invalidAction": "安全操作只允许本地绝对路径或 HTTP/HTTPS URL。",
             "dragHandle": "拖动",
+            "zoomPreview": "放大预览",
+            "previewClose": "关闭",
+            "previewFont": "字号",
+            "previewFit": "适配窗口",
             "appTitle": "Ops Notch",
             "settingsTitle": "Ops Notch 设置"
         ]
@@ -132,6 +136,10 @@ enum L10n {
             "safeURL": "HTTP/HTTPS URL",
             "invalidAction": "Safe Action only supports an absolute local path or HTTP/HTTPS URL.",
             "dragHandle": "Drag",
+            "zoomPreview": "Magnify",
+            "previewClose": "Close",
+            "previewFont": "Font size",
+            "previewFit": "Fit to Window",
             "appTitle": "Ops Notch",
             "settingsTitle": "Ops Notch Settings"
         ]

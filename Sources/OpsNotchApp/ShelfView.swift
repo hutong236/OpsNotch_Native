@@ -261,6 +261,11 @@ struct ShelfRowView: View {
             if [.file, .folder].contains(item.kind) {
                 Button(L10n.text("quickLook", model.language)) { QuickLookService.shared.preview(item) }
             }
+            if ItemPreviewKind.isPreviewable(item) {
+                Button(L10n.text("zoomPreview", model.language)) {
+                    FloatingPreviewController.shared.show(item: item, language: model.language)
+                }
+            }
             if [.file, .folder, .application].contains(item.kind) {
                 Button(L10n.text("reveal", model.language)) { ItemActionService.reveal(item) }
             }
@@ -288,6 +293,12 @@ struct ShelfRowView: View {
             }
             if item.kind == .file {
                 Button { QuickLookService.shared.preview(item) } label: { Image(systemName: "eye") }.buttonStyle(.plain)
+            }
+            if ItemPreviewKind.isPreviewable(item) {
+                Button {
+                    FloatingPreviewController.shared.show(item: item, language: model.language)
+                } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }.buttonStyle(.plain)
+                    .help(L10n.text("zoomPreview", model.language))
             }
             Button { model.togglePin(item) } label: { Image(systemName: item.pinned ? "pin.slash" : "pin") }.buttonStyle(.plain)
         }

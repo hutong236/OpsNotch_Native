@@ -118,6 +118,28 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertFalse(SafeActionValidator.validate(kind: .openURL, content: "javascript:alert(1)"))
     }
 
+    func testPreviewKindDetectsImageExtensions() {
+        XCTAssertTrue(ItemPreviewKind.isImagePath("/tmp/photo.JPG"))
+        XCTAssertTrue(ItemPreviewKind.isImagePath("/tmp/photo.heic"))
+        XCTAssertTrue(ItemPreviewKind.isImagePath("/tmp/diagram.WebP"))
+        XCTAssertFalse(ItemPreviewKind.isImagePath("/tmp/report.pdf"))
+        XCTAssertFalse(ItemPreviewKind.isImagePath("/tmp/noextension"))
+        XCTAssertFalse(ItemPreviewKind.isImagePath(""))
+    }
+
+    func testPreviewKindItemEligibility() {
+        XCTAssertTrue(ItemPreviewKind.isPreviewable(ShelfItem(kind: .text, title: "T", content: "hello")))
+        XCTAssertFalse(ItemPreviewKind.isPreviewable(ShelfItem(kind: .text, title: "T", content: "")))
+        XCTAssertTrue(ItemPreviewKind.isPreviewable(ShelfItem(kind: .file, title: "Img", content: "/tmp/a.png")))
+        // 引用模式下 content 是路径,extension 兜底同样可识别
+        XCTAssertTrue(ItemPreviewKind.isPreviewable(ShelfItem(kind: .file, title: "Img", content: "/tmp/unknownfile", fileExtension: "JPEG")))
+        XCTAssertFalse(ItemPreviewKind.isPreviewable(ShelfItem(kind: .file, title: "Doc", content: "/tmp/a.pdf")))
+        XCTAssertFalse(ItemPreviewKind.isPreviewable(ShelfItem(kind: .folder, title: "Dir", content: "/tmp/dir")))
+        XCTAssertFalse(ItemPreviewKind.isPreviewable(ShelfItem(kind: .url, title: "U", content: "https://example.com")))
+        XCTAssertFalse(ItemPreviewKind.isPreviewable(ShelfItem(kind: .application, title: "A", content: "/Applications/Terminal.app")))
+        XCTAssertFalse(ItemPreviewKind.isPreviewable(ShelfItem(kind: .action, title: "Act", content: "/tmp", actionKind: .openPath)))
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("OpsNotchTests-\(UUID().uuidString)", isDirectory: true)
     }
