@@ -14,4 +14,4 @@
 
 - [x] 3.1 忽略生效验证:在 `dist/` 内创建临时文件后,`git status --porcelain -uall` 不出现该文件的未跟踪(`??`)条目且 `git check-ignore` 命中 `dist/` 规则,随后删除临时文件恢复现场
 - [x] 3.2 项目基线不受影响:`swift build`、`swift test`、`python3 scripts/static_checks.py` 全部退出码为 0
-- [ ] 3.3 创建清理提交(提交说明写明 `dist/` 退出跟踪、协作者 pull 后本地目录保留为未跟踪状态);验证:提交后 `git status` 干净、`git log` 中首个提交 `312e753` 仍完好(历史未重写)
+- [x] 3.3 创建清理提交(提交说明写明 `dist/` 退出跟踪、协作者 pull 后本地目录保留为未跟踪状态);验证:提交后 `git status` 干净、`git log` 中首个提交 `312e753` 仍完好(历史未重写)
