@@ -251,6 +251,14 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertEqual(legacy.recent, explicit.recent)
     }
 
+    func testOpenEventDebounceFoldsDuplicatesInWindow() {
+        XCTAssertTrue(ShelfLogic.shouldHandleOpenEvent(lastAt: nil, now: 100.0, window: 0.3))
+        // 窗口期内重复投递:折叠为一次。
+        XCTAssertFalse(ShelfLogic.shouldHandleOpenEvent(lastAt: 100.0, now: 100.1, window: 0.3))
+        // 窗口期外:视为一次新的用户动作,正常处理。
+        XCTAssertTrue(ShelfLogic.shouldHandleOpenEvent(lastAt: 100.0, now: 100.4, window: 0.3))
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("OpsNotchTests-\(UUID().uuidString)", isDirectory: true)
     }
