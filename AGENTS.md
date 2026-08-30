@@ -8,11 +8,12 @@ Minimum platform: **macOS 13**, Swift 5.9. Project docs (README, ARCHITECTURE, V
 
 ## Layout
 
-- `Sources/OpsNotchCore/` — pure logic and models: `Models.swift` (ShelfItem/ShelfSettings), `ShelfLogic.swift`, `ShelfStoreService.swift` (JSON persistence + legacy migration), `SafeActionValidator.swift`. Must stay UI/AppKit-free so it is unit-testable.
-- `Sources/OpsNotchApp/` — executable target, depends on Core: AppKit system layer (`SensorManager`, `ShelfWindowController`, `ClipboardManager`, `StatusBarController`, `QuickLookService`, `ItemActionService`, `LoginItemService`) and SwiftUI content (`ShelfView`, `SettingsWindowController`), plus `Localization.swift`.
+- `Sources/OpsNotchCore/` — pure logic and models: `Models.swift` (ShelfItem/ShelfSettings), `ShelfLogic.swift`, `ShelfStoreService.swift` (JSON persistence + legacy migration), `SafeActionValidator.swift`, `HotkeyValidation.swift`, `ItemPreviewKind.swift`. Must stay UI/AppKit-free so it is unit-testable.
+- `Sources/OpsNotchApp/` — executable target, depends on Core: AppKit system layer (`SensorManager`, `ShelfWindowController`, `ClipboardManager`, `StatusBarController`, `QuickLookService`, `ItemActionService`, `LoginItemService`, `HotkeyService`, `FloatingPreviewController`) and SwiftUI content (`ShelfView`, `SettingsWindowController`, `HotkeyRecorder`), plus `Localization.swift`, `AppModel.swift`, `AppVersionService.swift`.
 - `Tests/OpsNotchCoreTests/` — XCTest for Core only.
 - `script/build_and_run.sh` — V2 dev entry (note: this is `script/`, singular). `scripts/` (plural) holds `build_app.sh`, `run_dev.sh`, `static_checks.py`.
 - Data files live outside the repo at `~/Library/Application Support/lab.hutong.opsnotch/` (`shelf.json` + `shelf-files/`).
+- `openspec/` — change proposals (`openspec/changes/<name>/` with proposal/design/specs/tasks) drive feature work; use the `openspec-propose` / `openspec-apply-change` skills for proposing and implementing changes, and archive completed ones to `openspec/changes/archive/`.
 
 ## Commands
 
