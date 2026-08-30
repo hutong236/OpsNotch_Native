@@ -15,6 +15,13 @@ final class AppModel: ObservableObject {
             highlightedID = visibleItems.first?.id
         }
     }
+    /// 类型筛选(全部/文件/文本/URL/应用),与搜索词叠加;仅会话内有效,不落盘。
+    @Published var kindFilter: ShelfKindFilter = .all {
+        didSet {
+            // 与 query.didSet 同规则:过滤结果变化后高亮回落首行。
+            highlightedID = visibleItems.first?.id
+        }
+    }
     @Published var selection: Set<UUID> = []
     @Published var toast: String?
     @Published var editorDraft: ItemDraft?
@@ -47,7 +54,7 @@ final class AppModel: ObservableObject {
     }
 
     var language: AppLanguage { settings.language }
-    var grouped: (pinned: [ShelfItem], recent: [ShelfItem]) { ShelfLogic.grouped(items, query: query) }
+    var grouped: (pinned: [ShelfItem], recent: [ShelfItem]) { ShelfLogic.grouped(items, query: query, kindFilter: kindFilter) }
     var visibleItems: [ShelfItem] { grouped.pinned + grouped.recent }
 
     func moveHighlight(_ delta: Int) {
@@ -73,6 +80,19 @@ final class AppModel: ObservableObject {
 
     func escapeShelf() {
         requestHide?()
+    }
+
+    /// ⌘1~⌘5 与筛选 chips 共用的切换入口;didSet 负责高亮回落。
+    func setKindFilter(to filter: ShelfKindFilter) {
+        kindFilter = filter
+    }
+
+    /// Space:Quick Look 预览键盘高亮条目(仅可预览类型),面板保持展开、不写剪贴板。
+    func quickLookHighlighted() {
+        guard let id = highlightedID,
+              let item = visibleItems.first(where: { $0.id == id }),
+              ItemPreviewKind.isPreviewable(item) else { return }
+        QuickLookService.shared.preview(item)
     }
 
     func reload() {
@@ -254,8 +274,16 @@ final class AppModel: ObservableObject {
     }
 
     private func apply(_ storeValue: ShelfStore) {
+        let knownIDs = Set(items.map(\.id))
         items = storeValue.items
         settings = storeValue.settings
+        // 新条目若会被当前类型筛选隐藏,筛选回到"全部",保证刚放入的条目可见。
+        if kindFilter != .all {
+            let incoming = storeValue.items.filter { !knownIDs.contains($0.id) }
+            if incoming.contains(where: { !ShelfLogic.matches($0, query: "", kindFilter: kindFilter) }) {
+                kindFilter = .all
+            }
+        }
     }
 }
 

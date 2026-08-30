@@ -25,6 +25,7 @@ struct ShelfRootView: View {
         VStack(spacing: 0) {
             header
             search
+            filterChips
             if !model.selection.isEmpty { selectionBar }
             Divider().opacity(0.35)
             content
@@ -90,6 +91,41 @@ struct ShelfRootView: View {
         .padding(.bottom, 9)
     }
 
+    /// 类型筛选 chips:⌘1~⌘5 与之一一对应(见 ShelfWindowController 键盘接管)。
+    private var filterChips: some View {
+        HStack(spacing: 6) {
+            ForEach(filterChipsData, id: \.0) { filter, title in
+                Button {
+                    model.setKindFilter(to: filter)
+                } label: {
+                    Text(title)
+                        .font(.system(size: 10, weight: model.kindFilter == filter ? .semibold : .regular))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(
+                            model.kindFilter == filter ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.05),
+                            in: Capsule()
+                        )
+                        .foregroundStyle(model.kindFilter == filter ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var filterChipsData: [(ShelfKindFilter, String)] {
+        [
+            (.all, L10n.text("filterAll", model.language)),
+            (.file, L10n.text("filterFile", model.language)),
+            (.text, L10n.text("filterText", model.language)),
+            (.url, L10n.text("filterURL", model.language)),
+            (.application, L10n.text("filterApp", model.language)),
+        ]
+    }
+
     private var selectionBar: some View {
         HStack {
             Text("\(L10n.text("selected", model.language)) \(model.selection.count)")
@@ -116,13 +152,23 @@ struct ShelfRootView: View {
     private var content: some View {
         let groups = model.grouped
         if groups.pinned.isEmpty && groups.recent.isEmpty {
-            VStack(spacing: 8) {
-                Image(systemName: "tray").font(.system(size: 24, weight: .light)).foregroundStyle(.secondary)
-                Text(L10n.text("empty", model.language)).font(.system(size: 12, weight: .semibold))
-                Text(L10n.text("emptyHint", model.language)).font(.system(size: 10)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if model.query.isEmpty && model.kindFilter == .all {
+                VStack(spacing: 8) {
+                    Image(systemName: "tray").font(.system(size: 24, weight: .light)).foregroundStyle(.secondary)
+                    Text(L10n.text("empty", model.language)).font(.system(size: 12, weight: .semibold))
+                    Text(L10n.text("emptyHint", model.language)).font(.system(size: 10)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(30)
+            } else {
+                // 有筛选/搜索词时的"无匹配"空态,与真正空柜的引导提示区分。
+                VStack(spacing: 8) {
+                    Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 24, weight: .light)).foregroundStyle(.secondary)
+                    Text(L10n.text("noMatch", model.language)).font(.system(size: 12, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(30)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(30)
         } else {
             ScrollView {
                 // 单个 ForEach 渲染 Pinned+Recent:条目在分区间移动时仍是同一 ForEach 内的

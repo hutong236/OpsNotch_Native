@@ -196,6 +196,61 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertEqual(groups.recent.count, 1)
     }
 
+    func testKindFilterClassifiesAllKinds() {
+        let items = [
+            ShelfItem(kind: .file, title: "File", content: "/tmp/a.txt", createdAt: 1, updatedAt: 1),
+            ShelfItem(kind: .folder, title: "Folder", content: "/tmp/dir", createdAt: 2, updatedAt: 2),
+            ShelfItem(kind: .action, title: "ActPath", content: "/Applications/Terminal.app", createdAt: 3, updatedAt: 3, actionKind: .openPath),
+            ShelfItem(kind: .action, title: "ActURL", content: "https://example.com", createdAt: 4, updatedAt: 4, actionKind: .openURL),
+            ShelfItem(kind: .text, title: "Text", content: "hello", createdAt: 5, updatedAt: 5),
+            ShelfItem(kind: .url, title: "URL", content: "https://example.org", createdAt: 6, updatedAt: 6),
+            ShelfItem(kind: .application, title: "App", content: "/Applications/Terminal.app", createdAt: 7, updatedAt: 7),
+        ]
+
+        func recentTitles(_ filter: ShelfKindFilter) -> Set<String> {
+            Set(ShelfLogic.grouped(items, kindFilter: filter).recent.map(\.title))
+        }
+
+        XCTAssertEqual(recentTitles(.all), Set(["File", "Folder", "ActPath", "ActURL", "Text", "URL", "App"]))
+        XCTAssertEqual(recentTitles(.file), Set(["File", "Folder", "ActPath"]))
+        XCTAssertEqual(recentTitles(.text), Set(["Text"]))
+        XCTAssertEqual(recentTitles(.url), Set(["URL", "ActURL"]))
+        XCTAssertEqual(recentTitles(.application), Set(["App"]))
+    }
+
+    func testKindFilterCombinesWithQuery() {
+        let items = [
+            ShelfItem(kind: .text, title: "Server A", content: "x", createdAt: 1, updatedAt: 1),
+            ShelfItem(kind: .text, title: "Note", content: "y", createdAt: 2, updatedAt: 2),
+            ShelfItem(kind: .url, title: "Server B", content: "z", createdAt: 3, updatedAt: 3),
+        ]
+        let groups = ShelfLogic.grouped(items, query: "server", kindFilter: .text)
+        XCTAssertEqual(groups.recent.map(\.title), ["Server A"])
+        XCTAssertEqual(groups.pinned.count, 0)
+    }
+
+    func testKindFilterKeepsPinnedSectionStructure() {
+        let items = [
+            ShelfItem(kind: .text, title: "RecentText", content: "x", createdAt: 3, updatedAt: 3),
+            ShelfItem(kind: .text, title: "PinnedText", content: "x", pinned: true, createdAt: 2, updatedAt: 2),
+            ShelfItem(kind: .file, title: "PinnedFile", content: "/tmp/f", pinned: true, createdAt: 1, updatedAt: 1),
+        ]
+        let groups = ShelfLogic.grouped(items, kindFilter: .file)
+        XCTAssertEqual(groups.pinned.map(\.title), ["PinnedFile"])
+        XCTAssertTrue(groups.recent.isEmpty)
+    }
+
+    func testKindFilterDefaultParameterMatchesLegacyCall() {
+        let items = [
+            ShelfItem(kind: .text, title: "T", content: "x", createdAt: 1, updatedAt: 1),
+            ShelfItem(kind: .url, title: "U", content: "y", pinned: true, createdAt: 2, updatedAt: 2),
+        ]
+        let legacy = ShelfLogic.grouped(items, query: "")
+        let explicit = ShelfLogic.grouped(items, query: "", kindFilter: .all)
+        XCTAssertEqual(legacy.pinned, explicit.pinned)
+        XCTAssertEqual(legacy.recent, explicit.recent)
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("OpsNotchTests-\(UUID().uuidString)", isDirectory: true)
     }

@@ -79,7 +79,13 @@ enum L10n {
             "hotkeyRerecordHint": "点击重新录制,⌫ 清除",
             "hotkeyInvalid": "组合需包含 ⌘/⌃/⌥ 之一",
             "hotkeyConflict": "该组合键已被占用,请换一组",
-            "hotkeyHint": "在任意应用中按下快捷键即可呼出快速暂存区;再按一次收起。"
+            "hotkeyHint": "在任意应用中按下快捷键即可呼出快速暂存区;再按一次收起。",
+            "filterAll": "全部",
+            "filterFile": "文件",
+            "filterText": "文本",
+            "filterURL": "URL",
+            "filterApp": "应用",
+            "noMatch": "没有匹配的条目"
         ]
         let en: [String: String] = [
             "quickShelf": "Quick Shelf",
@@ -155,7 +161,13 @@ enum L10n {
             "hotkeyRerecordHint": "Click to re-record, ⌫ to clear",
             "hotkeyInvalid": "Combination must include ⌘/⌃/⌥",
             "hotkeyConflict": "Combination already in use, try another",
-            "hotkeyHint": "Press the hotkey in any app to summon Quick Shelf; press again to dismiss."
+            "hotkeyHint": "Press the hotkey in any app to summon Quick Shelf; press again to dismiss.",
+            "filterAll": "All",
+            "filterFile": "Files",
+            "filterText": "Text",
+            "filterURL": "URLs",
+            "filterApp": "Apps",
+            "noMatch": "No matching items"
         ]
         return (language == .zhCN ? zh : en)[key] ?? key
     }

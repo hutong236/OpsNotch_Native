@@ -64,7 +64,7 @@ final class ShelfWindowController: NSObject {
             }
         }
 
-        // 键盘取回流:面板为 key 窗且处于 expanded 态时,接管 ↑↓/Enter/Esc。
+        // 键盘取回流:面板为 key 窗且处于 expanded 态时,接管 ↑↓/Enter/Esc/⌘1~⌘5/Space。
         // 本地 monitor(AppKit 层)而非 SwiftUI onKeyPress——后者要求 macOS 14,项目门槛是 13。
         model.requestHide = { [weak self] in self?.hide() }
         model.requestDelayedHide = { [weak self] in self?.scheduleHide(delay: 0.6) }
@@ -73,6 +73,7 @@ final class ShelfWindowController: NSObject {
                   self.panel.isKeyWindow,
                   self.presentation == .expanded,
                   self.model.editorDraft == nil else { return event }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             switch event.keyCode {
             case 125: // ↓
                 MainActor.assumeIsolated { self.model.moveHighlight(1) }
@@ -85,6 +86,17 @@ final class ShelfWindowController: NSObject {
                 return nil
             case 53: // Esc
                 MainActor.assumeIsolated { self.model.escapeShelf() }
+                return nil
+            case 18, 19, 20, 21, 23: // ⌘1~⌘5 切换类型筛选
+                guard modifiers == .command,
+                      let index = [18, 19, 20, 21, 23].firstIndex(of: event.keyCode) else { return event }
+                let filters: [ShelfKindFilter] = [.all, .file, .text, .url, .application]
+                MainActor.assumeIsolated { self.model.setKindFilter(to: filters[index]) }
+                return nil
+            case 49: // Space 预览高亮条目;搜索框聚焦(field editor)时放行为普通输入
+                guard modifiers.subtracting(.capsLock).isEmpty,
+                      !(self.panel.firstResponder is NSTextView) else { return event }
+                MainActor.assumeIsolated { self.model.quickLookHighlighted() }
                 return nil
             default:
                 return event
