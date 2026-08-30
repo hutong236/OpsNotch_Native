@@ -87,6 +87,14 @@ final class ShelfWindowController: NSObject {
             case 53: // Esc
                 MainActor.assumeIsolated { self.model.escapeShelf() }
                 return nil
+            case 48: // Tab 回到搜索:焦点不在文本框时把焦点交回搜索框(键盘流闭环);
+                     // 已在搜索框(field editor)则消费,防止 Tab 默认焦点环把焦点移出键盘流。
+                     // ⇧Tab 与 Tab 同义;编辑草稿态已被顶部 guard 整体放行。
+                guard modifiers.subtracting([.capsLock, .shift]).isEmpty else { return event }
+                if !(self.panel.firstResponder is NSTextView) {
+                    MainActor.assumeIsolated { self.model.focusRequestToken = UUID() }
+                }
+                return nil
             case 18, 19, 20, 21, 23: // ⌘1~⌘5 切换类型筛选
                 guard modifiers == .command,
                       let index = [18, 19, 20, 21, 23].firstIndex(of: event.keyCode) else { return event }
