@@ -29,6 +29,10 @@ final class StatusBarController: NSObject {
         menu.addItem(item(L10n.text("openShelf", model.language), #selector(openShelf)))
         menu.addItem(item(L10n.text("newText", model.language), #selector(newText)))
         menu.addItem(.separator())
+        let versionItem = NSMenuItem(title: "Ops Notch v\(AppVersionService.current)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+        menu.addItem(.separator())
         menu.addItem(item(L10n.text("settings", model.language) + "…", #selector(openSettings)))
         menu.addItem(.separator())
         menu.addItem(item(L10n.text("quit", model.language), #selector(quit)))

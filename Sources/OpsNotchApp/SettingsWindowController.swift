@@ -92,6 +92,11 @@ struct SettingsView: View {
 
                 Text(L10n.text("clipboardHint", model.language))
                     .font(.system(size: 10)).foregroundStyle(.secondary)
+
+                Divider()
+                Text("Ops Notch v\(AppVersionService.current)")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(24)
         }

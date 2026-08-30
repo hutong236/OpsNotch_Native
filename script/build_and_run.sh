@@ -19,6 +19,18 @@ rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$BIN_DIR/$PRODUCT" "$BUNDLE/Contents/MacOS/$PRODUCT"
 cp "$ROOT/Info.plist" "$BUNDLE/Contents/Info.plist"
+
+# 版本号注入：APP_VERSION 环境变量覆盖产物版本；未设置时保留仓库根 Info.plist 的默认值
+if [[ -n "${APP_VERSION:-}" ]]; then
+  if ! [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "APP_VERSION must be semver x.y.z (got: $APP_VERSION). Pre-release tags go directly in the root Info.plist." >&2
+    exit 1
+  fi
+  PLIST="$BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${APP_VERSION//./}" "$PLIST"
+fi
+
 if command -v iconutil >/dev/null 2>&1; then
   iconutil -c icns "$ROOT/Assets/AppIcon.iconset" -o "$BUNDLE/Contents/Resources/AppIcon.icns" || true
 fi
