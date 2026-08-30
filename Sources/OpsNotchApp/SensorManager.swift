@@ -74,24 +74,35 @@ final class SensorManager {
         view.onMouseEnter = { [weak self] in
             guard let self else { return }
             self.lastActiveDisplayID = id
-            self.shelf.showExpanded(on: screen)
             self.model.reload()
             _ = self.clipboard.catchIfChanged()
+            // 不再立即展开完整清单。拖拽进入 Sensor 时 AppKit 会紧接着发送
+            // draggingEntered；给它一个很短的优先窗口，避免 expanded 先闪现。
+            self.shelf.scheduleExpanded(on: screen, delay: 0.10)
         }
-        view.onMouseExit = { [weak self] in self?.shelf.scheduleHide() }
+        view.onMouseExit = { [weak self] in
+            self?.shelf.cancelScheduledExpand()
+            self?.shelf.scheduleHide()
+        }
         view.onDragEntered = { [weak self] in
             guard let self else { return }
             self.lastActiveDisplayID = id
+            self.shelf.cancelScheduledExpand()
             self.shelf.showDrop(on: screen)
         }
-        view.onDragExited = { [weak self] in self?.shelf.scheduleHide(delay: 0.25) }
+        view.onDragExited = { [weak self] in
+            self?.shelf.cancelScheduledExpand()
+            self?.shelf.scheduleHide(delay: 0.18)
+        }
         view.onDrop = { [weak self] payload in
             guard let self else { return false }
             self.lastActiveDisplayID = id
+            self.shelf.cancelScheduledExpand()
             let accepted = self.handle(payload: payload)
             if accepted {
+                // 放入后只显示成功反馈，不再展开完整 Shelf。
                 self.shelf.showPeek(on: screen)
-                self.shelf.scheduleHide(delay: 0.9)
+                self.shelf.scheduleHide(delay: 0.85)
             }
             return accepted
         }

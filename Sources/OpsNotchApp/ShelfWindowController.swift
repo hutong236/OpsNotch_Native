@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import QuartzCore
 import SwiftUI
 import OpsNotchCore
 
@@ -8,6 +9,7 @@ final class ShelfWindowController: NSObject {
     enum Presentation: Equatable {
         case expanded
         case drop
+        /// 保留 peek 枚举名兼容现有 ShelfRootView；当前语义是“放入成功反馈”。
         case peek
     }
 
@@ -15,9 +17,10 @@ final class ShelfWindowController: NSObject {
     private let clipboard: ClipboardManager
     private let panel: ShelfPanel
     private let dropContainer: ShelfDropContainerView
-    private var hostingView: NSHostingView<ShelfRootView>!
+    private var hostingView: NSHostingView<AnyView>!
     private var currentScreen: NSScreen?
     private var hideWorkItem: DispatchWorkItem?
+    private var hoverExpandWorkItem: DispatchWorkItem?
     private var resignObserver: NSObjectProtocol?
     private var keyMonitor: Any?
     private(set) var presentation: Presentation = .expanded
@@ -46,7 +49,7 @@ final class ShelfWindowController: NSObject {
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
 
-        hostingView = NSHostingView(rootView: ShelfRootView(model: model, clipboard: clipboard, presentation: .expanded))
+        hostingView = NSHostingView(rootView: AnyView(ShelfRootView(model: model, clipboard: clipboard, presentation: .expanded)))
         // contentView 用拖放容器包住 SwiftUI 内容:拖到已展开面板/Drop 提示条上松手也入柜,
         // 落点不再只限刘海 Sensor(NSHostingView 自身不处理拖放,事件上溯到容器)。
         dropContainer.onDropPayload = { [weak self] payload in self?.acceptDrop(payload) ?? false }
@@ -65,8 +68,6 @@ final class ShelfWindowController: NSObject {
             if hovered { self?.cancelHide() } else { self?.scheduleHide(delay: 0.35) }
         }
 
-        // 键盘取回流需要面板成为 key 窗;失焦(切走应用/点了别的窗口)时立即收起,
-        // 避免 accessory 应用留下一块失焦浮窗。右键菜单追踪期豁免(菜单会短暂夺走 key 状态)。
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: panel,
@@ -79,8 +80,6 @@ final class ShelfWindowController: NSObject {
             }
         }
 
-        // 键盘取回流:面板为 key 窗且处于 expanded 态时,接管 ↑↓/Enter/Esc/⌘1~⌘5/Space。
-        // 本地 monitor(AppKit 层)而非 SwiftUI onKeyPress——后者要求 macOS 14,项目门槛是 13。
         model.requestHide = { [weak self] in self?.hide() }
         model.requestDelayedHide = { [weak self] in self?.scheduleHide(delay: 0.6) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -90,33 +89,31 @@ final class ShelfWindowController: NSObject {
                   self.model.editorDraft == nil else { return event }
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             switch event.keyCode {
-            case 125: // ↓
+            case 125:
                 MainActor.assumeIsolated { self.model.moveHighlight(1) }
                 return nil
-            case 126: // ↑
+            case 126:
                 MainActor.assumeIsolated { self.model.moveHighlight(-1) }
                 return nil
-            case 36, 76: // Return / 小键盘 Enter
+            case 36, 76:
                 MainActor.assumeIsolated { self.model.confirmHighlight(using: self.clipboard) }
                 return nil
-            case 53: // Esc
+            case 53:
                 MainActor.assumeIsolated { self.model.escapeShelf() }
                 return nil
-            case 48: // Tab 回到搜索:焦点不在文本框时把焦点交回搜索框(键盘流闭环);
-                     // 已在搜索框(field editor)则消费,防止 Tab 默认焦点环把焦点移出键盘流。
-                     // ⇧Tab 与 Tab 同义;编辑草稿态已被顶部 guard 整体放行。
+            case 48:
                 guard modifiers.subtracting([.capsLock, .shift]).isEmpty else { return event }
                 if !(self.panel.firstResponder is NSTextView) {
                     MainActor.assumeIsolated { self.model.focusRequestToken = UUID() }
                 }
                 return nil
-            case 18, 19, 20, 21, 23: // ⌘1~⌘5 切换类型筛选
+            case 18, 19, 20, 21, 23:
                 guard modifiers == .command,
                       let index = [18, 19, 20, 21, 23].firstIndex(of: event.keyCode) else { return event }
                 let filters: [ShelfKindFilter] = [.all, .file, .text, .url, .application]
                 MainActor.assumeIsolated { self.model.setKindFilter(to: filters[index]) }
                 return nil
-            case 49: // Space 预览高亮条目;搜索框聚焦(field editor)时放行为普通输入
+            case 49:
                 guard modifiers.subtracting(.capsLock).isEmpty,
                       !(self.panel.firstResponder is NSTextView) else { return event }
                 MainActor.assumeIsolated { self.model.quickLookHighlighted() }
@@ -132,6 +129,21 @@ final class ShelfWindowController: NSObject {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
     }
 
+    /// 普通鼠标进入 Sensor 时略微延迟完整展开，让 draggingEntered 有机会优先接管。
+    func scheduleExpanded(on screen: NSScreen, delay: TimeInterval = 0.10) {
+        cancelScheduledExpand()
+        let work = DispatchWorkItem { [weak self] in
+            self?.showExpanded(on: screen)
+        }
+        hoverExpandWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    func cancelScheduledExpand() {
+        hoverExpandWorkItem?.cancel()
+        hoverExpandWorkItem = nil
+    }
+
     func showExpanded(on screen: NSScreen) {
         show(.expanded, on: screen)
     }
@@ -140,14 +152,34 @@ final class ShelfWindowController: NSObject {
         show(.drop, on: screen)
     }
 
+    /// 当前用于“✓ 已放入抽屉”成功反馈。
     func showPeek(on screen: NSScreen) {
         show(.peek, on: screen)
     }
 
     func hide() {
         cancelHide()
-        panel.orderOut(nil)
+        cancelScheduledExpand()
         model.focusRequestToken = nil
+        guard panel.isVisible else { return }
+
+        // Drop/Success 像抽屉一样向刘海方向收回；完整 Shelf 保持立即关闭，
+        // 避免 Esc/失焦时出现拖沓感。
+        guard presentation != .expanded, let screen = currentScreen else {
+            panel.orderOut(nil)
+            return
+        }
+
+        let collapsed = collapsedFrame(for: screen, width: panel.frame.width)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.01 : 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().setFrame(collapsed, display: true)
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak panel] in
+            panel?.orderOut(nil)
+            panel?.alphaValue = 1
+        }
     }
 
     /// 全局热键呼出的切换语义:拖放会话(drop 态)忽略;面板可见即收起;
@@ -163,12 +195,12 @@ final class ShelfWindowController: NSObject {
 
     var isPanelVisible: Bool { panel.isVisible }
 
-    /// 抽屉窗口上的落放入柜:成功后与 Sensor 落放同款反馈(peek 确认 + 延时收起)。
+    /// 抽屉窗口上的落放入柜:成功后显示同款 ✓ 反馈并延时收起。
     private func acceptDrop(_ payload: NativeDropPayload) -> Bool {
         let accepted = dropHandler?(payload) ?? false
         if accepted {
             show(.peek, on: currentScreen ?? screenUnderMouse())
-            scheduleHide(delay: 0.9)
+            scheduleHide(delay: 0.85)
         }
         return accepted
     }
@@ -186,15 +218,13 @@ final class ShelfWindowController: NSObject {
         cancelHide()
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.model.shelfHovered, self.model.editorDraft == nil else { return }
-            // 右键菜单打开时,菜单窗口遮住面板会让 hover 状态失同步,菜单项也可能下探出面板 frame;
-            // 此时暂缓隐藏、稍后重查,避免把正在使用的菜单(如"取消置顶")连同面板一起收起。
             let mouseInsidePanel = self.panel.frame.contains(NSEvent.mouseLocation)
             let menuTracking = NSApp.keyWindow?.level == .popUpMenu
             if mouseInsidePanel || menuTracking {
                 self.scheduleHide(delay: 0.35)
                 return
             }
-            self.panel.orderOut(nil)
+            self.hide()
         }
         hideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -207,36 +237,116 @@ final class ShelfWindowController: NSObject {
 
     private func show(_ state: Presentation, on screen: NSScreen) {
         cancelHide()
+        cancelScheduledExpand()
+        let wasVisible = panel.isVisible
+        let previousState = presentation
+
         presentation = state
         currentScreen = screen
-        // expanded 展开(无论悬停还是热键触发)都发一次焦点请求,搜索框自动聚焦;
-        // drop/peek 清掉残留请求。面板隐藏时(hide())同样清空。
         model.focusRequestToken = (state == .expanded) ? UUID() : nil
-        hostingView.rootView = ShelfRootView(model: model, clipboard: clipboard, presentation: state)
+        hostingView.rootView = rootView(for: state)
 
+        let targetFrame = frame(for: state, on: screen)
+        if state == .drop && !wasVisible {
+            // 真正的“抽屉向下展开”：顶部锚定在 Sensor 下沿，高度从 8pt 展开到 112pt。
+            let collapsed = collapsedFrame(for: screen, width: targetFrame.width)
+            panel.alphaValue = 0
+            panel.setFrame(collapsed, display: false)
+            panel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.01 : 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(targetFrame, display: true)
+                panel.animator().alphaValue = 1
+            }
+        } else if wasVisible && previousState != state && state != .expanded {
+            // Drop → Success：轻微收束，不展开完整列表。
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.01 : 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(targetFrame, display: true)
+                panel.animator().alphaValue = 1
+            }
+        } else {
+            panel.alphaValue = 1
+            panel.setFrame(targetFrame, display: true)
+            panel.orderFrontRegardless()
+        }
+
+        if state == .expanded {
+            panel.makeKey()
+        }
+    }
+
+    private func rootView(for state: Presentation) -> AnyView {
+        switch state {
+        case .expanded, .drop:
+            return AnyView(ShelfRootView(model: model, clipboard: clipboard, presentation: state))
+        case .peek:
+            return AnyView(DropSuccessFeedbackView(language: model.language))
+        }
+    }
+
+    private func frame(for state: Presentation, on screen: NSScreen) -> NSRect {
         let size = size(for: state)
         let sensorHeight = SensorGeometry.height(for: screen)
-        let frame = NSRect(
+        return NSRect(
             x: screen.frame.midX - size.width / 2,
             y: screen.frame.maxY - sensorHeight - size.height,
             width: size.width,
             height: size.height
         )
-        panel.setFrame(frame, display: true)
-        panel.orderFrontRegardless()
-        // 键盘流:expanded 展开即接管键盘(面板成为 key 窗但不激活 App,焦点回到
-        // 搜索框供直接输入);drop/peek 态不抢焦点、不干扰拖放。
-        if state == .expanded {
-            panel.makeKey()
-        }
+    }
+
+    private func collapsedFrame(for screen: NSScreen, width: CGFloat) -> NSRect {
+        let sensorHeight = SensorGeometry.height(for: screen)
+        let height: CGFloat = 8
+        return NSRect(
+            x: screen.frame.midX - width / 2,
+            y: screen.frame.maxY - sensorHeight - height,
+            width: width,
+            height: height
+        )
     }
 
     private func size(for state: Presentation) -> NSSize {
         switch state {
         case .expanded: return NSSize(width: 440, height: 560)
         case .drop: return NSSize(width: 350, height: 112)
-        case .peek: return NSSize(width: 320, height: 64)
+        case .peek: return NSSize(width: 320, height: 68)
         }
+    }
+}
+
+/// 放入完成后的唯一反馈：不展示 Pinned/Recent，也不暴露完整清单。
+private struct DropSuccessFeedbackView: View {
+    let language: AppLanguage
+
+    private var title: String { language == .zhCN ? "已放入抽屉" : "Added to Shelf" }
+    private var hint: String { language == .zhCN ? "已保存，可稍后从 Ops Notch 取用" : "Saved. You can retrieve it from Ops Notch later." }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(hint)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .padding(6)
     }
 }
 
