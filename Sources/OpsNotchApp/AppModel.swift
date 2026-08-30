@@ -9,15 +9,34 @@ import OpsNotchCore
 final class AppModel: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
     @Published private(set) var settings = ShelfSettings()
-    @Published var query = ""
+    @Published var query = "" {
+        didSet {
+            // 过滤结果变化后,高亮回落到新的第一行。
+            highlightedID = visibleItems.first?.id
+        }
+    }
     @Published var selection: Set<UUID> = []
     @Published var toast: String?
     @Published var editorDraft: ItemDraft?
     @Published var shelfHovered = false
+    /// 键盘流焦点请求令牌:ShelfWindowController 置为新 UUID 时,ShelfView 的搜索框应自动聚焦。
+    /// 面板隐藏时清空,保证每次热键呼出都触发一次新的聚焦。
+    @Published var focusRequestToken: UUID?
+    /// 键盘流当前高亮行,与多选 selection 语义/样式相互独立。
+    @Published var highlightedID: UUID?
 
     let store: ShelfStoreService
     var settingsDidChange: (() -> Void)?
     var shelfHoverChanged: ((Bool) -> Void)?
+    /// Esc:立即收起面板。
+    var requestHide: (() -> Void)?
+    /// Enter 复制后:短暂延迟收起面板(给 toast 留显示时间)。
+    var requestDelayedHide: (() -> Void)?
+    /// 设置页写入快捷键的通道:先注册后落盘,注册失败(组合键被占用)不持久化。
+    /// 由 AppDelegate 注入 HotkeyService.apply。
+    var hotkeyApply: ((HotkeyShortcut?) -> HotkeyError?)?
+    /// 最近一次快捷键写入是否因注册冲突被拒绝,设置页据此显示红字提示。
+    @Published var hotkeyConflict = false
 
     private var toastWorkItem: DispatchWorkItem?
     private var lastSelectionID: UUID?
@@ -30,6 +49,31 @@ final class AppModel: ObservableObject {
     var language: AppLanguage { settings.language }
     var grouped: (pinned: [ShelfItem], recent: [ShelfItem]) { ShelfLogic.grouped(items, query: query) }
     var visibleItems: [ShelfItem] { grouped.pinned + grouped.recent }
+
+    func moveHighlight(_ delta: Int) {
+        let visible = visibleItems
+        guard !visible.isEmpty else {
+            highlightedID = nil
+            return
+        }
+        let index = visible.firstIndex { $0.id == highlightedID } ?? -1
+        let next = min(max(index + delta, 0), visible.count - 1)
+        highlightedID = visible[next].id
+    }
+
+    /// Enter:复制高亮条目(只写剪贴板,不执行任何打开动作),刷新上浮并收起面板。
+    func confirmHighlight(using clipboard: ClipboardManager) {
+        guard let id = highlightedID,
+              let item = visibleItems.first(where: { $0.id == id }) else { return }
+        clipboard.copyFromApp(item.content)
+        touchItem(id)
+        showToast(L10n.text("copied", language))
+        requestDelayedHide?()
+    }
+
+    func escapeShelf() {
+        requestHide?()
+    }
 
     func reload() {
         do {
@@ -51,6 +95,18 @@ final class AppModel: ObservableObject {
             items = storeValue.items
             settingsDidChange?()
         } catch { showToast(error.localizedDescription) }
+    }
+
+    /// 设置页写入快捷键:先经 HotkeyService 注册(消费型全局热键),失败则拒绝并提示冲突,
+    /// 保持原快捷键继续生效;成功才持久化。nil 表示清除。
+    func setHotkey(_ shortcut: HotkeyShortcut?) {
+        guard let hotkeyApply else { return }
+        if let _ = hotkeyApply(shortcut) {
+            hotkeyConflict = true
+            return
+        }
+        hotkeyConflict = false
+        updateSettings { $0.hotkey = shortcut }
     }
 
     func showToast(_ message: String) {
@@ -93,6 +149,12 @@ final class AppModel: ObservableObject {
 
     func togglePin(_ item: ShelfItem) {
         do { apply(try store.setPinned(id: item.id, pinned: !item.pinned)) }
+        catch { showToast(error.localizedDescription) }
+    }
+
+    /// 复制成功后刷新条目最近使用时间,使其按排序规则上浮到所在分区顶部。
+    func touchItem(_ id: UUID) {
+        do { apply(try store.touch(id: id)) }
         catch { showToast(error.localizedDescription) }
     }
 

@@ -36,7 +36,7 @@ CI (`.github/workflows/macos-ci.yml`) runs: `swift test`, `swift build`, `script
 - **Safe actions**: item actions may only open absolute local paths or http/https URLs, always via `SafeActionValidator.validate`. No shell/SSH/kubectl/arbitrary command execution, ever.
 - Storage stays compatible with legacy V0.x/V1.x `shelf.json` (root-array format, `ip`/`command` types migrate to Text). Tests cover these migrations — don't break them.
 - Localization is runtime zh/en switching through `L10n.text(key, language)` dictionaries in `Localization.swift` — not `.strings`/`.xcassets`. Add new UI strings to both language dicts.
-- The app runs as accessory (`setActivationPolicy(.accessory)`): no Dock icon, `NSStatusItem` menu instead. No custom global hotkeys.
+- The app runs as accessory (`setActivationPolicy(.accessory)`): no Dock icon, `NSStatusItem` menu instead. A user-configurable global summon hotkey is allowed **only** as an opt-in setting (default off/nil, recorded in the settings UI, persisted in `shelf.json`): implement via Carbon `RegisterEventHotKey` behind the `HotkeyService` protocol (zero-permission, event-consuming so keys never leak to the frontmost app), never via global event monitors that require Input Monitoring permission, and never via third-party hotkey plugins.
 
 ## Gotchas
 

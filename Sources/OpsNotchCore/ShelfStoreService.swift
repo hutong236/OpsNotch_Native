@@ -154,6 +154,14 @@ public final class ShelfStoreService: @unchecked Sendable {
     }
 
     @discardableResult
+    public func touch(id: UUID) throws -> ShelfStore {
+        try mutate { store in
+            guard let index = store.items.firstIndex(where: { $0.id == id }) else { return }
+            store.items[index].updatedAt = ShelfClock.now()
+        }
+    }
+
+    @discardableResult
     public func remove(ids: Set<UUID>) throws -> ShelfStore {
         try mutate { store in
             let copies = store.items.filter { ids.contains($0.id) && $0.storageMode == .copy }.map(\.id)

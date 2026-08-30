@@ -17,6 +17,8 @@ final class ShelfWindowController: NSObject {
     private var hostingView: NSHostingView<ShelfRootView>!
     private var currentScreen: NSScreen?
     private var hideWorkItem: DispatchWorkItem?
+    private var resignObserver: NSObjectProtocol?
+    private var keyMonitor: Any?
     private(set) var presentation: Presentation = .expanded
 
     init(model: AppModel, clipboard: ClipboardManager) {
@@ -24,7 +26,7 @@ final class ShelfWindowController: NSObject {
         self.clipboard = clipboard
         panel = ShelfPanel(
             contentRect: .zero,
-            styleMask: [.borderless, .fullSizeContentView],
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -47,6 +49,52 @@ final class ShelfWindowController: NSObject {
         model.shelfHoverChanged = { [weak self] hovered in
             if hovered { self?.cancelHide() } else { self?.scheduleHide(delay: 0.35) }
         }
+
+        // 键盘取回流需要面板成为 key 窗;失焦(切走应用/点了别的窗口)时立即收起,
+        // 避免 accessory 应用留下一块失焦浮窗。右键菜单追踪期豁免(菜单会短暂夺走 key 状态)。
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.panel.isVisible else { return }
+                let menuTracking = NSApp.keyWindow?.level == .popUpMenu
+                if !menuTracking { self.hide() }
+            }
+        }
+
+        // 键盘取回流:面板为 key 窗且处于 expanded 态时,接管 ↑↓/Enter/Esc。
+        // 本地 monitor(AppKit 层)而非 SwiftUI onKeyPress——后者要求 macOS 14,项目门槛是 13。
+        model.requestHide = { [weak self] in self?.hide() }
+        model.requestDelayedHide = { [weak self] in self?.scheduleHide(delay: 0.6) }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  self.panel.isKeyWindow,
+                  self.presentation == .expanded,
+                  self.model.editorDraft == nil else { return event }
+            switch event.keyCode {
+            case 125: // ↓
+                MainActor.assumeIsolated { self.model.moveHighlight(1) }
+                return nil
+            case 126: // ↑
+                MainActor.assumeIsolated { self.model.moveHighlight(-1) }
+                return nil
+            case 36, 76: // Return / 小键盘 Enter
+                MainActor.assumeIsolated { self.model.confirmHighlight(using: self.clipboard) }
+                return nil
+            case 53: // Esc
+                MainActor.assumeIsolated { self.model.escapeShelf() }
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    deinit {
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
     }
 
     func showExpanded(on screen: NSScreen) {
@@ -64,6 +112,29 @@ final class ShelfWindowController: NSObject {
     func hide() {
         cancelHide()
         panel.orderOut(nil)
+        model.focusRequestToken = nil
+    }
+
+    /// 全局热键呼出的切换语义:拖放会话(drop 态)忽略;面板可见即收起;
+    /// 否则在鼠标所在屏展开并进入键盘流。
+    func toggleSummon() {
+        guard presentation != .drop else { return }
+        if panel.isVisible {
+            hide()
+        } else {
+            showExpanded(on: screenUnderMouse())
+        }
+    }
+
+    var isPanelVisible: Bool { panel.isVisible }
+
+    private func screenUnderMouse() -> NSScreen {
+        let point = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) }
+            ?? currentScreen
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+            ?? NSScreen()
     }
 
     func scheduleHide(delay: TimeInterval = 0.5) {
@@ -93,6 +164,9 @@ final class ShelfWindowController: NSObject {
         cancelHide()
         presentation = state
         currentScreen = screen
+        // expanded 展开(无论悬停还是热键触发)都发一次焦点请求,搜索框自动聚焦;
+        // drop/peek 清掉残留请求。面板隐藏时(hide())同样清空。
+        model.focusRequestToken = (state == .expanded) ? UUID() : nil
         hostingView.rootView = ShelfRootView(model: model, clipboard: clipboard, presentation: state)
 
         let size = size(for: state)
@@ -105,6 +179,11 @@ final class ShelfWindowController: NSObject {
         )
         panel.setFrame(frame, display: true)
         panel.orderFrontRegardless()
+        // 键盘流:expanded 展开即接管键盘(面板成为 key 窗但不激活 App,焦点回到
+        // 搜索框供直接输入);drop/peek 态不抢焦点、不干扰拖放。
+        if state == .expanded {
+            panel.makeKey()
+        }
     }
 
     private func size(for state: Presentation) -> NSSize {

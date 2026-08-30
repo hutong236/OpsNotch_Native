@@ -43,22 +43,37 @@ public enum AppLanguage: String, Codable, CaseIterable, Sendable {
     case enUS = "en-US"
 }
 
+/// 用户自定义全局呼出热键。keyCode 为虚拟键码,carbonModifiers 为 Carbon 修饰键位;
+/// 与注册后端无关,便于将来替换热键实现而不改持久化格式。
+public struct HotkeyShortcut: Codable, Equatable, Sendable {
+    public var keyCode: UInt32
+    public var carbonModifiers: UInt32
+
+    public init(keyCode: UInt32, carbonModifiers: UInt32) {
+        self.keyCode = keyCode
+        self.carbonModifiers = carbonModifiers
+    }
+}
+
 public struct ShelfSettings: Codable, Equatable, Sendable {
     public var tempTTLHours: UInt64
     public var addMode: StorageMode
     public var displayTarget: DisplayTarget
     public var language: AppLanguage
+    public var hotkey: HotkeyShortcut?
 
     public init(
         tempTTLHours: UInt64 = 24,
         addMode: StorageMode = .reference,
         displayTarget: DisplayTarget = .all,
-        language: AppLanguage = .zhCN
+        language: AppLanguage = .zhCN,
+        hotkey: HotkeyShortcut? = nil
     ) {
         self.tempTTLHours = tempTTLHours
         self.addMode = addMode
         self.displayTarget = displayTarget
         self.language = language
+        self.hotkey = hotkey
     }
 
     enum CodingKeys: String, CodingKey {
@@ -66,6 +81,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         case addMode = "add_mode"
         case displayTarget = "display_target"
         case language
+        case hotkey
     }
 
     public init(from decoder: Decoder) throws {
@@ -74,6 +90,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         addMode = try container.decodeIfPresent(StorageMode.self, forKey: .addMode) ?? .reference
         displayTarget = try container.decodeIfPresent(DisplayTarget.self, forKey: .displayTarget) ?? .all
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .zhCN
+        hotkey = try container.decodeIfPresent(HotkeyShortcut.self, forKey: .hotkey)
     }
 }
 

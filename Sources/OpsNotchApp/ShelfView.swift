@@ -7,6 +7,7 @@ struct ShelfRootView: View {
     @ObservedObject var model: AppModel
     let clipboard: ClipboardManager
     let presentation: ShelfWindowController.Presentation
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         Group {
@@ -35,6 +36,13 @@ struct ShelfRootView: View {
         .padding(6)
         .sheet(item: $model.editorDraft) { draft in
             ItemEditorView(model: model, draft: draft)
+        }
+        // 展开即聚焦(键盘取回流):focusRequestToken 是面板层发来的一次性聚焦请求,
+        // 同时把高亮重置到第一行。隐藏面板时令牌被清空,确保每次展开都触发。
+        .onReceive(model.$focusRequestToken) { token in
+            guard token != nil else { return }
+            searchFocused = true
+            model.highlightedID = model.visibleItems.first?.id
         }
     }
 
@@ -69,6 +77,7 @@ struct ShelfRootView: View {
             TextField(L10n.text("search", model.language), text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
+                .focused($searchFocused)
             if !model.query.isEmpty {
                 Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -216,6 +225,8 @@ struct ShelfRowView: View {
     @State private var hovered = false
 
     private var selected: Bool { model.selection.contains(item.id) }
+    /// 键盘流高亮(单一当前行),与多选 selection 的蓝底样式区分。
+    private var highlighted: Bool { model.highlightedID == item.id }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -241,6 +252,14 @@ struct ShelfRowView: View {
         .padding(.horizontal, 8)
         .frame(height: 42)
         .background(selected ? Color.accentColor.opacity(0.12) : hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay {
+            if highlighted && !selected {
+                // 白描边 + 浅底:键盘流“当前行”指示,与多选蓝底、悬停灰底都不同。
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(.white.opacity(0.55), lineWidth: 1)
+                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+        }
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture {
@@ -255,7 +274,9 @@ struct ShelfRowView: View {
         .contextMenu {
             if item.kind == .text || item.kind == .url {
                 Button(L10n.text("copy", model.language)) {
-                    clipboard.copyFromApp(item.content); model.showToast(L10n.text("copied", model.language))
+                    clipboard.copyFromApp(item.content)
+                    model.touchItem(item.id)
+                    model.showToast(L10n.text("copied", model.language))
                 }
             }
             if [.file, .folder].contains(item.kind) {
@@ -288,7 +309,9 @@ struct ShelfRowView: View {
         HStack(spacing: 7) {
             if item.kind == .text || item.kind == .url {
                 Button {
-                    clipboard.copyFromApp(item.content); model.showToast(L10n.text("copied", model.language))
+                    clipboard.copyFromApp(item.content)
+                    model.touchItem(item.id)
+                    model.showToast(L10n.text("copied", model.language))
                 } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.plain)
             }
             if item.kind == .file {

@@ -140,6 +140,62 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertFalse(ItemPreviewKind.isPreviewable(ShelfItem(kind: .action, title: "Act", content: "/tmp", actionKind: .openPath)))
     }
 
+    func testSettingsWithoutHotkeyDecodeAsNil() throws {
+        let json = #"{"temp_ttl_hours":24,"add_mode":"reference","display_target":"all","language":"zh-CN"}"#.data(using: .utf8)!
+        let settings = try JSONDecoder().decode(ShelfSettings.self, from: json)
+        XCTAssertNil(settings.hotkey)
+        XCTAssertEqual(settings.tempTTLHours, 24)
+    }
+
+    func testHotkeyRoundTrip() throws {
+        var settings = ShelfSettings()
+        settings.hotkey = HotkeyShortcut(keyCode: 31, carbonModifiers: HotkeyValidation.carbonControl | HotkeyValidation.carbonOption)
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(ShelfSettings.self, from: data)
+        XCTAssertEqual(decoded.hotkey, settings.hotkey)
+    }
+
+    func testHotkeyValidationRequiresStrongModifier() {
+        let keyO: UInt32 = 31
+        XCTAssertTrue(HotkeyValidation.isAcceptable(keyCode: keyO, carbonModifiers: HotkeyValidation.carbonControl | HotkeyValidation.carbonOption))
+        XCTAssertTrue(HotkeyValidation.isAcceptable(keyCode: keyO, carbonModifiers: HotkeyValidation.carbonCommand))
+        XCTAssertTrue(HotkeyValidation.isAcceptable(keyCode: keyO, carbonModifiers: HotkeyValidation.carbonCommand | HotkeyValidation.carbonShift))
+        XCTAssertFalse(HotkeyValidation.isAcceptable(keyCode: keyO, carbonModifiers: HotkeyValidation.carbonShift))
+        XCTAssertFalse(HotkeyValidation.isAcceptable(keyCode: keyO, carbonModifiers: 0))
+        // 主键不能是修饰键本身(如左 ⌘ 的 keyCode 55)
+        XCTAssertFalse(HotkeyValidation.isAcceptable(keyCode: 55, carbonModifiers: HotkeyValidation.carbonCommand))
+    }
+
+    func testTouchFloatsItemToTopOfItsSection() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+        let first = try service.addText("older")
+        let firstID = try XCTUnwrap(first.items.first?.id)
+        let second = try service.addText("newer")
+        let secondID = try XCTUnwrap(second.items.last?.id)
+
+        _ = try service.touch(id: firstID)
+        let store = try service.load()
+        XCTAssertEqual(ShelfLogic.grouped(store.items).recent.map(\.id), [firstID, secondID])
+    }
+
+    func testTouchKeepsPinnedItemInPinnedSection() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+        let pinnedStore = try service.addText("pinned")
+        let pinnedID = try XCTUnwrap(pinnedStore.items.first?.id)
+        _ = try service.addText("recent")
+        _ = try service.setPinned(id: pinnedID, pinned: true)
+
+        _ = try service.touch(id: pinnedID)
+        let store = try service.load()
+        let groups = ShelfLogic.grouped(store.items)
+        XCTAssertEqual(groups.pinned.map(\.id), [pinnedID])
+        XCTAssertEqual(groups.recent.count, 1)
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("OpsNotchTests-\(UUID().uuidString)", isDirectory: true)
     }

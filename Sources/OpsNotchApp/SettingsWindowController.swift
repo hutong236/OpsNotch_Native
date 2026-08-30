@@ -69,6 +69,13 @@ struct SettingsView: View {
                             Text(L10n.text("currentDisplay", model.language)).tag(DisplayTarget.current)
                         }.frame(width: 190)
                     }
+                    Divider()
+                    settingRow(L10n.text("hotkeyRow", model.language)) {
+                        HotkeyRecorderView(model: model)
+                    }
+                    Text(L10n.text("hotkeyHint", model.language))
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .padding(.leading, 2)
                 }
 
                 group(L10n.text("storage", model.language)) {

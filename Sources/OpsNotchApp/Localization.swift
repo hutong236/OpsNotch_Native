@@ -72,7 +72,14 @@ enum L10n {
             "previewFont": "字号",
             "previewFit": "适配窗口",
             "appTitle": "Ops Notch",
-            "settingsTitle": "Ops Notch 设置"
+            "settingsTitle": "Ops Notch 设置",
+            "hotkeyRow": "呼出快捷键",
+            "hotkeyNone": "未设置(点击录制)",
+            "hotkeyRecording": "按下组合键,Esc 取消",
+            "hotkeyRerecordHint": "点击重新录制,⌫ 清除",
+            "hotkeyInvalid": "组合需包含 ⌘/⌃/⌥ 之一",
+            "hotkeyConflict": "该组合键已被占用,请换一组",
+            "hotkeyHint": "在任意应用中按下快捷键即可呼出快速暂存区;再按一次收起。"
         ]
         let en: [String: String] = [
             "quickShelf": "Quick Shelf",
@@ -141,7 +148,14 @@ enum L10n {
             "previewFont": "Font size",
             "previewFit": "Fit to Window",
             "appTitle": "Ops Notch",
-            "settingsTitle": "Ops Notch Settings"
+            "settingsTitle": "Ops Notch Settings",
+            "hotkeyRow": "Summon Hotkey",
+            "hotkeyNone": "Not set (click to record)",
+            "hotkeyRecording": "Press keys, Esc to cancel",
+            "hotkeyRerecordHint": "Click to re-record, ⌫ to clear",
+            "hotkeyInvalid": "Combination must include ⌘/⌃/⌥",
+            "hotkeyConflict": "Combination already in use, try another",
+            "hotkeyHint": "Press the hotkey in any app to summon Quick Shelf; press again to dismiss."
         ]
         return (language == .zhCN ? zh : en)[key] ?? key
     }
