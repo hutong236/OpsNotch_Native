@@ -3,3 +3,19 @@ build/
 .DS_Store
 *.xcuserstate
 .swiftpm/
+
+# 构建产物
+dist/
+DerivedData/
+*.dSYM
+
+# macOS 系统文件
+._*
+.AppleDouble
+.Spotlight-V100
+.Trashes
+
+# 编辑器与 Xcode/SwiftPM 用户态文件
+.idea/
+.vscode/
+xcuserdata/

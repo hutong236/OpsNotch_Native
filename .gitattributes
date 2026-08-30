@@ -1,0 +1,9 @@
+# 行尾:文本文件自动规范化(仓库现有文本均为 LF,renormalize 无 diff)
+* text=auto
+
+# shell 脚本任何环境下保持 LF
+*.sh text eol=lf
+
+# 二进制资产:禁用行尾转换、文本 diff 与合并
+*.png binary
+*.icns binary
