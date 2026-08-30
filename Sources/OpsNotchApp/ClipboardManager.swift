@@ -30,6 +30,20 @@ final class ClipboardManager {
         handledChangeCount = pasteboard.changeCount
     }
 
+    /// "复制所选"写入:同一事务写文件 URL 与文本两种 flavor(与拖出同为 NSURL/NSString writer),
+    /// 应用自身写入后立即同步基线,避免复制内容被剪贴板监控回灌 Recent。
+    func copyPayload(_ payload: ShelfCopyPayload) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        if !payload.filePaths.isEmpty {
+            pasteboard.writeObjects(payload.filePaths.map { URL(fileURLWithPath: $0) as NSURL })
+        }
+        if let text = payload.text, !text.isEmpty {
+            pasteboard.setString(text, forType: .string)
+        }
+        handledChangeCount = pasteboard.changeCount
+    }
+
     func markCurrentAsHandled() {
         handledChangeCount = NSPasteboard.general.changeCount
     }

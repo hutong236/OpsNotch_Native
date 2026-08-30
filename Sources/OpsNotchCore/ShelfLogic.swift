@@ -10,6 +10,20 @@ public enum ShelfKindFilter: Equatable, Hashable, Sendable, CaseIterable {
     case application
 }
 
+/// "复制所选"写入系统剪贴板的 payload:文件类条目产出路径列表(写文件 URL flavor),
+/// 文字/URL 类条目产出拼接文本(写文本 flavor)。
+public struct ShelfCopyPayload: Equatable, Sendable {
+    public var filePaths: [String]
+    public var text: String?
+
+    public var isEmpty: Bool { filePaths.isEmpty && (text?.isEmpty ?? true) }
+
+    public init(filePaths: [String] = [], text: String? = nil) {
+        self.filePaths = filePaths
+        self.text = text
+    }
+}
+
 public enum ShelfLogic {
     public static func matches(_ item: ShelfItem, query: String, kindFilter: ShelfKindFilter = .all) -> Bool {
         guard matchesKind(item, kindFilter: kindFilter) else { return false }
@@ -56,12 +70,24 @@ public enum ShelfLogic {
         })
     }
 
-    public static func copyText(items: [ShelfItem]) -> String {
-        items.compactMap { item -> String? in
+    public static func copyPayload(items: [ShelfItem]) -> ShelfCopyPayload {
+        var filePaths: [String] = []
+        var texts: [String] = []
+        for item in items {
             switch item.kind {
-            case .text, .url: return item.content
-            default: return nil
+            case .file, .folder, .application:
+                filePaths.append(item.content)
+            case .text, .url:
+                texts.append(item.content)
+            case .action:
+                switch item.actionKind {
+                case .openPath:
+                    filePaths.append(item.content)
+                case .openURL, nil:
+                    texts.append(item.content)
+                }
             }
-        }.joined(separator: "\n")
+        }
+        return ShelfCopyPayload(filePaths: filePaths, text: texts.isEmpty ? nil : texts.joined(separator: "\n"))
     }
 }

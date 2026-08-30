@@ -251,6 +251,45 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertEqual(legacy.recent, explicit.recent)
     }
 
+    func testCopyPayloadClassifiesAllKinds() {
+        let items = [
+            ShelfItem(kind: .file, title: "File", content: "/tmp/a.txt", createdAt: 1, updatedAt: 1),
+            ShelfItem(kind: .folder, title: "Folder", content: "/tmp/dir", createdAt: 2, updatedAt: 2),
+            ShelfItem(kind: .application, title: "App", content: "/Applications/Terminal.app", createdAt: 3, updatedAt: 3),
+            ShelfItem(kind: .action, title: "ActPath", content: "/Applications/Utilities", createdAt: 4, updatedAt: 4, actionKind: .openPath),
+            ShelfItem(kind: .text, title: "Text", content: "hello", createdAt: 5, updatedAt: 5),
+            ShelfItem(kind: .url, title: "URL", content: "https://example.org", createdAt: 6, updatedAt: 6),
+            ShelfItem(kind: .action, title: "ActURL", content: "https://example.com", createdAt: 7, updatedAt: 7, actionKind: .openURL),
+        ]
+        let payload = ShelfLogic.copyPayload(items: items)
+        // 文件类按条目顺序产出路径;图片条目即图片扩展名的文件条目,同样按路径归类
+        XCTAssertEqual(payload.filePaths, ["/tmp/a.txt", "/tmp/dir", "/Applications/Terminal.app", "/Applications/Utilities"])
+        XCTAssertEqual(payload.text, "hello\nhttps://example.org\nhttps://example.com")
+    }
+
+    func testCopyPayloadKeepsMultiFileOrder() {
+        let items = [
+            ShelfItem(kind: .file, title: "B", content: "/tmp/b.png", createdAt: 2, updatedAt: 2),
+            ShelfItem(kind: .file, title: "A", content: "/tmp/a.pdf", createdAt: 1, updatedAt: 1),
+        ]
+        XCTAssertEqual(ShelfLogic.copyPayload(items: items).filePaths, ["/tmp/b.png", "/tmp/a.pdf"])
+        XCTAssertNil(ShelfLogic.copyPayload(items: items).text)
+    }
+
+    func testCopyPayloadActionWithoutKindFallsIntoText() {
+        let item = ShelfItem(kind: .action, title: "Act", content: "whatever")
+        XCTAssertNil(item.actionKind)
+        let payload = ShelfLogic.copyPayload(items: [item])
+        XCTAssertEqual(payload.text, "whatever")
+        XCTAssertTrue(payload.filePaths.isEmpty)
+    }
+
+    func testCopyPayloadEmptySelectionIsEmpty() {
+        XCTAssertTrue(ShelfLogic.copyPayload(items: []).isEmpty)
+        XCTAssertFalse(ShelfLogic.copyPayload(items: [ShelfItem(kind: .file, title: "F", content: "/tmp/x")]).isEmpty)
+        XCTAssertFalse(ShelfLogic.copyPayload(items: [ShelfItem(kind: .text, title: "T", content: "x")]).isEmpty)
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("OpsNotchTests-\(UUID().uuidString)", isDirectory: true)
     }

@@ -69,10 +69,14 @@ final class AppModel: ObservableObject {
     }
 
     /// Enter:复制高亮条目(只写剪贴板,不执行任何打开动作),刷新上浮并收起面板。
+    /// 与"复制所选"同一 payload 语义:文件/图片条目复制文件本身(文件 URL),
+    /// 文字/URL 复制文本——不再把文件路径当文本复制导致 Finder 粘贴无文件。
     func confirmHighlight(using clipboard: ClipboardManager) {
         guard let id = highlightedID,
               let item = visibleItems.first(where: { $0.id == id }) else { return }
-        clipboard.copyFromApp(item.content)
+        let payload = ShelfLogic.copyPayload(items: [item])
+        guard !payload.isEmpty else { return }
+        clipboard.copyPayload(payload)
         touchItem(id)
         showToast(L10n.text("copied", language))
         requestDelayedHide?()
@@ -236,9 +240,10 @@ final class AppModel: ObservableObject {
 
     func copySelected(using clipboard: ClipboardManager) {
         let selected = visibleItems.filter { selection.contains($0.id) }
-        let text = ShelfLogic.copyText(items: selected)
-        guard !text.isEmpty else { return }
-        clipboard.copyFromApp(text)
+        let payload = ShelfLogic.copyPayload(items: selected)
+        // 理论上非空选择必产出 payload(全部 kind 均已归类),guard 仅为防御未来新增 kind 漏归类
+        guard !payload.isEmpty else { return }
+        clipboard.copyPayload(payload)
         showToast(L10n.text("copied", language))
     }
 
