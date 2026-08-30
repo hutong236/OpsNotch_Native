@@ -298,9 +298,12 @@ struct ShelfRowView: View {
         .overlay {
             if highlighted && !selected {
                 // 白描边 + 浅底:键盘流“当前行”指示,与多选蓝底、悬停灰底都不同。
+                // 必须 allowsHitTesting(false):overlay 在行内容之上,否则浅底
+                // 会拦截整行点击(高亮默认落在第一行,首行按钮/单击全部失效)。
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .strokeBorder(.white.opacity(0.55), lineWidth: 1)
                     .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .allowsHitTesting(false)
             }
         }
         // 仅为右键菜单提供整行命中区域;单击手势只挂在 leading 上,
