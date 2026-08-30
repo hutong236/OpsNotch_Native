@@ -1,16 +1,27 @@
 name: macOS 打包
 
-# 只在两种情况下运行(普通 push 不触发):
-# 1. 推送 v* 标签 -> 构建 .app 并创建 GitHub Release 附带 zip
-# 2. 手动触发(Actions 页面 Run workflow)-> 构建 .app 并上传为 Artifact
+# 触发时机:
+# 1. 推送到 main -> 构建 + 上传 Artifact + 更新滚动预发布 "latest"(开发版)
+# 2. 推送 v* 标签 -> 构建 + 创建正式 GitHub Release 附带 zip
+# 3. 手动触发(Actions 页面 Run workflow)-> 构建 + 上传 Artifact
+# 纯文档改动(*.md、openspec/ 等)不触发,节省构建时间。
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
-  workflow_dispatch:
+    paths-ignore:
+      - '**.md'
+      - 'openspec/**'
+      - '.gitignore'
 
 permissions:
   contents: write
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   package:
@@ -36,8 +47,11 @@ jobs:
       - name: Zip app
         id: zip
         run: |
-          # 分支名可能含 "/",替换掉以保证文件名/artifact 名合法
-          NAME="OpsNotch-${GITHUB_REF_NAME//\//-}-macOS"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            NAME="OpsNotch-${GITHUB_REF_NAME}-macOS"
+          else
+            NAME="OpsNotch-dev-$(date +%Y%m%d)-${GITHUB_SHA::7}-macOS"
+          fi
           # ditto 保留签名与元数据,解压后 app 仍有效
           ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" "$NAME.zip"
           echo "zip_name=$NAME" >> "$GITHUB_OUTPUT"
@@ -49,6 +63,7 @@ jobs:
           path: ${{ steps.zip.outputs.zip_name }}.zip
           if-no-files-found: error
 
+      # 正式版:推送 v* 标签 -> 创建带 zip 的 Release
       - name: Create release (仅标签触发)
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -59,3 +74,15 @@ jobs:
             --notes "Apple Silicon (arm64) 构建。下载 zip 解压后,首次打开请右键 App -> 打开(Ad-hoc 签名未公证)。" \
             --generate-notes \
             "${{ steps.zip.outputs.zip_name }}.zip"
+
+      # 开发版:每次 main 推送 -> 用新构建替换滚动预发布 "latest"
+      - name: Update rolling pre-release latest (仅 main 推送)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest "${{ steps.zip.outputs.zip_name }}.zip" \
+            --prerelease \
+            --title "Ops Notch 开发版 latest" \
+            --notes "自动构建:${GITHUB_SHA::7} @ $(date +%Y-%m-%d %H:%M UTC)。随每次 main 推送自动更新,始终为最新可运行版本。Apple Silicon (arm64);首次打开请右键 App -> 打开(未公证)。"
