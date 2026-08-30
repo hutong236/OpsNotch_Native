@@ -70,6 +70,14 @@ final class ShelfWindowController: NSObject {
         cancelHide()
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.model.shelfHovered, self.model.editorDraft == nil else { return }
+            // 右键菜单打开时,菜单窗口遮住面板会让 hover 状态失同步,菜单项也可能下探出面板 frame;
+            // 此时暂缓隐藏、稍后重查,避免把正在使用的菜单(如"取消置顶")连同面板一起收起。
+            let mouseInsidePanel = self.panel.frame.contains(NSEvent.mouseLocation)
+            let menuTracking = NSApp.keyWindow?.level == .popUpMenu
+            if mouseInsidePanel || menuTracking {
+                self.scheduleHide(delay: 0.35)
+                return
+            }
             self.panel.orderOut(nil)
         }
         hideWorkItem = work

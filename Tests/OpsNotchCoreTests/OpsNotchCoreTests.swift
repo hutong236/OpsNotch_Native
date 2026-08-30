@@ -43,6 +43,44 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertFalse(expired.contains(pinned.id))
     }
 
+    func testUnpinPersistsAndReturnsToRecent() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+        let added = try service.addText("pin me")
+        let id = try XCTUnwrap(added.items.first?.id)
+
+        _ = try service.setPinned(id: id, pinned: true)
+        let afterPin = try service.load()
+        XCTAssertEqual(afterPin.items.first?.pinned, true)
+        XCTAssertEqual(ShelfLogic.grouped(afterPin.items).pinned.map(\.id), [id])
+
+        _ = try service.setPinned(id: id, pinned: false)
+        let afterUnpin = try service.load()
+        XCTAssertEqual(afterUnpin.items.first?.pinned, false)
+        XCTAssertEqual(ShelfLogic.grouped(afterUnpin.items).recent.map(\.id), [id])
+    }
+
+    func testUnpinnedItemBecomesEligibleForTTLExpiry() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+        let added = try service.addText("temp")
+        let id = try XCTUnwrap(added.items.first?.id)
+
+        _ = try service.setPinned(id: id, pinned: true)
+        _ = try service.setPinned(id: id, pinned: false)
+
+        let store = try service.load()
+        let item = try XCTUnwrap(store.items.first)
+        XCTAssertFalse(item.pinned)
+        let settings = ShelfSettings(tempTTLHours: 1)
+        let beforeTTL = ShelfLogic.expiredIDs(items: store.items, settings: settings, now: item.updatedAt + 3599)
+        XCTAssertFalse(beforeTTL.contains(id))
+        let afterTTL = ShelfLogic.expiredIDs(items: store.items, settings: settings, now: item.updatedAt + 3600)
+        XCTAssertTrue(afterTTL.contains(id))
+    }
+
     func testReferenceRemovalNeverDeletesOriginal() throws {
         let root = temporaryRoot()
         let original = root.appendingPathComponent("outside.txt")

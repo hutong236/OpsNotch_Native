@@ -116,14 +116,18 @@ struct ShelfRootView: View {
             .padding(30)
         } else {
             ScrollView {
+                // 单个 ForEach 渲染 Pinned+Recent:条目在分区间移动时仍是同一 ForEach 内的
+                // 位置变化,cell 内容会被更新;拆成两个 ForEach 会让 LazyVStack 跨块复用同
+                // id 的旧 cell(保留旧 item 与 hover 状态),置顶后行数据不刷新。
                 LazyVStack(spacing: 3) {
-                    if !groups.pinned.isEmpty {
-                        SectionHeader(title: L10n.text("pinned", model.language), count: groups.pinned.count)
-                        ForEach(groups.pinned) { item in ShelfRowView(model: model, clipboard: clipboard, item: item) }
-                    }
-                    if !groups.recent.isEmpty {
-                        SectionHeader(title: L10n.text("recent", model.language), count: groups.recent.count, action: L10n.text("clear", model.language), onAction: model.clearRecent)
-                        ForEach(groups.recent) { item in ShelfRowView(model: model, clipboard: clipboard, item: item) }
+                    ForEach(Array(model.visibleItems.enumerated()), id: \.element.id) { index, item in
+                        if index == 0, !groups.pinned.isEmpty {
+                            SectionHeader(title: L10n.text("pinned", model.language), count: groups.pinned.count)
+                        }
+                        if index == groups.pinned.count, !groups.recent.isEmpty {
+                            SectionHeader(title: L10n.text("recent", model.language), count: groups.recent.count, action: L10n.text("clear", model.language), onAction: model.clearRecent)
+                        }
+                        ShelfRowView(model: model, clipboard: clipboard, item: item)
                     }
                 }
                 .padding(.horizontal, 8)
