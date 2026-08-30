@@ -1,0 +1,61 @@
+name: macOS 打包
+
+# 只在两种情况下运行(普通 push 不触发):
+# 1. 推送 v* 标签 -> 构建 .app 并创建 GitHub Release 附带 zip
+# 2. 手动触发(Actions 页面 Run workflow)-> 构建 .app 并上传为 Artifact
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Core tests
+        run: swift test
+
+      - name: Static checks
+        run: python3 scripts/static_checks.py
+
+      - name: Package app
+        run: scripts/build_app.sh
+
+      - name: Verify codesign
+        run: codesign --verify --deep --strict "build/Ops Notch.app"
+
+      - name: Zip app
+        id: zip
+        run: |
+          # 分支名可能含 "/",替换掉以保证文件名/artifact 名合法
+          NAME="OpsNotch-${GITHUB_REF_NAME//\//-}-macOS"
+          # ditto 保留签名与元数据,解压后 app 仍有效
+          ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" "$NAME.zip"
+          echo "zip_name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.zip.outputs.zip_name }}
+          path: ${{ steps.zip.outputs.zip_name }}.zip
+          if-no-files-found: error
+
+      - name: Create release (仅标签触发)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "Ops Notch ${GITHUB_REF_NAME}" \
+            --notes "Apple Silicon (arm64) 构建。下载 zip 解压后,首次打开请右键 App -> 打开(Ad-hoc 签名未公证)。" \
+            --generate-notes \
+            "${{ steps.zip.outputs.zip_name }}.zip"
