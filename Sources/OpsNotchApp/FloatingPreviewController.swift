@@ -77,7 +77,7 @@ final class FloatingPreviewController: NSObject {
         if let panel { return panel }
         let panel = FloatingPreviewPanel(
             contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless, .nonactivatingPanel, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -203,6 +203,7 @@ private struct FloatingPreviewRoot: View {
 
     @State private var fontIndex = 2
     @State private var fitToken = 0
+    @State private var zoomRequest = ImageZoomRequest()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -243,6 +244,16 @@ private struct FloatingPreviewRoot: View {
             }
             if case .image = payload {
                 Button {
+                    zoomRequest = ImageZoomRequest(token: zoomRequest.token &+ 1, factor: 0.8)
+                } label: { Image(systemName: "minus.magnifyingglass").frame(width: 20, height: 20) }
+                    .buttonStyle(.plain)
+                    .help(L10n.text("previewZoomOut", language))
+                Button {
+                    zoomRequest = ImageZoomRequest(token: zoomRequest.token &+ 1, factor: 1.25)
+                } label: { Image(systemName: "plus.magnifyingglass").frame(width: 20, height: 20) }
+                    .buttonStyle(.plain)
+                    .help(L10n.text("previewZoomIn", language))
+                Button {
                     fitToken += 1
                 } label: { Image(systemName: "arrow.down.right.and.arrow.up.left").frame(width: 20, height: 20) }
                     .buttonStyle(.plain)
@@ -273,7 +284,7 @@ private struct FloatingPreviewRoot: View {
         case .text(_, let text):
             SelectableTextView(text: text, fontSize: FloatingPreviewController.fontSizes[fontIndex])
         case .image(_, let url):
-            ZoomableImageContainer(url: url, resetToken: fitToken, onLoad: onImageLoad)
+            ZoomableImageContainer(url: url, resetToken: fitToken, zoomRequest: zoomRequest, onLoad: onImageLoad)
         }
     }
 }
@@ -330,10 +341,17 @@ private struct SelectableTextView: NSViewRepresentable {
     }
 }
 
+/// 图片缩放指令:工具条 +/− 按钮通过 token 变化下发到 NSView。
+private struct ImageZoomRequest: Equatable {
+    var token: Int = 0
+    var factor: CGFloat = 1
+}
+
 /// 缩放平移图片容器:捏合/滚轮缩放,拖动平移,可一键复位。
 private struct ZoomableImageContainer: NSViewRepresentable {
     let url: URL
     let resetToken: Int
+    let zoomRequest: ImageZoomRequest
     let onLoad: (CGSize) -> Void
 
     func makeNSView(context: Context) -> ZoomableImageView {
@@ -350,6 +368,10 @@ private struct ZoomableImageContainer: NSViewRepresentable {
             context.coordinator.lastResetToken = resetToken
             view.resetView()
         }
+        if context.coordinator.lastZoomToken != zoomRequest.token {
+            context.coordinator.lastZoomToken = zoomRequest.token
+            view.applyZoomFactor(zoomRequest.factor)
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -358,6 +380,7 @@ private struct ZoomableImageContainer: NSViewRepresentable {
     final class Coordinator {
         private var loadedURL: URL?
         var lastResetToken = 0
+        var lastZoomToken = 0
         var onLoad: ((CGSize) -> Void)?
 
         func loadIfChanged(url: URL, into view: ZoomableImageView) {
@@ -410,6 +433,15 @@ private final class ZoomableImageView: NSView {
         needsDisplay = true
     }
 
+    func applyZoomFactor(_ factor: CGFloat) {
+        applyZoom(multiplier: factor, anchor: CGPoint(x: bounds.midX, y: bounds.midY))
+    }
+
+    /// 关键:面板 isMovableByWindowBackground = true 时,非不透明视图默认
+    /// mouseDownCanMoveWindow == true,拖动会被系统直接拿去移窗、视图收不到
+    /// mouseDragged(表现为图片无法平移)。这里声明拖动由本视图自己处理。
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func draw(_ dirtyRect: NSRect) {
         guard bounds.width > 1, bounds.height > 1 else { return }
         guard let image, image.size.width > 0, image.size.height > 0 else { return }
@@ -436,6 +468,8 @@ private final class ZoomableImageView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        // 惯性阶段(momentum)不参与缩放,否则松手后还会持续缩很久
+        guard event.momentumPhase == .none else { return }
         if abs(event.scrollingDeltaY) > 0.01 {
             applyZoom(multiplier: 1 - event.scrollingDeltaY * 0.002, anchor: convert(event.locationInWindow, from: nil))
         } else if abs(event.scrollingDeltaX) > 0.01, scale > 1 {

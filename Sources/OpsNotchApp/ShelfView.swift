@@ -279,12 +279,9 @@ struct ShelfRowView: View {
             if selected {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.blue).font(.system(size: 13))
             }
-            itemIcon
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                Text(subtitle).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
+            leading
+                .contentShape(Rectangle())
+                .onTapGesture { handleRowTap() }
             Spacer(minLength: 4)
 
             if hovered || selected {
@@ -306,17 +303,10 @@ struct ShelfRowView: View {
                     .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
         }
+        // 仅为右键菜单提供整行命中区域;单击手势只挂在 leading 上,
+        // 避免与悬停操作按钮发生手势仲裁(行级单击会把按钮点击抢成默认动作)。
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .onTapGesture {
-            let flags = NSEvent.modifierFlags
-            if flags.contains(.command) || flags.contains(.shift) {
-                model.toggleSelection(item)
-            } else {
-                model.selection.removeAll()
-                ItemActionService.performDefault(item, clipboard: clipboard, model: model)
-            }
-        }
         .contextMenu {
             if item.kind == .text || item.kind == .url {
                 Button(L10n.text("copy", model.language)) {
@@ -340,6 +330,29 @@ struct ShelfRowView: View {
             Button(item.pinned ? L10n.text("unpin", model.language) : L10n.text("pin", model.language)) { model.togglePin(item) }
             Button(L10n.text("edit", model.language)) { model.beginEdit(item) }
             Button(L10n.text("remove", model.language), role: .destructive) { model.remove(Set([item.id])) }
+        }
+    }
+
+    /// 左侧图标 + 标题/副标题:行的单击(默认动作/多选)只挂在这里,
+    /// 与行尾悬停按钮隔离,按钮点击不再被行级手势抢占。
+    private var leading: some View {
+        HStack(spacing: 8) {
+            itemIcon
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                Text(subtitle).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+        }
+    }
+
+    private func handleRowTap() {
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.command) || flags.contains(.shift) {
+            model.toggleSelection(item)
+        } else {
+            model.selection.removeAll()
+            ItemActionService.performDefault(item, clipboard: clipboard, model: model)
         }
     }
 
