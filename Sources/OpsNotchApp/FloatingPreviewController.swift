@@ -9,6 +9,7 @@ import OpsNotchCore
 final class FloatingPreviewController: NSObject {
     static let shared = FloatingPreviewController()
     static let fontSizes: [CGFloat] = [13, 16, 20, 26, 34, 44]
+    static let defaultFontSize: CGFloat = fontSizes[2]
 
     enum Payload {
         case text(title: String, text: String)
@@ -23,6 +24,8 @@ final class FloatingPreviewController: NSObject {
 
     private var panel: FloatingPreviewPanel?
     private var hostingView: NSHostingView<FloatingPreviewRoot>?
+    private var currentLanguage: AppLanguage = .zhCN
+    private var currentPayload: Payload?
 
     func show(item: ShelfItem, language: AppLanguage) {
         let payload: Payload
@@ -35,17 +38,39 @@ final class FloatingPreviewController: NSObject {
         case .folder, .url, .application, .action:
             return
         }
+        currentPayload = payload
+        currentLanguage = language
 
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         guard let screen else { return }
         let panel = ensurePanel()
-        if !panel.isVisible { panel.setFrame(Self.defaultFrame(on: screen), display: true) }
         panel.contentView = hostingView(for: payload, language: language)
+
+        // 每开一个新条目都自适应窗口尺寸:文字按字数/行数估计,图片取实际像素
+        let frame = Self.adaptiveFrame(for: payload, on: screen, existing: panel.frame, wasVisible: panel.isVisible)
+        panel.setFrame(frame, display: true)
         panel.orderFrontRegardless()
     }
 
     func close() {
         panel?.orderOut(nil)
+        currentPayload = nil
+    }
+
+    /// 字号变化后按当前内容重新估计窗口尺寸(保持面板原锚点右上)。
+    fileprivate func fontDidChange(_ size: CGFloat) {
+        guard let payload = currentPayload, let panel, panel.isVisible else { return }
+        guard let screen = NSScreen.screens.first(where: { NSIntersectsRect($0.frame, panel.frame) }) ?? NSScreen.main else { return }
+        let fitted = Self.adaptiveFrame(for: payload, on: screen, fontSize: size, existing: panel.frame, wasVisible: true)
+        panel.setFrame(fitted, display: true, animate: true)
+    }
+
+    /// 图片实际像素加载完成后回调,按像素重调窗口。
+    fileprivate func imageDidLoad(_ pixelSize: CGSize) {
+        guard case .image(let title, let url) = currentPayload, let panel, panel.isVisible else { return }
+        guard let screen = NSScreen.screens.first(where: { NSIntersectsRect($0.frame, panel.frame) }) ?? NSScreen.main else { return }
+        let fitted = Self.adaptiveFrame(for: .image(title: title, url: url), on: screen, pixelSize: pixelSize, existing: panel.frame, wasVisible: true)
+        panel.setFrame(fitted, display: true, animate: true)
     }
 
     private func ensurePanel() -> FloatingPreviewPanel {
@@ -66,6 +91,7 @@ final class FloatingPreviewController: NSObject {
         panel.isMovableByWindowBackground = true
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        panel.minSize = NSSize(width: 280, height: 180)
         self.panel = panel
         return panel
     }
@@ -75,7 +101,9 @@ final class FloatingPreviewController: NSObject {
             sessionID: UUID(),
             payload: payload,
             language: language,
-            onClose: { [weak self] in self?.close() }
+            onClose: { [weak self] in self?.close() },
+            onFontChange: { [weak self] size in self?.fontDidChange(size) },
+            onImageLoad: { [weak self] size in self?.imageDidLoad(size) }
         )
         if let hostingView {
             hostingView.rootView = root
@@ -87,13 +115,76 @@ final class FloatingPreviewController: NSObject {
         return view
     }
 
-    private static func defaultFrame(on screen: NSScreen) -> NSRect {
-        let size = NSSize(width: 480, height: 540)
-        let sensorHeight = SensorGeometry.height(for: screen)
-        // 出现在 Shelf 右侧,与面板错开;越界时收回屏幕内
-        let x = min(max(screen.frame.midX + 240 - size.width / 2, screen.frame.minX + 12), screen.frame.maxX - size.width - 12)
-        let y = max(screen.frame.maxY - sensorHeight - size.height - 12, screen.frame.minY + 12)
-        return NSRect(x: x, y: y, width: size.width, height: size.height)
+    /// 窗口自适应:文字按内容估行列,图片按像素比例,都夹在屏幕可用区域内。
+    /// 已打开过的窗口默认保持当前尺寸不变(用户拖过就不动),只有首次出现或内容换时才重估。
+    private static func adaptiveFrame(
+        for payload: Payload,
+        on screen: NSScreen,
+        fontSize: CGFloat? = nil,
+        pixelSize: CGSize? = nil,
+        existing: NSRect,
+        wasVisible: Bool
+    ) -> NSRect {
+        let usable = screen.visibleFrame
+        let maxW = min(usable.width - 40, 780)
+        let maxH = min(usable.height - 40, 660)
+        let minW: CGFloat = 300, minH: CGFloat = 200
+
+        let contentSize: CGSize
+        switch payload {
+        case .text(_, let text):
+            contentSize = estimateTextSize(text: text, fontSize: fontSize ?? Self.defaultFontSize, maxW: maxW - 40, maxH: maxH - 60)
+        case .image(_, let url):
+            let px = pixelSize ?? Self.imagePixelSize(url: url) ?? CGSize(width: 480, height: 400)
+            contentSize = fitImage(pixel: px, maxW: maxW - 40, maxH: maxH - 60)
+        }
+
+        let w = min(max(contentSize.width + 40, minW), maxW)
+        let h = min(max(contentSize.height + 60, minH), maxH)
+
+        let x: CGFloat
+        let y: CGFloat
+        if wasVisible {
+            // 已开着的窗口:保持左上,宽度/高度变化时向左侧扩展,避免盖住 Shelf
+            x = min(max(existing.minX, usable.minX + 8), usable.maxX - w - 8)
+            y = min(max(existing.maxY - h, usable.minY + 8), usable.maxY - h - 8)
+        } else {
+            // 首次出现:放屏幕中上部,避开刘海正下方
+            x = usable.midX - w / 2
+            y = usable.maxY - SensorGeometry.height(for: screen) - h - 24
+        }
+        return NSRect(x: x, y: y, width: w, height: h)
+    }
+
+    private static func estimateTextSize(text: String, fontSize: CGFloat, maxW: CGFloat, maxH: CGFloat) -> CGSize {
+        // 按最长行字数估计宽度,行数×行高估计高度;中文字宽按字号 1:1,英文按 0.6
+        let lines = text.components(separatedBy: "\n")
+        let charWidth = fontSize * 1.0
+        let maxChars = lines.map { line -> Int in
+            line.reduce(0) { count, ch in count + (ch.unicodeScalars.first.map { $0.value > 0x2E80 } == true ? 1 : 0) + 0 }
+        }.max() ?? 10
+        let ascii = lines.map { line -> Int in
+            line.reduce(0) { count, ch in count + (ch.unicodeScalars.first.map { $0.value > 0x2E80 } == true ? 0 : 1) }
+        }.max() ?? 0
+        let estimatedW = min(CGFloat(maxChars) * charWidth + CGFloat(ascii) * fontSize * 0.62, maxW)
+        let lineCount = max(lines.count, 1)
+        let lineHeight = fontSize * 1.72
+        let estimatedH = min(CGFloat(lineCount) * lineHeight + 32, maxH)
+        return CGSize(width: max(estimatedW, 260), height: max(estimatedH, 120))
+    }
+
+    private static func fitImage(pixel: CGSize, maxW: CGFloat, maxH: CGFloat) -> CGSize {
+        guard pixel.width > 0, pixel.height > 0 else { return CGSize(width: 420, height: 320) }
+        let scale = min(maxW / pixel.width, maxH / pixel.height, 1)
+        return CGSize(width: pixel.width * scale, height: pixel.height * scale)
+    }
+
+    private static func imagePixelSize(url: URL) -> CGSize? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? CGFloat,
+              let h = props[kCGImagePropertyPixelHeight] as? CGFloat else { return nil }
+        return CGSize(width: w, height: h)
     }
 }
 
@@ -107,6 +198,8 @@ private struct FloatingPreviewRoot: View {
     let payload: FloatingPreviewController.Payload
     let language: AppLanguage
     let onClose: () -> Void
+    let onFontChange: (CGFloat) -> Void
+    let onImageLoad: (CGSize) -> Void
 
     @State private var fontIndex = 2
     @State private var fitToken = 0
@@ -132,13 +225,17 @@ private struct FloatingPreviewRoot: View {
             Spacer(minLength: 8)
             if case .text = payload {
                 Button {
-                    if fontIndex > 0 { fontIndex -= 1 }
+                    if fontIndex > 0 { fontIndex -= 1; onFontChange(FloatingPreviewController.fontSizes[fontIndex]) }
                 } label: { Image(systemName: "minus").frame(width: 20, height: 20) }
                     .buttonStyle(.plain)
                     .disabled(fontIndex == 0)
                     .help(L10n.text("previewFont", language))
+                Text("\(Int(FloatingPreviewController.fontSizes[fontIndex]))")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
                 Button {
-                    if fontIndex < FloatingPreviewController.fontSizes.count - 1 { fontIndex += 1 }
+                    if fontIndex < FloatingPreviewController.fontSizes.count - 1 { fontIndex += 1; onFontChange(FloatingPreviewController.fontSizes[fontIndex]) }
                 } label: { Image(systemName: "plus").frame(width: 20, height: 20) }
                     .buttonStyle(.plain)
                     .disabled(fontIndex == FloatingPreviewController.fontSizes.count - 1)
@@ -176,7 +273,7 @@ private struct FloatingPreviewRoot: View {
         case .text(_, let text):
             SelectableTextView(text: text, fontSize: FloatingPreviewController.fontSizes[fontIndex])
         case .image(_, let url):
-            ZoomableImageContainer(url: url, resetToken: fitToken)
+            ZoomableImageContainer(url: url, resetToken: fitToken, onLoad: onImageLoad)
         }
     }
 }
@@ -202,7 +299,7 @@ private struct SelectableTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainerInset = NSSize(width: 4, height: 12)
+        textView.textContainerInset = NSSize(width: 8, height: 14)
         textView.backgroundColor = .clear
         scrollView.documentView = textView
         Self.apply(text: text, fontSize: fontSize, to: textView)
@@ -237,14 +334,17 @@ private struct SelectableTextView: NSViewRepresentable {
 private struct ZoomableImageContainer: NSViewRepresentable {
     let url: URL
     let resetToken: Int
+    let onLoad: (CGSize) -> Void
 
     func makeNSView(context: Context) -> ZoomableImageView {
         let view = ZoomableImageView()
+        context.coordinator.onLoad = onLoad
         context.coordinator.load(url: url, into: view)
         return view
     }
 
     func updateNSView(_ view: ZoomableImageView, context: Context) {
+        context.coordinator.onLoad = onLoad
         context.coordinator.loadIfChanged(url: url, into: view)
         if context.coordinator.lastResetToken != resetToken {
             context.coordinator.lastResetToken = resetToken
@@ -258,6 +358,7 @@ private struct ZoomableImageContainer: NSViewRepresentable {
     final class Coordinator {
         private var loadedURL: URL?
         var lastResetToken = 0
+        var onLoad: ((CGSize) -> Void)?
 
         func loadIfChanged(url: URL, into view: ZoomableImageView) {
             guard url != loadedURL else { return }
@@ -269,9 +370,13 @@ private struct ZoomableImageContainer: NSViewRepresentable {
             let target = view
             Task.detached(priority: .userInitiated) {
                 let image = NSImage(contentsOf: url)
+                let pixelSize = image.flatMap { img -> CGSize? in
+                    img.representations.first.map { CGSize(width: CGFloat($0.pixelsWide), height: CGFloat($0.pixelsHigh)) }
+                }
                 await MainActor.run {
                     guard target.window != nil || target.superview != nil else { return }
                     target.setImage(image)
+                    if let pixelSize { self.onLoad?(pixelSize) }
                 }
             }
         }
@@ -284,6 +389,13 @@ private final class ZoomableImageView: NSView {
     private var translation: CGPoint = .zero
     private var dragAnchor: CGPoint?
     private var fitSize: CGSize = .zero
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { nil }
 
     func setImage(_ image: NSImage?) {
         self.image = image
@@ -346,7 +458,6 @@ private final class ZoomableImageView: NSView {
             clampTranslation()
             needsDisplay = true
         } else if scale == 1 {
-            // 未放大时拖动整个预览窗,方便用户挪到参照位置
             window?.performDrag(with: event)
         }
     }
