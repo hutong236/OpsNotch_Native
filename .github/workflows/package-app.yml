@@ -39,7 +39,13 @@ jobs:
         run: python3 scripts/static_checks.py
 
       - name: Package app
-        run: scripts/build_app.sh
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            # 正式版:从 v* 标签名派生版本注入产物 Info.plist(分支构建保留 Info.plist 默认值)
+            APP_VERSION="${GITHUB_REF_NAME#v}" scripts/build_app.sh
+          else
+            scripts/build_app.sh
+          fi
 
       - name: Verify codesign
         run: codesign --verify --deep --strict "build/Ops Notch.app"
@@ -69,6 +75,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # 先删旧 Release(保留 git 标签)再重建,标签重推/重跑时不会因 Release 已存在而失败
+          gh release delete "${GITHUB_REF_NAME}" --yes 2>/dev/null || true
           gh release create "${GITHUB_REF_NAME}" \
             --title "Ops Notch ${GITHUB_REF_NAME}" \
             --notes "Apple Silicon (arm64) 构建。下载 zip 解压后,首次打开请右键 App -> 打开(Ad-hoc 签名未公证)。" \
