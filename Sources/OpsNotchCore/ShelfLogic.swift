@@ -64,12 +64,4 @@ public enum ShelfLogic {
             }
         }.joined(separator: "\n")
     }
-
-    /// 系统打开事件(reopen)去抖:应用激活流程可能在极短时间内重复投递打开事件,
-    /// 窗口期内的重复事件折叠为一次,保证"展开/收起"切换语义不抖动。
-    /// `lastAt == nil` 表示首次事件,必处理;时间基准由调用方选定(单调时钟为宜)。
-    public static func shouldHandleOpenEvent(lastAt: TimeInterval?, now: TimeInterval, window: TimeInterval) -> Bool {
-        guard let lastAt else { return true }
-        return now - lastAt >= window
-    }
 }
