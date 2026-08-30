@@ -62,6 +62,10 @@ python3 scripts/static_checks.py
 
 Reference 模式不得删除/移动原文件；Copy-in 必须写入 `shelf-files/`。
 
+拖入落点补充:面板已展开(悬停刘海打开)时,把文件拖到抽屉列表区松手也应入柜;
+拖到"Drop UI"提示条上松手同样入柜。诊断可用 `./script/build_and_run.sh --logs`
+实时观察 `sensor drop` / `shelf drop` 日志。
+
 ## 7. URL Drag
 
 Safari 地址、网页链接拖到 Sensor：

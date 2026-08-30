@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboard = ClipboardManager(model: model)
         shelf = ShelfWindowController(model: model, clipboard: clipboard)
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
+        // 抽屉窗口(展开面板/Drop 提示条)自身也可落放入柜,与刘海 Sensor 同一入柜逻辑
+        shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
         settingsWindow = SettingsWindowController(model: model)
         statusBar = StatusBarController(model: model, shelf: shelf, sensors: sensors, settings: settingsWindow)
 

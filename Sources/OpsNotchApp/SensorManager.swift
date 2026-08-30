@@ -1,6 +1,10 @@
 #if os(macOS)
 import AppKit
 import OpsNotchCore
+import os
+
+/// 拖放入柜诊断日志(./script/build_and_run.sh --logs 可实时观测)
+let dropLog = Logger(subsystem: "lab.hutong.opsnotch", category: "drop")
 
 @MainActor
 final class SensorManager {
@@ -123,6 +127,11 @@ final class SensorManager {
         }
     }
 
+    /// 入柜处理,供 Sensor 与抽屉窗口拖放接收点(ShelfDropContainerView)共用。
+    func handleDrop(payload: NativeDropPayload) -> Bool {
+        handle(payload: payload)
+    }
+
     private func screensForCurrentPolicy() -> [NSScreen] {
         switch model.settings.displayTarget {
         case .all: return NSScreen.screens
@@ -163,6 +172,39 @@ enum NativeDropPayload {
     case files([URL])
     case url(URL)
     case text(String)
+
+    /// Sensor 与抽屉窗口两个拖放接收点共用的可读类型判定与 payload 解析。
+    static func canRead(_ pasteboard: NSPasteboard) -> Bool {
+        pasteboard.canReadObject(forClasses: [NSURL.self, NSString.self], options: nil)
+    }
+
+    static func read(from pasteboard: NSPasteboard) -> NativeDropPayload? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [NSURL], !objects.isEmpty {
+            return .files(objects.map { $0 as URL })
+        }
+        if let raw = pasteboard.string(forType: .URL),
+           let url = URL(string: raw),
+           let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) {
+            return .url(url)
+        }
+        if let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            if let url = URL(string: text), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) {
+                return .url(url)
+            }
+            return .text(text)
+        }
+        return nil
+    }
+
+    /// 日志摘要:只记类型与数量,不落条目内容。
+    var logSummary: String {
+        switch self {
+        case .files(let urls): return "files(\(urls.count))"
+        case .url: return "url"
+        case .text(let text): return "text(\(text.count))"
+        }
+    }
 }
 
 final class SensorView: NSView {
@@ -202,41 +244,22 @@ final class SensorView: NSView {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         onDragEntered?()
-        return canRead(sender.draggingPasteboard) ? .copy : []
+        return NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        canRead(sender.draggingPasteboard) ? .copy : []
+        NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) { onDragExited?() }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let payload = readPayload(sender.draggingPasteboard) else { return false }
+        guard let payload = NativeDropPayload.read(from: sender.draggingPasteboard) else {
+            dropLog.error("sensor drop: no readable payload")
+            return false
+        }
+        dropLog.info("sensor drop \(payload.logSummary, privacy: .public)")
         return onDrop?(payload) ?? false
-    }
-
-    private func canRead(_ pasteboard: NSPasteboard) -> Bool {
-        pasteboard.canReadObject(forClasses: [NSURL.self, NSString.self], options: nil)
-    }
-
-    private func readPayload(_ pasteboard: NSPasteboard) -> NativeDropPayload? {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [NSURL], !objects.isEmpty {
-            return .files(objects.map { $0 as URL })
-        }
-        if let raw = pasteboard.string(forType: .URL),
-           let url = URL(string: raw),
-           let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) {
-            return .url(url)
-        }
-        if let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-            if let url = URL(string: text), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) {
-                return .url(url)
-            }
-            return .text(text)
-        }
-        return nil
     }
 }
 #endif

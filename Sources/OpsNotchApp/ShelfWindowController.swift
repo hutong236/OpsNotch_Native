@@ -14,12 +14,15 @@ final class ShelfWindowController: NSObject {
     private let model: AppModel
     private let clipboard: ClipboardManager
     private let panel: ShelfPanel
+    private let dropContainer: ShelfDropContainerView
     private var hostingView: NSHostingView<ShelfRootView>!
     private var currentScreen: NSScreen?
     private var hideWorkItem: DispatchWorkItem?
     private var resignObserver: NSObjectProtocol?
     private var keyMonitor: Any?
     private(set) var presentation: Presentation = .expanded
+    /// 抽屉窗口拖放入柜处理器,由 AppDelegate 注入(复用 SensorManager 的入柜逻辑)。
+    var dropHandler: ((NativeDropPayload) -> Bool)?
 
     init(model: AppModel, clipboard: ClipboardManager) {
         self.model = model
@@ -30,6 +33,7 @@ final class ShelfWindowController: NSObject {
             backing: .buffered,
             defer: false
         )
+        dropContainer = ShelfDropContainerView(frame: .zero)
         super.init()
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -43,7 +47,18 @@ final class ShelfWindowController: NSObject {
         panel.titlebarAppearsTransparent = true
 
         hostingView = NSHostingView(rootView: ShelfRootView(model: model, clipboard: clipboard, presentation: .expanded))
-        panel.contentView = hostingView
+        // contentView 用拖放容器包住 SwiftUI 内容:拖到已展开面板/Drop 提示条上松手也入柜,
+        // 落点不再只限刘海 Sensor(NSHostingView 自身不处理拖放,事件上溯到容器)。
+        dropContainer.onDropPayload = { [weak self] payload in self?.acceptDrop(payload) ?? false }
+        dropContainer.addSubview(hostingView)
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            hostingView.topAnchor.constraint(equalTo: dropContainer.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: dropContainer.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: dropContainer.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: dropContainer.trailingAnchor),
+        ])
+        panel.contentView = dropContainer
         panel.orderOut(nil)
 
         model.shelfHoverChanged = { [weak self] hovered in
@@ -148,6 +163,16 @@ final class ShelfWindowController: NSObject {
 
     var isPanelVisible: Bool { panel.isVisible }
 
+    /// 抽屉窗口上的落放入柜:成功后与 Sensor 落放同款反馈(peek 确认 + 延时收起)。
+    private func acceptDrop(_ payload: NativeDropPayload) -> Bool {
+        let accepted = dropHandler?(payload) ?? false
+        if accepted {
+            show(.peek, on: currentScreen ?? screenUnderMouse())
+            scheduleHide(delay: 0.9)
+        }
+        return accepted
+    }
+
     private func screenUnderMouse() -> NSScreen {
         let point = NSEvent.mouseLocation
         return NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) }
@@ -218,5 +243,38 @@ final class ShelfWindowController: NSObject {
 final class ShelfPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+}
+
+/// 抽屉窗口的拖放接收容器:SwiftUI 内容(NSHostingView)不处理拖放,
+/// 拖放事件上溯到本容器统一入柜,与 SensorView 共用 NativeDropPayload 管线。
+final class ShelfDropContainerView: NSView {
+    var onDropPayload: ((NativeDropPayload) -> Bool)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL, .URL, .string])
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes([.fileURL, .URL, .string])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let payload = NativeDropPayload.read(from: sender.draggingPasteboard) else {
+            dropLog.error("shelf drop: no readable payload")
+            return false
+        }
+        dropLog.info("shelf drop \(payload.logSummary, privacy: .public)")
+        return onDropPayload?(payload) ?? false
+    }
 }
 #endif
