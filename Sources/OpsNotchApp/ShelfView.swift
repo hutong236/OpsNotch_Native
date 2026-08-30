@@ -40,9 +40,16 @@ struct ShelfRootView: View {
         }
         // 展开即聚焦(键盘取回流):focusRequestToken 是面板层发来的一次性聚焦请求,
         // 同时把高亮重置到第一行。隐藏面板时令牌被清空,确保每次展开都触发。
+        // Tab 重聚焦场景下 SwiftUI 侧 FocusState 可能仍为 true(AppKit field editor 已失焦
+        // 但焦点态未同步),直接赋 true 是 no-op——先归 false、下一 runloop 再置 true 强制重聚焦。
         .onReceive(model.$focusRequestToken) { token in
             guard token != nil else { return }
-            searchFocused = true
+            if searchFocused {
+                searchFocused = false
+                DispatchQueue.main.async { searchFocused = true }
+            } else {
+                searchFocused = true
+            }
             model.highlightedID = model.visibleItems.first?.id
         }
     }
