@@ -415,7 +415,8 @@ private final class ZoomableImageView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
+        // 刻意不开 wantsLayer:layer 内容不会裁剪到视图边界,图片放大后会把
+        // 上方 SwiftUI 绘制的工具条/关闭按钮整个盖住;非 layer 视图 draw 自动裁剪。
     }
 
     required init?(coder: NSCoder) { nil }

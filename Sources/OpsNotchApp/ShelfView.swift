@@ -367,25 +367,34 @@ struct ShelfRowView: View {
     private var actionButtons: some View {
         HStack(spacing: 7) {
             if item.kind == .text || item.kind == .url {
-                Button {
+                actionIcon("doc.on.doc") {
                     clipboard.copyFromApp(item.content)
                     model.touchItem(item.id)
                     model.showToast(L10n.text("copied", model.language))
-                } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.plain)
+                }
             }
             if item.kind == .file {
-                Button { QuickLookService.shared.preview(item) } label: { Image(systemName: "eye") }.buttonStyle(.plain)
+                actionIcon("eye") { QuickLookService.shared.preview(item) }
             }
             if ItemPreviewKind.isPreviewable(item) {
-                Button {
+                actionIcon("arrow.up.left.and.arrow.down.right") {
                     FloatingPreviewController.shared.show(item: item, language: model.language)
-                } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }.buttonStyle(.plain)
-                    .help(L10n.text("zoomPreview", model.language))
+                }
             }
-            Button { model.togglePin(item) } label: { Image(systemName: item.pinned ? "pin.slash" : "pin") }.buttonStyle(.plain)
+            actionIcon(item.pinned ? "pin.slash" : "pin") { model.togglePin(item) }
         }
         .foregroundStyle(.secondary)
         .font(.system(size: 11))
+    }
+
+    /// 行内操作按钮不用 Button:懒加载栈里行级手势与 Button 的仲裁在部分
+    /// macOS 版本上会把按钮点击抢成默认动作;图标 + onTapGesture 是最深层
+    /// 手势,必胜且无仲裁环节。也不要加 .help(会包 accessory 视图影响命中)。
+    private func actionIcon(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Image(systemName: symbol)
+            .frame(width: 18, height: 18)
+            .contentShape(Rectangle())
+            .onTapGesture { action() }
     }
 
     private var symbolName: String {
