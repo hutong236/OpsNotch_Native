@@ -4,7 +4,7 @@
 
 Ops Notch V2: a macOS notch/shelf utility (drag files, folders, URLs, or selected text to a sensor at the top of each display; clipboard catch; pinned/recent). It is a native rewrite of an earlier Tauri/React version — **Swift + AppKit + SwiftUI, Swift Package Manager only**. No Node.js, npm, Vite, Xcode project, or localhost server (the app must never listen on port 1420, the old Tauri dev port).
 
-Minimum platform: **macOS 13**, Swift 5.9. Project docs (README, ARCHITECTURE, VERIFY_ON_MAC) are written in Chinese.
+Minimum platform: **macOS 13**, Swift 5.9. Project documentation is Chinese-first; `README.en.md` provides the English project overview. Public contributions follow `CONTRIBUTING.md`, `SECURITY.md`, and the templates under `.github/`.
 
 ## Layout
 
@@ -26,7 +26,7 @@ python3 scripts/static_checks.py     # CI gate, see gotchas below
 ./scripts/build_app.sh               # release .app in build/ (ad-hoc codesign)
 ```
 
-CI (`.github/workflows/macos-ci.yml`) runs: `swift test`, `swift build`, `scripts/static_checks.py`, `scripts/build_app.sh`. There is no formatter/linter configured.
+PR CI (`.github/workflows/ci.yml`) runs: `swift test`, `swift build`, and `scripts/static_checks.py`. The packaging workflow (`.github/workflows/package-app.yml`) also builds and verifies the `.app`, uploads branch artifacts, and publishes `v*` tags. There is no formatter/linter configured.
 
 ## Architecture rules
 

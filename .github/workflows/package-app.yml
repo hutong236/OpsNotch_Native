@@ -6,6 +6,7 @@ name: macOS 打包
 # 3. 手动触发(Actions 页面 Run workflow)-> 构建 + 上传 Artifact
 # 纯文档改动(*.md、openspec/ 等)不触发,节省构建时间。
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
