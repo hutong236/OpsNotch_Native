@@ -1,0 +1,74 @@
+name: Bug 报告
+description: 报告可稳定复现的缺陷
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请删除日志和截图中的私人路径、文件名与剪贴板内容。
+  - type: input
+    id: version
+    attributes:
+      label: Ops Notch 版本
+      description: 可在设置页底部或 GitHub Release 中查看。
+      placeholder: 例如 2.2.2
+    validations:
+      required: true
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: 芯片架构
+      options:
+        - Apple Silicon
+        - Intel
+        - 不确定
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS 版本
+      placeholder: 例如 macOS 15.6
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请提供最小、连续、可重复的步骤。
+      placeholder: |
+        1. 启动应用
+        2. 从 Finder 拖动文件
+        3. 将文件放到顶部感应区
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 补充环境
+      description: 单屏或多屏、拖放来源应用、显示器排列、相关设置和脱敏日志。
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已在最新 Release 复现。
+          required: true
+        - label: 我已搜索现有 Issues。
+          required: true
+        - label: 此报告不包含公开披露的安全漏洞。
+          required: true
