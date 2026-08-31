@@ -38,13 +38,57 @@ jobs:
       - name: Static checks
         run: python3 scripts/static_checks.py
 
-      - name: Package app
+      - name: Resolve release version
+        id: version
+        shell: bash
         run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            # 正式版:从 v* 标签名派生版本注入产物 Info.plist(分支构建保留 Info.plist 默认值)
-            APP_VERSION="${GITHUB_REF_NAME#v}" scripts/build_app.sh
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            RELEASE_VERSION="${GITHUB_REF#refs/tags/v}"
+            if ! [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid release tag: ${GITHUB_REF}"
+              exit 1
+            fi
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package app
+        shell: bash
+        run: |
+          if [[ "${{ steps.version.outputs.is_release }}" == "true" ]]; then
+            APP_VERSION="${{ steps.version.outputs.version }}" scripts/build_app.sh
           else
             scripts/build_app.sh
+          fi
+
+      - name: Verify packaged version
+        shell: bash
+        run: |
+          PLIST="build/Ops Notch.app/Contents/Info.plist"
+          ACTUAL_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+          ACTUAL_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+
+          if [[ "${{ steps.version.outputs.is_release }}" == "true" ]]; then
+            EXPECTED_VERSION="${{ steps.version.outputs.version }}"
+            EXPECTED_BUILD="${EXPECTED_VERSION//./}"
+
+            echo "Tag version:      $EXPECTED_VERSION"
+            echo "Packaged version: $ACTUAL_VERSION"
+            echo "Packaged build:   $ACTUAL_BUILD"
+
+            if [[ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]]; then
+              echo "Version mismatch: tag=$EXPECTED_VERSION app=$ACTUAL_VERSION"
+              exit 1
+            fi
+            if [[ "$ACTUAL_BUILD" != "$EXPECTED_BUILD" ]]; then
+              echo "Build mismatch: expected=$EXPECTED_BUILD app=$ACTUAL_BUILD"
+              exit 1
+            fi
+          else
+            echo "Development build version: $ACTUAL_VERSION ($ACTUAL_BUILD)"
           fi
 
       - name: Verify codesign
@@ -52,9 +96,10 @@ jobs:
 
       - name: Zip app
         id: zip
+        shell: bash
         run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            NAME="OpsNotch-${GITHUB_REF_NAME}-macOS"
+          if [[ "${{ steps.version.outputs.is_release }}" == "true" ]]; then
+            NAME="OpsNotch-v${{ steps.version.outputs.version }}-macOS"
           else
             NAME="OpsNotch-dev-$(date +%Y%m%d)-${GITHUB_SHA::7}-macOS"
           fi
@@ -71,14 +116,14 @@ jobs:
 
       # 正式版:推送 v* 标签 -> 创建带 zip 的 Release
       - name: Create release (仅标签触发)
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.version.outputs.is_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 先删旧 Release(保留 git 标签)再重建,标签重推/重跑时不会因 Release 已存在而失败
-          gh release delete "${GITHUB_REF_NAME}" --yes 2>/dev/null || true
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "Ops Notch ${GITHUB_REF_NAME}" \
+          TAG="v${{ steps.version.outputs.version }}"
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "Ops Notch $TAG" \
             --notes "Apple Silicon (arm64) 构建。下载 zip 解压后,首次打开请右键 App -> 打开(Ad-hoc 签名未公证)。" \
             --generate-notes \
             "${{ steps.zip.outputs.zip_name }}.zip"
