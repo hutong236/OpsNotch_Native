@@ -76,7 +76,7 @@ struct SettingsView: View {
                         .font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 2)
                 }
 
-                group(L10n.text("finderRevealGroup", model.language)) {
+                group(model.language == .zhCN ? "Finder 快速定位" : "Finder Quick Reveal") {
                     FinderRevealSettingsView(model: model, controller: finderReveal)
                 }
 
