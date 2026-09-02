@@ -8,7 +8,8 @@ final class FinderQuickLauncherWindowController: NSObject, NSWindowDelegate {
     private let model: AppModel
     private let finder = FinderWindowService()
     private var panel: FinderQuickPanel?
-    private var selectedIndex = 0
+    /// 当前视觉列表中的位置，不等同于数字槽位。
+    private var selectedPosition = 0
 
     init(model: AppModel) {
         self.model = model
@@ -23,7 +24,7 @@ final class FinderQuickLauncherWindowController: NSObject, NSWindowDelegate {
     }
 
     func show() {
-        selectedIndex = 0
+        selectedPosition = 0
         let panel = ensurePanel()
         refresh(panel)
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -53,20 +54,41 @@ final class FinderQuickLauncherWindowController: NSObject, NSWindowDelegate {
 
     private func refresh(_ panel: NSPanel) {
         let rows = launcherRows
-        selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
+        selectedPosition = min(selectedPosition, max(rows.count - 1, 0))
         panel.contentView = NSHostingView(rootView: FinderQuickLauncherView(
             rows: rows,
-            selectedIndex: selectedIndex,
+            selectedPosition: selectedPosition,
             language: model.language
         ))
     }
 
+    /// 默认路径始终保持第一行；收藏路径按最近使用、累计使用次数动态排序。
+    /// 每个收藏路径的数字键仍由它在 settings.finderQuickPaths 中的固定槽位决定。
     private var launcherRows: [FinderLauncherRow] {
         var rows: [FinderLauncherRow] = [
-            FinderLauncherRow(index: 0, shortcut: "↩", label: model.language == .zhCN ? "默认路径" : "Default", path: model.settings.finderDefaultPath)
+            FinderLauncherRow(
+                id: "default",
+                position: 0,
+                slot: nil,
+                quickPathID: nil,
+                shortcut: "↩",
+                label: model.language == .zhCN ? "默认路径" : "Default",
+                path: model.settings.finderDefaultPath,
+                useCount: 0
+            )
         ]
-        for (index, item) in model.settings.finderQuickPaths.prefix(9).enumerated() {
-            rows.append(FinderLauncherRow(index: index + 1, shortcut: "\(index + 1)", label: item.label, path: item.path))
+
+        for ranked in FinderQuickPathRanking.ranked(model.settings.finderQuickPaths) {
+            rows.append(FinderLauncherRow(
+                id: ranked.item.id.uuidString,
+                position: rows.count,
+                slot: ranked.slot,
+                quickPathID: ranked.item.id,
+                shortcut: "\(ranked.slot)",
+                label: ranked.item.label,
+                path: ranked.item.path,
+                useCount: ranked.item.useCount
+            ))
         }
         return rows
     }
@@ -80,20 +102,20 @@ final class FinderQuickLauncherWindowController: NSObject, NSWindowDelegate {
             panel?.orderOut(nil)
             return true
         case 125: // Down
-            selectedIndex = min(selectedIndex + 1, rows.count - 1)
+            selectedPosition = min(selectedPosition + 1, rows.count - 1)
             if let panel { refresh(panel) }
             return true
         case 126: // Up
-            selectedIndex = max(selectedIndex - 1, 0)
+            selectedPosition = max(selectedPosition - 1, 0)
             if let panel { refresh(panel) }
             return true
         case 36, 76: // Return / keypad Enter
-            open(rows[selectedIndex])
+            open(rows[selectedPosition])
             return true
         default:
             if let chars = event.charactersIgnoringModifiers,
                let digit = Int(chars), digit >= 1, digit <= 9,
-               let row = rows.first(where: { $0.index == digit }) {
+               let row = rows.first(where: { $0.slot == digit }) {
                 open(row)
                 return true
             }
@@ -107,7 +129,20 @@ final class FinderQuickLauncherWindowController: NSObject, NSWindowDelegate {
             model.showToast(model.language == .zhCN ? "目录不存在：\(row.path)" : "Folder does not exist: \(row.path)")
             return
         }
+
+        if let id = row.quickPathID {
+            recordUsage(for: id)
+        }
         panel?.orderOut(nil)
+    }
+
+    private func recordUsage(for id: UUID) {
+        let now = ShelfClock.now()
+        model.updateSettings { settings in
+            guard let index = settings.finderQuickPaths.firstIndex(where: { $0.id == id }) else { return }
+            settings.finderQuickPaths[index].useCount &+= 1
+            settings.finderQuickPaths[index].lastUsedAt = now
+        }
     }
 }
 
@@ -121,16 +156,20 @@ private final class FinderQuickPanel: NSPanel {
 }
 
 private struct FinderLauncherRow: Identifiable {
-    var id: Int { index }
-    let index: Int
+    let id: String
+    let position: Int
+    /// nil 为默认路径；1...9 是固定数字绑定。
+    let slot: Int?
+    let quickPathID: UUID?
     let shortcut: String
     let label: String
     let path: String
+    let useCount: UInt64
 }
 
 private struct FinderQuickLauncherView: View {
     let rows: [FinderLauncherRow]
-    let selectedIndex: Int
+    let selectedPosition: Int
     let language: AppLanguage
 
     var body: some View {
@@ -138,7 +177,9 @@ private struct FinderQuickLauncherView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(language == .zhCN ? "快速打开目录" : "Quick Open Folder")
                     .font(.title2.bold())
-                Text(language == .zhCN ? "数字键直接打开，↑↓选择，回车确认" : "Press a number, use ↑↓, or press Return")
+                Text(language == .zhCN
+                     ? "常用目录自动靠前；数字键绑定保持不变"
+                     : "Frequently used folders move up; number bindings stay fixed")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -151,7 +192,14 @@ private struct FinderQuickLauncherView: View {
                             .frame(width: 30, height: 26)
                             .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(row.label).font(.system(size: 13, weight: .medium))
+                            HStack(spacing: 6) {
+                                Text(row.label).font(.system(size: 13, weight: .medium))
+                                if row.useCount > 0 {
+                                    Text("×\(row.useCount)")
+                                        .font(.system(size: 9, design: .rounded))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
                             Text(NSString(string: row.path).expandingTildeInPath)
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
@@ -162,7 +210,7 @@ private struct FinderQuickLauncherView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .background(
-                        row.index == selectedIndex ? Color.accentColor.opacity(0.16) : Color.clear,
+                        row.position == selectedPosition ? Color.accentColor.opacity(0.16) : Color.clear,
                         in: RoundedRectangle(cornerRadius: 10)
                     )
                 }
