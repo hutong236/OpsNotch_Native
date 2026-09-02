@@ -10,32 +10,142 @@ struct FinderRevealSettingsView: View {
     var body: some View {
         VStack(spacing: 11) {
             HStack {
-                Text(model.language == .zhCN ? "目标应用" : "Target application").font(.system(size: 12))
-                Spacer()
-                TextField("gf.app", text: appNameBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 190)
-            }
-            Divider()
-            HStack {
-                Text(model.language == .zhCN ? "Finder 定位快捷键" : "Finder reveal hotkey").font(.system(size: 12))
+                Text(model.language == .zhCN ? "快捷路径快捷键" : "Quick path hotkey")
+                    .font(.system(size: 12))
                 Spacer()
                 FinderRevealHotkeyRecorderView(model: model, controller: controller)
             }
+
+            Divider()
+
+            HStack {
+                Text(model.language == .zhCN ? "默认路径" : "Default path")
+                    .font(.system(size: 12))
+                Spacer()
+                TextField("~", text: defaultPathBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 245)
+                Button(model.language == .zhCN ? "选择…" : "Choose…") { chooseDefaultFolder() }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(model.language == .zhCN ? "收藏目录（数字 1–9）" : "Favorite folders (1–9)")
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Button(model.language == .zhCN ? "添加目录" : "Add Folder") { addFavorite() }
+                        .disabled(model.settings.finderQuickPaths.count >= 9)
+                }
+
+                ForEach(Array(model.settings.finderQuickPaths.enumerated()), id: \.element.id) { index, item in
+                    HStack(spacing: 8) {
+                        Text("\(index + 1)")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .frame(width: 24, height: 24)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+                        TextField(model.language == .zhCN ? "名称" : "Label", text: labelBinding(for: item.id))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 105)
+
+                        TextField("/path/to/folder", text: pathBinding(for: item.id))
+                            .textFieldStyle(.roundedBorder)
+
+                        Button(model.language == .zhCN ? "选择…" : "Choose…") { chooseFolder(for: item.id) }
+                        Button(role: .destructive) { remove(item.id) } label: { Image(systemName: "minus.circle") }
+                            .buttonStyle(.borderless)
+                    }
+                }
+
+                if model.settings.finderQuickPaths.isEmpty {
+                    Text(model.language == .zhCN
+                         ? "未收藏目录。添加后可在启动器中按数字键直接打开。"
+                         : "No favorites yet. Add folders to open them directly with number keys.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Text(model.language == .zhCN
-                 ? "在任意应用中按下快捷键，使用 Spotlight 查找目标 .app，并在 Finder 中直接选中；不会启动应用。"
-                 : "Press the hotkey in any app to find the target .app with Spotlight and select it in Finder without launching it.")
+                 ? "快捷键弹出路径面板；↑↓选择，回车打开当前项；直接回车打开默认路径；数字 1–9 直接打开对应收藏目录。Finder 已有同一路径窗口时优先激活现有窗口。"
+                 : "The hotkey opens a path panel. Use ↑↓ and Return, press Return immediately for the default path, or 1–9 for favorites. Existing Finder windows for the same path are reused when possible.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var appNameBinding: Binding<String> {
+    private var defaultPathBinding: Binding<String> {
         Binding(
-            get: { model.settings.finderRevealAppName },
-            set: { value in model.updateSettings { $0.finderRevealAppName = value } }
+            get: { model.settings.finderDefaultPath },
+            set: { value in model.updateSettings { $0.finderDefaultPath = value } }
         )
+    }
+
+    private func labelBinding(for id: UUID) -> Binding<String> {
+        Binding(
+            get: { model.settings.finderQuickPaths.first(where: { $0.id == id })?.label ?? "" },
+            set: { value in
+                model.updateSettings { settings in
+                    guard let index = settings.finderQuickPaths.firstIndex(where: { $0.id == id }) else { return }
+                    settings.finderQuickPaths[index].label = value
+                }
+            }
+        )
+    }
+
+    private func pathBinding(for id: UUID) -> Binding<String> {
+        Binding(
+            get: { model.settings.finderQuickPaths.first(where: { $0.id == id })?.path ?? "" },
+            set: { value in
+                model.updateSettings { settings in
+                    guard let index = settings.finderQuickPaths.firstIndex(where: { $0.id == id }) else { return }
+                    settings.finderQuickPaths[index].path = value
+                }
+            }
+        )
+    }
+
+    private func chooseDefaultFolder() {
+        guard let url = chooseDirectory() else { return }
+        model.updateSettings { $0.finderDefaultPath = url.path }
+    }
+
+    private func addFavorite() {
+        guard model.settings.finderQuickPaths.count < 9, let url = chooseDirectory() else { return }
+        let label = url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
+        model.updateSettings { settings in
+            settings.finderQuickPaths.append(FinderQuickPath(label: label, path: url.path))
+        }
+    }
+
+    private func chooseFolder(for id: UUID) {
+        guard let url = chooseDirectory() else { return }
+        model.updateSettings { settings in
+            guard let index = settings.finderQuickPaths.firstIndex(where: { $0.id == id }) else { return }
+            settings.finderQuickPaths[index].path = url.path
+            if settings.finderQuickPaths[index].label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                settings.finderQuickPaths[index].label = url.lastPathComponent
+            }
+        }
+    }
+
+    private func remove(_ id: UUID) {
+        model.updateSettings { settings in
+            settings.finderQuickPaths.removeAll { $0.id == id }
+        }
+    }
+
+    private func chooseDirectory() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: NSString(string: model.settings.finderDefaultPath).expandingTildeInPath, isDirectory: true)
+        return panel.runModal() == .OK ? panel.url : nil
     }
 }
 
