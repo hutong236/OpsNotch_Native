@@ -15,5 +15,7 @@
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Ops Notch uses Finder automation to reuse existing folders and open quick paths in Finder tabs instead of creating unnecessary windows.</string>
 </dict>
 </plist>
