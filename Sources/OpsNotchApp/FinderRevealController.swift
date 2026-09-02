@@ -29,9 +29,7 @@ final class FinderRevealController: ObservableObject {
         model.updateSettings { $0.finderRevealHotkey = shortcut }
     }
 
-    func clearConflict() {
-        hotkeyConflict = false
-    }
+    func clearConflict() { hotkeyConflict = false }
 
     /// 外部设置变化后使注册状态与持久化配置重新收敛。
     func syncFromSettings() {
@@ -47,7 +45,8 @@ final class FinderRevealController: ObservableObject {
                 break
             case .notFound(let appName):
                 NSSound.beep()
-                self.model.showToast(L10n.text("finderRevealNotFound", self.model.language) + " \(appName)")
+                let prefix = self.model.language == .zhCN ? "Spotlight 未找到应用：" : "Application not found in Spotlight:"
+                self.model.showToast("\(prefix) \(appName)")
             }
         }
     }
