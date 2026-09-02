@@ -124,22 +124,29 @@ final class FinderQuickLauncherWindowController: NSObject, NSWindowDelegate {
     }
 
     private func open(_ row: FinderLauncherRow) {
-        let result = finder.openDirectory(row.path, mode: FinderOpenModePreference.current)
-        if case .invalidPath = result {
-            model.showToast(model.language == .zhCN ? "目录不存在：\(row.path)" : "Folder does not exist: \(row.path)")
-            return
-        }
-
-        if let id = row.quickPathID {
-            recordUsage(for: id)
-        }
-
-        if case .openedDirectoryAfterTabFallback = result {
-            model.showToast(model.language == .zhCN
-                ? "无法创建 Finder 标签页，已用系统默认方式打开。请检查自动化/辅助功能权限。"
-                : "Could not create a Finder tab; opened using the system default. Check Automation/Accessibility permissions.")
-        }
+        // 立即收起启动器；Finder 自动化在异步子进程中执行，绝不阻塞键盘/UI 主线程。
         panel?.orderOut(nil)
+        let mode = FinderOpenModePreference.current
+
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await finder.openDirectory(row.path, mode: mode)
+
+            if case .invalidPath = result {
+                model.showToast(model.language == .zhCN ? "目录不存在：\(row.path)" : "Folder does not exist: \(row.path)")
+                return
+            }
+
+            if let id = row.quickPathID {
+                recordUsage(for: id)
+            }
+
+            if case .openedDirectoryAfterTabFallback = result {
+                model.showToast(model.language == .zhCN
+                    ? "Finder 标签页创建失败或超时，已安全回退到系统默认打开方式。"
+                    : "Finder tab creation failed or timed out; safely fell back to the system default.")
+            }
+        }
     }
 
     private func recordUsage(for id: UUID) {
