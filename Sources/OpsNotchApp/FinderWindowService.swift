@@ -2,9 +2,9 @@
 import AppKit
 import Foundation
 
-/// 打开 Finder 目录时优先复用已经展示同一路径的 Finder 窗口。
-/// “优先 Tab”模式会通过 Finder + System Events 创建新标签页；若自动化/辅助功能权限不可用，
-/// 则安全回退到 NSWorkspace.open，确保目录仍然可以打开。
+/// Finder 目录打开服务。
+/// AppleScript/UI scripting 始终在独立 osascript 进程中执行并带超时，避免 Finder、权限弹窗或
+/// System Events 异常时阻塞 Ops Notch 主线程。
 @MainActor
 final class FinderWindowService {
     enum OpenResult {
@@ -22,7 +22,7 @@ final class FinderWindowService {
     }
 
     @discardableResult
-    func openDirectory(_ rawPath: String, mode: FinderOpenMode = .preferTab) -> OpenResult {
+    func openDirectory(_ rawPath: String, mode: FinderOpenMode = .systemDefault) async -> OpenResult {
         let expanded = NSString(string: rawPath).expandingTildeInPath
         let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
         var isDirectory: ObjCBool = false
@@ -31,12 +31,12 @@ final class FinderWindowService {
             return .invalidPath
         }
 
-        if activateExistingFinderWindow(for: url) {
+        if await activateExistingFinderWindow(for: url) {
             return .reusedExistingWindow
         }
 
         if mode == .preferTab {
-            switch openInExistingFinderTab(url) {
+            switch await openInExistingFinderTab(url) {
             case .opened:
                 return .openedTab
             case .noExistingWindow:
@@ -52,8 +52,8 @@ final class FinderWindowService {
         return .openedDirectory
     }
 
-    /// 返回 true 表示已找到同一路径窗口并激活；false 时调用方再按配置决定新 Tab 或默认打开。
-    private func activateExistingFinderWindow(for url: URL) -> Bool {
+    /// 同路径复用也通过独立 osascript 执行；最多等待 1.2 秒。
+    private func activateExistingFinderWindow(for url: URL) async -> Bool {
         let escapedPath = appleScriptString(url.path)
         let source = """
         tell application "Finder"
@@ -71,16 +71,12 @@ final class FinderWindowService {
             return "NOT_FOUND"
         end tell
         """
-        guard let script = NSAppleScript(source: source) else { return false }
-        var error: NSDictionary?
-        let result = script.executeAndReturnError(&error)
-        guard error == nil else { return false }
-        return result.stringValue == "FOUND"
+        return await FinderAppleScriptRunner.run(source, timeout: 1.2) == "FOUND"
     }
 
-    /// Finder 已有窗口时，用 ⌘T 创建新标签页，再把活动标签页切到目标目录。
-    /// 该行为依赖 System Events UI scripting，因此可能需要“自动化/辅助功能”权限。
-    private func openInExistingFinderTab(_ url: URL) -> TabOpenResult {
+    /// Finder 已有窗口时，尝试通过 ⌘T 创建新标签页，再把活动标签页切到目标目录。
+    /// UI scripting 最多执行 1.5 秒；失败、权限拒绝或超时均立即回退。
+    private func openInExistingFinderTab(_ url: URL) async -> TabOpenResult {
         let escapedPath = appleScriptString(url.path)
         let source = """
         tell application "Finder"
@@ -106,12 +102,7 @@ final class FinderWindowService {
         return "OPENED_TAB"
         """
 
-        guard let script = NSAppleScript(source: source) else { return .failed }
-        var error: NSDictionary?
-        let result = script.executeAndReturnError(&error)
-        guard error == nil else { return .failed }
-
-        switch result.stringValue {
+        switch await FinderAppleScriptRunner.run(source, timeout: 1.5) {
         case "OPENED_TAB": return .opened
         case "NO_WINDOW": return .noExistingWindow
         default: return .failed
@@ -122,6 +113,51 @@ final class FinderWindowService {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+}
+
+/// 将不稳定的 Apple Events / UI scripting 隔离在子进程里。
+/// 即使 Finder 或 System Events 不响应，超时后也只终止 osascript，不阻塞 AppKit 主线程。
+private enum FinderAppleScriptRunner {
+    static func run(_ source: String, timeout: TimeInterval) async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                let standardOutput = Pipe()
+                let standardError = Pipe()
+                let finished = DispatchSemaphore(value: 0)
+
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+                process.arguments = ["-e", source]
+                process.standardOutput = standardOutput
+                process.standardError = standardError
+                process.terminationHandler = { _ in finished.signal() }
+
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                let milliseconds = max(100, Int(timeout * 1_000))
+                if finished.wait(timeout: .now() + .milliseconds(milliseconds)) == .timedOut {
+                    process.terminate()
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                guard process.terminationStatus == 0 else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                let data = standardOutput.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                continuation.resume(returning: output)
+            }
+        }
     }
 }
 #endif
