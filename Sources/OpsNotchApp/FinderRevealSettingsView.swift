@@ -10,7 +10,7 @@ struct FinderRevealSettingsView: View {
     var body: some View {
         VStack(spacing: 11) {
             HStack {
-                Text(L10n.text("finderRevealApp", model.language)).font(.system(size: 12))
+                Text(model.language == .zhCN ? "目标应用" : "Target application").font(.system(size: 12))
                 Spacer()
                 TextField("gf.app", text: appNameBinding)
                     .textFieldStyle(.roundedBorder)
@@ -18,11 +18,13 @@ struct FinderRevealSettingsView: View {
             }
             Divider()
             HStack {
-                Text(L10n.text("finderRevealHotkey", model.language)).font(.system(size: 12))
+                Text(model.language == .zhCN ? "Finder 定位快捷键" : "Finder reveal hotkey").font(.system(size: 12))
                 Spacer()
                 FinderRevealHotkeyRecorderView(model: model, controller: controller)
             }
-            Text(L10n.text("finderRevealHint", model.language))
+            Text(model.language == .zhCN
+                 ? "在任意应用中按下快捷键，使用 Spotlight 查找目标 .app，并在 Finder 中直接选中；不会启动应用。"
+                 : "Press the hotkey in any app to find the target .app with Spotlight and select it in Finder without launching it.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -121,10 +123,8 @@ private final class FinderRevealHotkeyCaptureView: NSView {
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 53:
-            onCancel?()
-        case 51 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad).isEmpty:
-            onClear?()
+        case 53: onCancel?()
+        case 51 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad).isEmpty: onClear?()
         default:
             if let shortcut = HotkeyEventMapper.shortcut(from: event) { onShortcut?(shortcut) }
             else { onInvalid?() }
