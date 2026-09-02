@@ -6,6 +6,7 @@ import OpsNotchCore
 struct FinderRevealSettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var controller: FinderRevealController
+    @AppStorage(FinderOpenModePreference.key) private var finderOpenModeRaw = FinderOpenMode.preferTab.rawValue
 
     var body: some View {
         VStack(spacing: 11) {
@@ -27,6 +28,29 @@ struct FinderRevealSettingsView: View {
                     .frame(width: 245)
                 Button(model.language == .zhCN ? "选择…" : "Choose…") { chooseDefaultFolder() }
             }
+
+            Divider()
+
+            HStack {
+                Text(model.language == .zhCN ? "Finder 打开方式" : "Finder open mode")
+                    .font(.system(size: 12))
+                Spacer()
+                Picker("", selection: $finderOpenModeRaw) {
+                    Text(model.language == .zhCN ? "优先在现有 Finder 新建 Tab" : "Prefer a new tab in existing Finder")
+                        .tag(FinderOpenMode.preferTab.rawValue)
+                    Text(model.language == .zhCN ? "系统默认（当前行为）" : "System default (current behavior)")
+                        .tag(FinderOpenMode.systemDefault.rawValue)
+                }
+                .labelsHidden()
+                .frame(width: 285)
+            }
+
+            Text(model.language == .zhCN
+                 ? "“优先 Tab”会尽量只保留少量 Finder 窗口：已有目标目录则直接显示；目标未打开且已有 Finder 窗口时，在当前 Finder 中新建 Tab；没有 Finder 窗口时才创建第一个窗口。创建 Tab 需要 macOS 自动化/辅助功能权限，权限不可用时自动回退到系统默认方式。"
+                 : "Prefer Tab minimizes Finder window clutter: an already-open target is reused; otherwise a new tab is created in an existing Finder window, and a first window is created only when Finder has none. Creating tabs requires macOS Automation/Accessibility permission; if unavailable, Ops Notch falls back to the system default behavior.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Divider()
 
