@@ -3,7 +3,7 @@ import AppKit
 import Carbon
 import OpsNotchCore
 
-/// 全局呼出热键抽象。实现后端可替换(当前为 Carbon 注册式热键:零权限、注册即独占消费按键,
+/// 全局热键抽象。实现后端可替换(当前为 Carbon 注册式热键:零权限、注册即独占消费按键,
 /// 不会穿透前台应用),持久化的 HotkeyShortcut 模型与后端无关,换后端不需要用户重录。
 @MainActor
 protocol HotkeyService: AnyObject {
@@ -31,13 +31,20 @@ final class CarbonHotkeyService: HotkeyService {
     private var current: HotkeyShortcut?
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
+    private let hotKeyID: EventHotKeyID
 
     /// 'opsn' — 本应用热键 ID 的 OSType 签名。
     private static let signature: OSType = 0x6F70736E
-    private static let hotKeyID = EventHotKeyID(signature: signature, id: 1)
+
+    /// 每个业务动作使用独立 ID。这样同一进程内可以同时注册多个全局快捷键，
+    /// 且 Carbon 的统一键盘事件不会误触发其它动作。
+    init(id: UInt32 = 1) {
+        hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
+    }
 
     @discardableResult
     func apply(_ shortcut: HotkeyShortcut?) -> HotkeyError? {
+        let previous = current
         unregisterCurrent()
         guard let shortcut else {
             current = nil
@@ -45,7 +52,8 @@ final class CarbonHotkeyService: HotkeyService {
         }
         if let error = register(shortcut) {
             // 回滚:尽力恢复原快捷键,保证界面显示与实际注册状态一致。
-            if let previous = current { _ = register(previous) }
+            if let previous { _ = register(previous) }
+            current = previous
             return error
         }
         current = shortcut
@@ -58,7 +66,7 @@ final class CarbonHotkeyService: HotkeyService {
         let status = RegisterEventHotKey(
             shortcut.keyCode,
             shortcut.carbonModifiers,
-            Self.hotKeyID,
+            hotKeyID,
             GetApplicationEventTarget(),
             0,
             &ref
@@ -82,9 +90,26 @@ final class CarbonHotkeyService: HotkeyService {
             eventKind: UInt32(kEventHotKeyPressed)
         )
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
-            guard let userData else { return OSStatus(eventNotHandledErr) }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            guard let event, let userData else { return OSStatus(eventNotHandledErr) }
             let service = Unmanaged<CarbonHotkeyService>.fromOpaque(userData).takeUnretainedValue()
+
+            var pressedID = EventHotKeyID()
+            let status = GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &pressedID
+            )
+            guard status == noErr,
+                  pressedID.signature == service.hotKeyID.signature,
+                  pressedID.id == service.hotKeyID.id else {
+                return OSStatus(eventNotHandledErr)
+            }
+
             // Carbon 事件在主线程派发,回调跳到 MainActor 域再触发业务逻辑。
             DispatchQueue.main.async { MainActor.assumeIsolated { service.onFire?() } }
             return noErr
