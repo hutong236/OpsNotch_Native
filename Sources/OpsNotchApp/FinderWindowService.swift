@@ -3,8 +3,8 @@ import AppKit
 import Foundation
 
 /// Finder 目录打开服务。
-/// AppleScript/UI scripting 始终在独立 osascript 进程中执行并带超时，避免 Finder、权限弹窗或
-/// System Events 异常时阻塞 Ops Notch 主线程。
+/// 默认模式直接使用 NSWorkspace，避免 AppleScript 进程启动和窗口扫描延迟；仅优先 Tab 模式
+/// 使用带超时的独立 osascript 进程，避免 Finder、权限弹窗或 System Events 阻塞主线程。
 @MainActor
 final class FinderWindowService {
     enum OpenResult {
@@ -15,8 +15,9 @@ final class FinderWindowService {
         case invalidPath
     }
 
-    private enum TabOpenResult {
-        case opened
+    private enum PreferredTabOpenResult {
+        case reusedExistingWindow
+        case openedTab
         case noExistingWindow
         case failed
     }
@@ -31,29 +32,30 @@ final class FinderWindowService {
             return .invalidPath
         }
 
-        if await activateExistingFinderWindow(for: url) {
+        // 高频默认路径必须是零自动化的直达路径。此前这里会先启动 osascript 扫描窗口，
+        // 即使用户选择系统默认模式也可能额外等待最多 1.2 秒。
+        guard mode == .preferTab else {
+            NSWorkspace.shared.open(url)
+            return .openedDirectory
+        }
+
+        switch await openPreferredFinderTab(url) {
+        case .reusedExistingWindow:
             return .reusedExistingWindow
+        case .openedTab:
+            return .openedTab
+        case .noExistingWindow:
+            NSWorkspace.shared.open(url)
+            return .openedDirectory
+        case .failed:
+            NSWorkspace.shared.open(url)
+            return .openedDirectoryAfterTabFallback
         }
-
-        if mode == .preferTab {
-            switch await openInExistingFinderTab(url) {
-            case .opened:
-                return .openedTab
-            case .noExistingWindow:
-                NSWorkspace.shared.open(url)
-                return .openedDirectory
-            case .failed:
-                NSWorkspace.shared.open(url)
-                return .openedDirectoryAfterTabFallback
-            }
-        }
-
-        NSWorkspace.shared.open(url)
-        return .openedDirectory
     }
 
-    /// 同路径复用也通过独立 osascript 执行；最多等待 1.2 秒。
-    private func activateExistingFinderWindow(for url: URL) async -> Bool {
+    /// 一次自动化调用内完成“复用同路径窗口”与“新建 Tab”，避免连续启动两个 osascript。
+    /// 整条 UI scripting 链路最多执行 1.5 秒；失败、权限拒绝或超时均立即回退。
+    private func openPreferredFinderTab(_ url: URL) async -> PreferredTabOpenResult {
         let escapedPath = appleScriptString(url.path)
         let source = """
         tell application "Finder"
@@ -64,36 +66,24 @@ final class FinderWindowService {
                         set index of w to 1
                         set collapsed of w to false
                         activate
-                        return "FOUND"
+                        return "REUSED_WINDOW"
                     end if
                 end try
             end repeat
-            return "NOT_FOUND"
-        end tell
-        """
-        return await FinderAppleScriptRunner.run(source, timeout: 1.2) == "FOUND"
-    }
 
-    /// Finder 已有窗口时，尝试通过 ⌘T 创建新标签页，再把活动标签页切到目标目录。
-    /// UI scripting 最多执行 1.5 秒；失败、权限拒绝或超时均立即回退。
-    private func openInExistingFinderTab(_ url: URL) async -> TabOpenResult {
-        let escapedPath = appleScriptString(url.path)
-        let source = """
-        tell application "Finder"
             if (count of Finder windows) is 0 then return "NO_WINDOW"
             activate
         end tell
 
-        delay 0.08
+        delay 0.05
 
         tell application "System Events"
             keystroke "t" using command down
         end tell
 
-        delay 0.08
+        delay 0.05
 
         tell application "Finder"
-            set targetPath to POSIX file "\(escapedPath)" as alias
             set target of front Finder window to targetPath
             set collapsed of front Finder window to false
             activate
@@ -103,7 +93,8 @@ final class FinderWindowService {
         """
 
         switch await FinderAppleScriptRunner.run(source, timeout: 1.5) {
-        case "OPENED_TAB": return .opened
+        case "REUSED_WINDOW": return .reusedExistingWindow
+        case "OPENED_TAB": return .openedTab
         case "NO_WINDOW": return .noExistingWindow
         default: return .failed
         }

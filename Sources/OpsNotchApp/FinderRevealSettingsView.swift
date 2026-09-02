@@ -46,8 +46,8 @@ struct FinderRevealSettingsView: View {
             }
 
             Text(model.language == .zhCN
-                 ? "默认使用系统方式打开，稳定性最高。“优先 Tab”仅在你主动选择时启用：已有目标目录会直接复用；否则尝试在现有 Finder 中新建 Tab。Tab 自动化在独立进程执行并有超时保护，失败或权限不足时自动回退，不会阻塞 Ops Notch 主线程。"
-                 : "System default is recommended for maximum stability. Prefer Tab runs only when explicitly selected: existing targets are reused; otherwise Ops Notch attempts a new tab in an existing Finder window. Tab automation runs out of process with a timeout and safely falls back on failure or missing permission without blocking the app's main thread.")
+                 ? "系统默认会立即打开目录，不运行 Finder 自动化，速度最快且稳定性最高。“优先 Tab”仅在你主动选择时启用：一次自动化调用内先复用已有目标目录，否则尝试新建 Tab；失败或权限不足时自动回退。"
+                 : "System default opens the folder immediately without Finder automation for the fastest, most reliable response. Prefer Tab runs only when explicitly selected: one automation call reuses an existing target or attempts a new tab, with a safe fallback on failure or missing permission.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -93,8 +93,8 @@ struct FinderRevealSettingsView: View {
             }
 
             Text(model.language == .zhCN
-                 ? "快捷键弹出路径面板；默认路径始终在首行。收藏目录会按最近使用和使用频率自动靠前，但数字 1–9 的绑定始终固定不变。↑↓选择，回车打开当前项；直接回车打开默认路径。Finder 已有同一路径窗口时优先激活现有窗口。"
-                 : "The hotkey opens a path panel with the default path always first. Favorites are visually reordered by recent and frequent use, while number bindings 1–9 never change. Use ↑↓ and Return, or press Return immediately for the default path. Existing Finder windows for the same path are reused when possible.")
+                 ? "快捷键弹出路径面板；默认路径始终在首行。收藏目录会按最近使用和使用频率自动靠前，但数字 1–9 的绑定始终固定不变。↑↓选择，回车打开当前项；直接回车打开默认路径。“优先 Tab”模式会先激活已有的同路径窗口。"
+                 : "The hotkey opens a path panel with the default path always first. Favorites are visually reordered by recent and frequent use, while number bindings 1–9 never change. Use ↑↓ and Return, or press Return immediately for the default path. Prefer Tab first activates an existing Finder window for the same path.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -1,12 +1,12 @@
 #if os(macOS)
 import Foundation
 
-/// Finder 快速路径在目标尚未打开时的打开策略。
-/// 同一路径已存在时，无论哪种策略都优先复用现有 Finder 窗口/当前可见目标。
+/// Finder 快速路径的打开策略。
+/// 系统默认模式直接交给 NSWorkspace；只有用户主动选择优先 Tab 时才执行 Finder 自动化。
 enum FinderOpenMode: String, CaseIterable {
-    /// 如果 Finder 已有窗口，尝试在其中创建新标签页；失败或超时立即回退到系统默认打开方式。
+    /// 先复用同路径窗口，否则尝试在现有 Finder 中创建新标签页；失败或超时立即回退。
     case preferTab = "prefer_tab"
-    /// 安全默认：交给 Finder / NSWorkspace 按系统偏好打开。
+    /// 最快且安全的默认值：不做 AppleScript 预检，立即按系统偏好打开。
     case systemDefault = "system_default"
 }
 
