@@ -69,8 +69,8 @@ struct FinderRevealSettingsView: View {
             }
 
             Text(model.language == .zhCN
-                 ? "快捷键弹出路径面板；↑↓选择，回车打开当前项；直接回车打开默认路径；数字 1–9 直接打开对应收藏目录。Finder 已有同一路径窗口时优先激活现有窗口。"
-                 : "The hotkey opens a path panel. Use ↑↓ and Return, press Return immediately for the default path, or 1–9 for favorites. Existing Finder windows for the same path are reused when possible.")
+                 ? "快捷键弹出路径面板；默认路径始终在首行。收藏目录会按最近使用和使用频率自动靠前，但数字 1–9 的绑定始终固定不变。↑↓选择，回车打开当前项；直接回车打开默认路径。Finder 已有同一路径窗口时优先激活现有窗口。"
+                 : "The hotkey opens a path panel with the default path always first. Favorites are visually reordered by recent and frequent use, while number bindings 1–9 never change. Use ↑↓ and Return, or press Return immediately for the default path. Existing Finder windows for the same path are reused when possible.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
