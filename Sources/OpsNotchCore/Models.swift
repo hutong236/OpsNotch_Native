@@ -55,6 +55,46 @@ public struct HotkeyShortcut: Codable, Equatable, Sendable {
     }
 }
 
+/// Finder 快速路径。数组中的固定位置就是数字键绑定，动态展示排序不得改变该位置。
+public struct FinderQuickPath: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var label: String
+    public var path: String
+    /// 成功打开次数，用于常用程度排序。
+    public var useCount: UInt64
+    /// 最近一次成功打开时间（Unix seconds）。0 表示从未使用。
+    public var lastUsedAt: UInt64
+
+    public init(
+        id: UUID = UUID(),
+        label: String,
+        path: String,
+        useCount: UInt64 = 0,
+        lastUsedAt: UInt64 = 0
+    ) {
+        self.id = id
+        self.label = label
+        self.path = path
+        self.useCount = useCount
+        self.lastUsedAt = lastUsedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, path
+        case useCount = "use_count"
+        case lastUsedAt = "last_used_at"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        label = (try? container.decode(String.self, forKey: .label)) ?? "Folder"
+        path = (try? container.decode(String.self, forKey: .path)) ?? "~"
+        useCount = try container.decodeIfPresent(UInt64.self, forKey: .useCount) ?? 0
+        lastUsedAt = try container.decodeIfPresent(UInt64.self, forKey: .lastUsedAt) ?? 0
+    }
+}
+
 public struct ShelfSettings: Codable, Equatable, Sendable {
     public var tempTTLHours: UInt64
     public var addMode: StorageMode
@@ -62,18 +102,35 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
     public var language: AppLanguage
     public var hotkey: HotkeyShortcut?
 
+    /// 早期 Finder Spotlight 方案字段，保留用于配置向前兼容；快捷路径模式不再依赖它。
+    public var finderRevealAppName: String
+    /// Finder 快速路径启动器的全局快捷键。
+    public var finderRevealHotkey: HotkeyShortcut?
+    /// 启动器初始选中的默认目录；直接回车即打开。
+    public var finderDefaultPath: String
+    /// 用户收藏目录；数组位置固定绑定数字键 1...9，展示顺序可独立动态调整。
+    public var finderQuickPaths: [FinderQuickPath]
+
     public init(
         tempTTLHours: UInt64 = 24,
         addMode: StorageMode = .reference,
         displayTarget: DisplayTarget = .all,
         language: AppLanguage = .zhCN,
-        hotkey: HotkeyShortcut? = nil
+        hotkey: HotkeyShortcut? = nil,
+        finderRevealAppName: String = "gf.app",
+        finderRevealHotkey: HotkeyShortcut? = nil,
+        finderDefaultPath: String = "~",
+        finderQuickPaths: [FinderQuickPath] = []
     ) {
         self.tempTTLHours = tempTTLHours
         self.addMode = addMode
         self.displayTarget = displayTarget
         self.language = language
         self.hotkey = hotkey
+        self.finderRevealAppName = finderRevealAppName
+        self.finderRevealHotkey = finderRevealHotkey
+        self.finderDefaultPath = finderDefaultPath
+        self.finderQuickPaths = Array(finderQuickPaths.prefix(9))
     }
 
     enum CodingKeys: String, CodingKey {
@@ -82,6 +139,10 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         case displayTarget = "display_target"
         case language
         case hotkey
+        case finderRevealAppName = "finder_reveal_app_name"
+        case finderRevealHotkey = "finder_reveal_hotkey"
+        case finderDefaultPath = "finder_default_path"
+        case finderQuickPaths = "finder_quick_paths"
     }
 
     public init(from decoder: Decoder) throws {
@@ -91,6 +152,10 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         displayTarget = try container.decodeIfPresent(DisplayTarget.self, forKey: .displayTarget) ?? .all
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .zhCN
         hotkey = try container.decodeIfPresent(HotkeyShortcut.self, forKey: .hotkey)
+        finderRevealAppName = try container.decodeIfPresent(String.self, forKey: .finderRevealAppName) ?? "gf.app"
+        finderRevealHotkey = try container.decodeIfPresent(HotkeyShortcut.self, forKey: .finderRevealHotkey)
+        finderDefaultPath = try container.decodeIfPresent(String.self, forKey: .finderDefaultPath) ?? "~"
+        finderQuickPaths = Array((try container.decodeIfPresent([FinderQuickPath].self, forKey: .finderQuickPaths) ?? []).prefix(9))
     }
 }
 
@@ -173,7 +238,7 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct ShelfStore: Codable, Equatable, Sendable {
-    public static let currentVersion = 20
+    public static let currentVersion = 22
 
     public var version: Int
     public var items: [ShelfItem]

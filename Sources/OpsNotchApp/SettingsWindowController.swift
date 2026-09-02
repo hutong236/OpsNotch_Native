@@ -6,11 +6,13 @@ import OpsNotchCore
 @MainActor
 final class SettingsWindowController {
     private let model: AppModel
+    private let finderReveal: FinderRevealController
     private let loginItem = LoginItemService()
     private var window: NSWindow?
 
-    init(model: AppModel) {
+    init(model: AppModel, finderReveal: FinderRevealController) {
         self.model = model
+        self.finderReveal = finderReveal
     }
 
     func show() {
@@ -19,10 +21,10 @@ final class SettingsWindowController {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let view = SettingsView(model: model, loginItem: loginItem)
+        let view = SettingsView(model: model, loginItem: loginItem, finderReveal: finderReveal)
         let hosting = NSHostingView(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 680),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -40,6 +42,7 @@ final class SettingsWindowController {
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var loginItem: LoginItemService
+    @ObservedObject var finderReveal: FinderRevealController
 
     var body: some View {
         ScrollView {
@@ -57,9 +60,7 @@ struct SettingsView: View {
                         Toggle("", isOn: Binding(get: { loginItem.enabled }, set: loginItem.setEnabled))
                             .toggleStyle(.switch).labelsHidden()
                     }
-                    if let error = loginItem.lastError {
-                        Text(error).font(.caption).foregroundStyle(.red)
-                    }
+                    if let error = loginItem.lastError { Text(error).font(.caption).foregroundStyle(.red) }
                     Divider()
                     settingRow(L10n.text("displayTarget", model.language)) {
                         Picker("", selection: displayBinding) {
@@ -70,12 +71,13 @@ struct SettingsView: View {
                         }.frame(width: 190)
                     }
                     Divider()
-                    settingRow(L10n.text("hotkeyRow", model.language)) {
-                        HotkeyRecorderView(model: model)
-                    }
+                    settingRow(L10n.text("hotkeyRow", model.language)) { HotkeyRecorderView(model: model) }
                     Text(L10n.text("hotkeyHint", model.language))
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                        .padding(.leading, 2)
+                        .font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 2)
+                }
+
+                group(model.language == .zhCN ? "Finder 快捷路径" : "Finder Quick Paths") {
+                    FinderRevealSettingsView(model: model, controller: finderReveal)
                 }
 
                 group(L10n.text("storage", model.language)) {
@@ -97,9 +99,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Text(L10n.text("clipboardHint", model.language))
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-
+                Text(L10n.text("clipboardHint", model.language)).font(.system(size: 10)).foregroundStyle(.secondary)
                 Divider()
                 Text("Ops Notch v\(AppVersionService.current)")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -107,7 +107,7 @@ struct SettingsView: View {
             }
             .padding(24)
         }
-        .frame(minWidth: 500, minHeight: 390)
+        .frame(minWidth: 600, minHeight: 620)
     }
 
     private var title: some View {
@@ -133,17 +133,9 @@ struct SettingsView: View {
         HStack { Text(title).font(.system(size: 12)); Spacer(); trailing() }
     }
 
-    private var languageBinding: Binding<AppLanguage> {
-        Binding(get: { model.settings.language }, set: { value in model.updateSettings { $0.language = value } })
-    }
-    private var displayBinding: Binding<DisplayTarget> {
-        Binding(get: { model.settings.displayTarget }, set: { value in model.updateSettings { $0.displayTarget = value } })
-    }
-    private var addModeBinding: Binding<StorageMode> {
-        Binding(get: { model.settings.addMode }, set: { value in model.updateSettings { $0.addMode = value } })
-    }
-    private var ttlBinding: Binding<UInt64> {
-        Binding(get: { model.settings.tempTTLHours }, set: { value in model.updateSettings { $0.tempTTLHours = value } })
-    }
+    private var languageBinding: Binding<AppLanguage> { Binding(get: { model.settings.language }, set: { value in model.updateSettings { $0.language = value } }) }
+    private var displayBinding: Binding<DisplayTarget> { Binding(get: { model.settings.displayTarget }, set: { value in model.updateSettings { $0.displayTarget = value } }) }
+    private var addModeBinding: Binding<StorageMode> { Binding(get: { model.settings.addMode }, set: { value in model.updateSettings { $0.addMode = value } }) }
+    private var ttlBinding: Binding<UInt64> { Binding(get: { model.settings.tempTTLHours }, set: { value in model.updateSettings { $0.tempTTLHours = value } }) }
 }
 #endif
