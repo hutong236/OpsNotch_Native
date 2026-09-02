@@ -55,25 +55,43 @@ public struct HotkeyShortcut: Codable, Equatable, Sendable {
     }
 }
 
-/// Finder 快速路径。最多前 9 项可通过数字键 1...9 一步打开。
+/// Finder 快速路径。数组中的固定位置就是数字键绑定，动态展示排序不得改变该位置。
 public struct FinderQuickPath: Codable, Equatable, Identifiable, Sendable {
     public var id: UUID
     public var label: String
     public var path: String
+    /// 成功打开次数，用于常用程度排序。
+    public var useCount: UInt64
+    /// 最近一次成功打开时间（Unix seconds）。0 表示从未使用。
+    public var lastUsedAt: UInt64
 
-    public init(id: UUID = UUID(), label: String, path: String) {
+    public init(
+        id: UUID = UUID(),
+        label: String,
+        path: String,
+        useCount: UInt64 = 0,
+        lastUsedAt: UInt64 = 0
+    ) {
         self.id = id
         self.label = label
         self.path = path
+        self.useCount = useCount
+        self.lastUsedAt = lastUsedAt
     }
 
-    enum CodingKeys: String, CodingKey { case id, label, path }
+    enum CodingKeys: String, CodingKey {
+        case id, label, path
+        case useCount = "use_count"
+        case lastUsedAt = "last_used_at"
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
         label = (try? container.decode(String.self, forKey: .label)) ?? "Folder"
         path = (try? container.decode(String.self, forKey: .path)) ?? "~"
+        useCount = try container.decodeIfPresent(UInt64.self, forKey: .useCount) ?? 0
+        lastUsedAt = try container.decodeIfPresent(UInt64.self, forKey: .lastUsedAt) ?? 0
     }
 }
 
@@ -90,7 +108,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
     public var finderRevealHotkey: HotkeyShortcut?
     /// 启动器初始选中的默认目录；直接回车即打开。
     public var finderDefaultPath: String
-    /// 用户收藏目录；前 9 项分别绑定数字键 1...9。
+    /// 用户收藏目录；数组位置固定绑定数字键 1...9，展示顺序可独立动态调整。
     public var finderQuickPaths: [FinderQuickPath]
 
     public init(
@@ -220,7 +238,7 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct ShelfStore: Codable, Equatable, Sendable {
-    public static let currentVersion = 21
+    public static let currentVersion = 22
 
     public var version: Int
     public var items: [ShelfItem]
