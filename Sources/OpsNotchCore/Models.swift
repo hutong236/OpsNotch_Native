@@ -43,7 +43,7 @@ public enum AppLanguage: String, Codable, CaseIterable, Sendable {
     case enUS = "en-US"
 }
 
-/// 用户自定义全局热键。keyCode 为虚拟键码,carbonModifiers 为 Carbon 修饰键位;
+/// 用户自定义全局呼出热键。keyCode 为虚拟键码,carbonModifiers 为 Carbon 修饰键位;
 /// 与注册后端无关,便于将来替换热键实现而不改持久化格式。
 public struct HotkeyShortcut: Codable, Equatable, Sendable {
     public var keyCode: UInt32
@@ -55,16 +55,43 @@ public struct HotkeyShortcut: Codable, Equatable, Sendable {
     }
 }
 
+/// Finder 快速路径。最多前 9 项可通过数字键 1...9 一步打开。
+public struct FinderQuickPath: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var label: String
+    public var path: String
+
+    public init(id: UUID = UUID(), label: String, path: String) {
+        self.id = id
+        self.label = label
+        self.path = path
+    }
+
+    enum CodingKeys: String, CodingKey { case id, label, path }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        label = (try? container.decode(String.self, forKey: .label)) ?? "Folder"
+        path = (try? container.decode(String.self, forKey: .path)) ?? "~"
+    }
+}
+
 public struct ShelfSettings: Codable, Equatable, Sendable {
     public var tempTTLHours: UInt64
     public var addMode: StorageMode
     public var displayTarget: DisplayTarget
     public var language: AppLanguage
     public var hotkey: HotkeyShortcut?
-    /// Finder 定位功能的目标应用文件名，例如 gf.app。
+
+    /// 早期 Finder Spotlight 方案字段，保留用于配置向前兼容；快捷路径模式不再依赖它。
     public var finderRevealAppName: String
-    /// 在任意应用中触发 Spotlight 查询并让 Finder 选中目标应用。
+    /// Finder 快速路径启动器的全局快捷键。
     public var finderRevealHotkey: HotkeyShortcut?
+    /// 启动器初始选中的默认目录；直接回车即打开。
+    public var finderDefaultPath: String
+    /// 用户收藏目录；前 9 项分别绑定数字键 1...9。
+    public var finderQuickPaths: [FinderQuickPath]
 
     public init(
         tempTTLHours: UInt64 = 24,
@@ -73,7 +100,9 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         language: AppLanguage = .zhCN,
         hotkey: HotkeyShortcut? = nil,
         finderRevealAppName: String = "gf.app",
-        finderRevealHotkey: HotkeyShortcut? = nil
+        finderRevealHotkey: HotkeyShortcut? = nil,
+        finderDefaultPath: String = "~",
+        finderQuickPaths: [FinderQuickPath] = []
     ) {
         self.tempTTLHours = tempTTLHours
         self.addMode = addMode
@@ -82,6 +111,8 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         self.hotkey = hotkey
         self.finderRevealAppName = finderRevealAppName
         self.finderRevealHotkey = finderRevealHotkey
+        self.finderDefaultPath = finderDefaultPath
+        self.finderQuickPaths = Array(finderQuickPaths.prefix(9))
     }
 
     enum CodingKeys: String, CodingKey {
@@ -92,6 +123,8 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         case hotkey
         case finderRevealAppName = "finder_reveal_app_name"
         case finderRevealHotkey = "finder_reveal_hotkey"
+        case finderDefaultPath = "finder_default_path"
+        case finderQuickPaths = "finder_quick_paths"
     }
 
     public init(from decoder: Decoder) throws {
@@ -103,6 +136,8 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         hotkey = try container.decodeIfPresent(HotkeyShortcut.self, forKey: .hotkey)
         finderRevealAppName = try container.decodeIfPresent(String.self, forKey: .finderRevealAppName) ?? "gf.app"
         finderRevealHotkey = try container.decodeIfPresent(HotkeyShortcut.self, forKey: .finderRevealHotkey)
+        finderDefaultPath = try container.decodeIfPresent(String.self, forKey: .finderDefaultPath) ?? "~"
+        finderQuickPaths = Array((try container.decodeIfPresent([FinderQuickPath].self, forKey: .finderQuickPaths) ?? []).prefix(9))
     }
 }
 
@@ -142,13 +177,25 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         self.fileExtension = fileExtension
     }
 
-    enum CodingKeys: String, CodingKey { case id, kind, title, content, pinned; case createdAt = "created_at"; case updatedAt = "updated_at"; case storageMode = "storage_mode"; case actionKind = "action_kind"; case fileExtension = "extension" }
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, content, pinned
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case storageMode = "storage_mode"
+        case actionKind = "action_kind"
+        case fileExtension = "extension"
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let uuid = try? container.decode(UUID.self, forKey: .id) { id = uuid }
-        else if let raw = try? container.decode(String.self, forKey: .id), let uuid = UUID(uuidString: raw) { id = uuid }
-        else { id = UUID() }
+        if let uuid = try? container.decode(UUID.self, forKey: .id) {
+            id = uuid
+        } else if let raw = try? container.decode(String.self, forKey: .id), let uuid = UUID(uuidString: raw) {
+            id = uuid
+        } else {
+            id = UUID()
+        }
+
         let rawKind = (try? container.decode(String.self, forKey: .kind)) ?? "text"
         kind = ShelfKind(legacyRawValue: rawKind)
         title = (try? container.decode(String.self, forKey: .title)) ?? "Untitled"
@@ -161,7 +208,10 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         fileExtension = try? container.decode(String.self, forKey: .fileExtension)
     }
 
-    private static func decodeTimestamp(_ container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> UInt64? {
+    private static func decodeTimestamp(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        key: CodingKeys
+    ) -> UInt64? {
         if let value = try? container.decode(UInt64.self, forKey: key) { return value }
         if let value = try? container.decode(Int64.self, forKey: key), value >= 0 { return UInt64(value) }
         if let value = try? container.decode(Double.self, forKey: key), value >= 0 { return UInt64(value) }
@@ -170,7 +220,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct ShelfStore: Codable, Equatable, Sendable {
-    public static let currentVersion = 20
+    public static let currentVersion = 21
+
     public var version: Int
     public var items: [ShelfItem]
     public var settings: ShelfSettings
@@ -192,5 +243,7 @@ public struct ShelfStore: Codable, Equatable, Sendable {
 }
 
 public enum ShelfClock {
-    public static func now() -> UInt64 { UInt64(Date().timeIntervalSince1970) }
+    public static func now() -> UInt64 {
+        UInt64(Date().timeIntervalSince1970)
+    }
 }
