@@ -3,20 +3,21 @@ import AppKit
 import Combine
 import OpsNotchCore
 
-/// Finder 定位功能的业务协调器：管理第二个全局快捷键，并调用 SpotlightRevealService。
+/// Finder 快速路径功能协调器：管理第二个全局快捷键，并呼出键盘优先的路径选择面板。
 @MainActor
 final class FinderRevealController: ObservableObject {
     @Published private(set) var hotkeyConflict = false
 
     private let model: AppModel
     private let hotkey: HotkeyService
-    private let spotlight = SpotlightRevealService()
+    private let launcher: FinderQuickLauncherWindowController
 
     init(model: AppModel) {
         self.model = model
+        launcher = FinderQuickLauncherWindowController(model: model)
         let service = CarbonHotkeyService(id: 2)
         hotkey = service
-        service.onFire = { [weak self] in self?.revealConfiguredApplication() }
+        service.onFire = { [weak self] in self?.launcher.toggle() }
         _ = service.apply(model.settings.finderRevealHotkey)
     }
 
@@ -36,19 +37,8 @@ final class FinderRevealController: ObservableObject {
         _ = hotkey.apply(model.settings.finderRevealHotkey)
     }
 
-    func revealConfiguredApplication() {
-        let name = model.settings.finderRevealAppName
-        spotlight.revealApplication(named: name) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .revealed:
-                break
-            case .notFound(let appName):
-                NSSound.beep()
-                let prefix = self.model.language == .zhCN ? "Spotlight 未找到应用：" : "Application not found in Spotlight:"
-                self.model.showToast("\(prefix) \(appName)")
-            }
-        }
+    func showLauncher() {
+        launcher.show()
     }
 }
 #endif
