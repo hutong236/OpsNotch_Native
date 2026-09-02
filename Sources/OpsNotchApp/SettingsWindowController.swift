@@ -24,7 +24,7 @@ final class SettingsWindowController {
         let view = SettingsView(model: model, loginItem: loginItem, finderReveal: finderReveal)
         let hosting = NSHostingView(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 680),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -76,7 +76,7 @@ struct SettingsView: View {
                         .font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 2)
                 }
 
-                group(model.language == .zhCN ? "Finder 快速定位" : "Finder Quick Reveal") {
+                group(model.language == .zhCN ? "Finder 快捷路径" : "Finder Quick Paths") {
                     FinderRevealSettingsView(model: model, controller: finderReveal)
                 }
 
@@ -107,7 +107,7 @@ struct SettingsView: View {
             }
             .padding(24)
         }
-        .frame(minWidth: 500, minHeight: 500)
+        .frame(minWidth: 600, minHeight: 620)
     }
 
     private var title: some View {
