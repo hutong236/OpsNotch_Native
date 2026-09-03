@@ -177,23 +177,35 @@ struct ShelfRootView: View {
                 .padding(30)
             }
         } else {
-            ScrollView {
-                // 单个 ForEach 渲染 Pinned+Recent:条目在分区间移动时仍是同一 ForEach 内的
-                // 位置变化,cell 内容会被更新;拆成两个 ForEach 会让 LazyVStack 跨块复用同
-                // id 的旧 cell(保留旧 item 与 hover 状态),置顶后行数据不刷新。
-                LazyVStack(spacing: 3) {
-                    ForEach(Array(model.visibleItems.enumerated()), id: \.element.id) { index, item in
-                        if index == 0, !groups.pinned.isEmpty {
-                            SectionHeader(title: L10n.text("pinned", model.language), count: groups.pinned.count)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    // 单个 ForEach 渲染 Pinned+Recent:条目在分区间移动时仍是同一 ForEach 内的
+                    // 位置变化,cell 内容会被更新;拆成两个 ForEach 会让 LazyVStack 跨块复用同
+                    // id 的旧 cell(保留旧 item 与 hover 状态),置顶后行数据不刷新。
+                    LazyVStack(spacing: 3) {
+                        ForEach(Array(model.visibleItems.enumerated()), id: \.element.id) { index, item in
+                            if index == 0, !groups.pinned.isEmpty {
+                                SectionHeader(title: L10n.text("pinned", model.language), count: groups.pinned.count)
+                            }
+                            if index == groups.pinned.count, !groups.recent.isEmpty {
+                                SectionHeader(title: L10n.text("recent", model.language), count: groups.recent.count, action: L10n.text("clear", model.language), onAction: model.clearRecent)
+                            }
+                            ShelfRowView(model: model, clipboard: clipboard, item: item)
+                                .id(item.id)
                         }
-                        if index == groups.pinned.count, !groups.recent.isEmpty {
-                            SectionHeader(title: L10n.text("recent", model.language), count: groups.recent.count, action: L10n.text("clear", model.language), onAction: model.clearRecent)
-                        }
-                        ShelfRowView(model: model, clipboard: clipboard, item: item)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+                }
+                // 键盘高亮变化时只做“确保当前行可见”的最小滚动；不指定 anchor，
+                // 避免每按一次方向键都把行强制居中，也不影响鼠标手动滚动。
+                // 延后一轮 runloop，可覆盖搜索/类型过滤导致 LazyVStack 同步重建的场景。
+                .onChange(of: model.highlightedID) { id in
+                    guard let id else { return }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(id)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 7)
             }
         }
     }
