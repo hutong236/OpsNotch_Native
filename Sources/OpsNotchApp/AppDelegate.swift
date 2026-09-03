@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let store = ShelfStoreService(rootURL: ShelfStoreService.defaultRootURL())
         model = AppModel(store: store)
         clipboard = ClipboardManager(model: model)
+        clipboard.startMonitoring()
         shelf = ShelfWindowController(model: model, clipboard: clipboard)
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
@@ -39,6 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.hotkey.apply(self.model.settings.hotkey)
             self.finderReveal.syncFromSettings()
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        clipboard?.stopMonitoring()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
