@@ -4,12 +4,39 @@ import OpsNotchCore
 
 @MainActor
 final class ClipboardManager {
+    /// NSPasteboard 没有提供通用剪贴板变更通知，因此使用轻量 changeCount 轮询。
+    /// 100ms 足以覆盖人工快速连续复制，同时每次只做整数比较，未变化时不会读取内容或写磁盘。
+    private static let pollIntervalNanoseconds: UInt64 = 100_000_000
+
     private let model: AppModel
     private var handledChangeCount: Int
+    private var monitorTask: Task<Void, Never>?
 
     init(model: AppModel) {
         self.model = model
         self.handledChangeCount = NSPasteboard.general.changeCount
+    }
+
+    /// 应用启动后持续监听系统剪贴板，避免两次触碰 Sensor 之间连续复制的中间内容被覆盖丢失。
+    /// 重复调用是幂等的，生命周期由 AppDelegate 显式启动/停止。
+    func startMonitoring() {
+        guard monitorTask == nil else { return }
+        monitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: Self.pollIntervalNanoseconds)
+                } catch {
+                    break
+                }
+                guard let self else { break }
+                _ = self.catchIfChanged()
+            }
+        }
+    }
+
+    func stopMonitoring() {
+        monitorTask?.cancel()
+        monitorTask = nil
     }
 
     @discardableResult

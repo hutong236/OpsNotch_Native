@@ -101,7 +101,7 @@ NSPasteboard.general.changeCount
         作为 baseline
 ```
 
-用户复制后触碰 Sensor：
+由于 `NSPasteboard` 没有通用的剪贴板变更通知，`ClipboardManager` 在应用生命周期内以 100ms 间隔轻量检查 `changeCount`：
 
 ```text
 changeCount changed
@@ -111,7 +111,9 @@ read .string
 add Text to Recent
 ```
 
-如果 Text 是 Ops Notch 自己点击复制产生，ClipboardManager 会立即更新 baseline，避免下一次碰刘海又把同一个内容重新加入。
+没有变化时只做整数比较，不读取内容也不写磁盘。Sensor 的 `mouseEntered` 仍会调用一次 `catchIfChanged()` 作为即时兜底，因此连续复制多段文字时不需要每复制一次都先触碰刘海。
+
+如果 Text 是 Ops Notch 自己点击复制产生，ClipboardManager 会立即更新 baseline，避免监控任务把同一个内容重新加入 Recent。
 
 ## 6. 数据安全
 
