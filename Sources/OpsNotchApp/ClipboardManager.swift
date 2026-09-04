@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import Foundation
 import OpsNotchCore
 
 @MainActor
@@ -7,10 +8,15 @@ final class ClipboardManager {
     /// NSPasteboard 没有提供通用剪贴板变更通知，因此使用轻量 changeCount 轮询。
     /// 100ms 足以覆盖人工快速连续复制，同时每次只做整数比较，未变化时不会读取内容或写磁盘。
     private static let pollIntervalNanoseconds: UInt64 = 100_000_000
+    /// 某些应用一次 ⌘C 会连续更新多个 pasteboard flavor，changeCount 会变化多次但文本相同。
+    /// 短时间内相同文本只消费一次；更长时间后的重复复制交给 store 层复用旧条目并刷新时间。
+    private static let duplicateSuppressionInterval: TimeInterval = 1.0
 
     private let model: AppModel
     private var handledChangeCount: Int
     private var monitorTask: Task<Void, Never>?
+    private var lastCapturedText: String?
+    private var lastCapturedAt: TimeInterval = 0
 
     init(model: AppModel) {
         self.model = model
@@ -44,9 +50,19 @@ final class ClipboardManager {
         let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount != handledChangeCount else { return false }
         handledChangeCount = pasteboard.changeCount
-        guard let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else { return false }
-        model.addText(text)
+        guard let rawText = pasteboard.string(forType: .string) else { return false }
+
+        let text = normalizedClipboardText(rawText)
+        guard !text.isEmpty else { return false }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        if text == lastCapturedText, now - lastCapturedAt < Self.duplicateSuppressionInterval {
+            return false
+        }
+        lastCapturedText = text
+        lastCapturedAt = now
+
+        model.captureClipboardText(text)
         return true
     }
 
@@ -73,6 +89,13 @@ final class ClipboardManager {
 
     func markCurrentAsHandled() {
         handledChangeCount = NSPasteboard.general.changeCount
+    }
+
+    private func normalizedClipboardText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 #endif
