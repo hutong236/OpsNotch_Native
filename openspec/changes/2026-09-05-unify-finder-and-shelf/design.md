@@ -48,16 +48,16 @@ Finder 默认路径固定首位；收藏使用 `FinderQuickPathRanking.ranked()`
 
 ## Finder 打开
 
-`ShelfWindowController` 持有 `FinderWindowService` 并向 AppModel 注入打开回调。成功打开收藏路径后更新 useCount / lastUsedAt；失败显示现有错误提示。
+`UnifiedFinderCoordinator` 位于 AppKit/App 层，持有 `FinderWindowService` 并由 `AppDelegate` 向 `AppModel` 注入 Finder 打开回调。执行 Finder 条目时先收起统一 Shelf，再使用当前 Finder 打开模式打开目录；成功打开收藏路径后更新 useCount / lastUsedAt，失败沿用现有提示。
 
 ## Finder 兼容快捷键
 
 `FinderRevealController` 不再创建独立 Finder Launcher 作为主要 UI。它接收统一 Shelf 的 summon 回调：
 
-- Finder 兼容热键触发 → 打开统一 Quick Shelf
+- Finder 兼容热键触发 → 清除临时搜索与类型筛选 → 打开统一 Quick Shelf
 - 高亮优先设为 `finder:default`
 
-保留设置字段和注册方式，不破坏历史配置。
+保留设置字段和 Carbon 热键注册方式，不破坏历史配置。
 
 ## 鼠标交互
 
@@ -73,4 +73,4 @@ Shelf 行保持现有按钮、右键和拖拽行为。
 - 不删除旧 Finder Window Service。
 - 不修改 ClipboardManager 的捕获和二次复制逻辑。
 - 不新增辅助功能/Input Monitoring 权限。
-- 旧 Finder Launcher 类可以暂时保留为未使用兼容代码，后续单独清理，降低本次回归范围。
+- 旧 Finder Launcher 类暂时保留为未使用兼容代码，后续可单独清理，降低本次回归范围。
