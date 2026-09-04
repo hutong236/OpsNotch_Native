@@ -11,8 +11,15 @@ struct FinderRevealSettingsView: View {
     var body: some View {
         VStack(spacing: 11) {
             HStack {
-                Text(model.language == .zhCN ? "快捷路径快捷键" : "Quick path hotkey")
-                    .font(.system(size: 12))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.language == .zhCN ? "Finder 兼容快捷键" : "Finder compatibility hotkey")
+                        .font(.system(size: 12))
+                    Text(model.language == .zhCN
+                         ? "可选：与主快捷键打开同一个 Quick Shelf，并直接定位默认目录。"
+                         : "Optional: opens the same Quick Shelf as the main hotkey and focuses the default folder.")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 FinderRevealHotkeyRecorderView(model: model, controller: controller)
             }
@@ -56,7 +63,7 @@ struct FinderRevealSettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(model.language == .zhCN ? "收藏目录（数字 1–9）" : "Favorite folders (1–9)")
+                    Text(model.language == .zhCN ? "收藏目录" : "Favorite folders")
                         .font(.system(size: 12, weight: .medium))
                     Spacer()
                     Button(model.language == .zhCN ? "添加目录" : "Add Folder") { addFavorite() }
@@ -85,16 +92,16 @@ struct FinderRevealSettingsView: View {
 
                 if model.settings.finderQuickPaths.isEmpty {
                     Text(model.language == .zhCN
-                         ? "未收藏目录。添加后可在启动器中按数字键直接打开。"
-                         : "No favorites yet. Add folders to open them directly with number keys.")
+                         ? "未收藏目录。添加后会出现在统一 Quick Shelf 的 Finder 分区。"
+                         : "No favorites yet. Added folders appear in the Finder section of the unified Quick Shelf.")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
             }
 
             Text(model.language == .zhCN
-                 ? "快捷键弹出路径面板；默认路径始终在首行。收藏目录会按最近使用和使用频率自动靠前，但数字 1–9 的绑定始终固定不变。↑↓选择，回车打开当前项；直接回车打开默认路径。“优先 Tab”模式会先激活已有的同路径窗口。"
-                 : "The hotkey opens a path panel with the default path always first. Favorites are visually reordered by recent and frequent use, while number bindings 1–9 never change. Use ↑↓ and Return, or press Return immediately for the default path. Prefer Tab first activates an existing Finder window for the same path.")
+                 ? "默认路径始终位于统一 Quick Shelf 的 Finder 分区首行；收藏目录按最近使用和使用频率自动靠前。使用主 Quick Shelf 快捷键即可同时搜索目录、文件和剪贴板内容；这里的 Finder 快捷键仅作为老用户兼容入口。"
+                 : "The default folder is always first in the Finder section of the unified Quick Shelf; favorites move up by recent and frequent use. The main Quick Shelf hotkey searches folders, files, and clipboard content together; this Finder hotkey remains only as a compatibility shortcut.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

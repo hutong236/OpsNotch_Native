@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
     private var hotkey: HotkeyService!
     private var finderReveal: FinderRevealController!
+    private var unifiedFinder: UnifiedFinderCoordinator!
     private var inputMethodManager: InputMethodManager!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -25,12 +26,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
 
+        unifiedFinder = UnifiedFinderCoordinator(model: model, shelf: shelf)
+        model.requestOpenFinderPath = { [weak unifiedFinder] path, quickPathID in
+            unifiedFinder?.open(path: path, quickPathID: quickPathID)
+        }
+
         hotkey = CarbonHotkeyService(id: 1)
         hotkey.onFire = { [weak self] in self?.shelf.toggleSummon() }
         model.hotkeyApply = { [weak hotkey] shortcut in hotkey?.apply(shortcut) }
         hotkey.apply(model.settings.hotkey)
 
-        finderReveal = FinderRevealController(model: model)
+        finderReveal = FinderRevealController(model: model) { [weak self] in
+            guard let self else { return }
+            if self.shelf.isPanelVisible {
+                self.model.highlightFinderDefault()
+            } else {
+                self.shelf.toggleSummon()
+            }
+        }
         inputMethodManager = InputMethodManager()
         settingsWindow = SettingsWindowController(
             model: model,
