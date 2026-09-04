@@ -38,10 +38,6 @@ struct ShelfRootView: View {
         .sheet(item: $model.editorDraft) { draft in
             ItemEditorView(model: model, draft: draft)
         }
-        // 展开即聚焦(键盘取回流):focusRequestToken 是面板层发来的一次性聚焦请求,
-        // 同时把高亮重置到第一行。隐藏面板时令牌被清空,确保每次展开都触发。
-        // Tab 重聚焦场景下 SwiftUI 侧 FocusState 可能仍为 true(AppKit field editor 已失焦
-        // 但焦点态未同步),直接赋 true 是 no-op——先归 false、下一 runloop 再置 true 强制重聚焦。
         .onReceive(model.$focusRequestToken) { token in
             guard token != nil else { return }
             if searchFocused {
@@ -50,7 +46,7 @@ struct ShelfRootView: View {
             } else {
                 searchFocused = true
             }
-            model.highlightedID = model.visibleItems.first?.id
+            model.resetQuickHighlight()
         }
     }
 
@@ -58,7 +54,7 @@ struct ShelfRootView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.text("quickShelf", model.language)).font(.system(size: 13, weight: .semibold))
-                Text("File · Text · URL · Mac").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text("Finder · File · Text · URL · Mac").font(.system(size: 9)).foregroundStyle(.secondary)
             }
             Spacer()
             Menu {
@@ -82,7 +78,7 @@ struct ShelfRootView: View {
     private var search: some View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField(L10n.text("search", model.language), text: $model.query)
+            TextField(L10n.text("searchUnified", model.language), text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
                 .focused($searchFocused)
@@ -98,7 +94,6 @@ struct ShelfRootView: View {
         .padding(.bottom, 9)
     }
 
-    /// 类型筛选 chips:⌘1~⌘5 与之一一对应(见 ShelfWindowController 键盘接管)。
     private var filterChips: some View {
         HStack(spacing: 6) {
             ForEach(filterChipsData, id: \.0) { filter, title in
@@ -158,7 +153,8 @@ struct ShelfRootView: View {
     @ViewBuilder
     private var content: some View {
         let groups = model.grouped
-        if groups.pinned.isEmpty && groups.recent.isEmpty {
+        let finderEntries = model.visibleFinderEntries
+        if finderEntries.isEmpty && groups.pinned.isEmpty && groups.recent.isEmpty {
             if model.query.isEmpty && model.kindFilter == .all {
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.system(size: 24, weight: .light)).foregroundStyle(.secondary)
@@ -168,7 +164,6 @@ struct ShelfRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(30)
             } else {
-                // 有筛选/搜索词时的"无匹配"空态,与真正空柜的引导提示区分。
                 VStack(spacing: 8) {
                     Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 24, weight: .light)).foregroundStyle(.secondary)
                     Text(L10n.text("noMatch", model.language)).font(.system(size: 12, weight: .semibold))
@@ -179,10 +174,15 @@ struct ShelfRootView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    // 单个 ForEach 渲染 Pinned+Recent:条目在分区间移动时仍是同一 ForEach 内的
-                    // 位置变化,cell 内容会被更新;拆成两个 ForEach 会让 LazyVStack 跨块复用同
-                    // id 的旧 cell(保留旧 item 与 hover 状态),置顶后行数据不刷新。
                     LazyVStack(spacing: 3) {
+                        if !finderEntries.isEmpty {
+                            SectionHeader(title: L10n.text("finderQuickPaths", model.language), count: finderEntries.count)
+                            ForEach(finderEntries) { entry in
+                                FinderQuickShelfRowView(model: model, clipboard: clipboard, entry: entry)
+                                    .id(entry.id)
+                            }
+                        }
+
                         ForEach(Array(model.visibleItems.enumerated()), id: \.element.id) { index, item in
                             if index == 0, !groups.pinned.isEmpty {
                                 SectionHeader(title: L10n.text("pinned", model.language), count: groups.pinned.count)
@@ -191,16 +191,13 @@ struct ShelfRootView: View {
                                 SectionHeader(title: L10n.text("recent", model.language), count: groups.recent.count, action: L10n.text("clear", model.language), onAction: model.clearRecent)
                             }
                             ShelfRowView(model: model, clipboard: clipboard, item: item)
-                                .id(item.id)
+                                .id(model.quickEntryID(for: item))
                         }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 7)
                 }
-                // 键盘高亮变化时只做“确保当前行可见”的最小滚动；不指定 anchor，
-                // 避免每按一次方向键都把行强制居中，也不影响鼠标手动滚动。
-                // 延后一轮 runloop，可覆盖搜索/类型过滤导致 LazyVStack 同步重建的场景。
-                .onChange(of: model.highlightedID) { id in
+                .onChange(of: model.highlightedQuickEntryID) { id in
                     guard let id else { return }
                     DispatchQueue.main.async {
                         proxy.scrollTo(id)
@@ -214,7 +211,7 @@ struct ShelfRootView: View {
         HStack {
             Text(L10n.text("clipboardHint", model.language))
             Spacer()
-            Text("Pinned + Recent")
+            Text(L10n.text("unifiedFooter", model.language))
         }
         .font(.system(size: 9))
         .foregroundStyle(.secondary)
@@ -283,6 +280,69 @@ private struct SectionHeader: View {
     }
 }
 
+private struct FinderQuickShelfRowView: View {
+    @ObservedObject var model: AppModel
+    let clipboard: ClipboardManager
+    let entry: QuickShelfEntry
+    @State private var hovered = false
+
+    private var highlighted: Bool { model.highlightedQuickEntryID == entry.id }
+    private var path: String { entry.finderPath ?? "" }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                    Text(path).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { model.openFinderEntry(entry) }
+
+            Spacer(minLength: 4)
+
+            if hovered {
+                Image(systemName: "doc.on.doc")
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        clipboard.copyFromApp(path)
+                        model.showToast(L10n.text("pathCopied", model.language))
+                    }
+                Image(systemName: "arrow.up.right.square")
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.openFinderEntry(entry) }
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 42)
+        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay {
+            if highlighted {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(.white.opacity(0.55), lineWidth: 1)
+                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .allowsHitTesting(false)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .contextMenu {
+            Button(L10n.text("openFolder", model.language)) { model.openFinderEntry(entry) }
+            Button(L10n.text("copyPath", model.language)) {
+                clipboard.copyFromApp(path)
+                model.showToast(L10n.text("pathCopied", model.language))
+            }
+        }
+    }
+}
+
 struct ShelfRowView: View {
     @ObservedObject var model: AppModel
     let clipboard: ClipboardManager
@@ -290,8 +350,7 @@ struct ShelfRowView: View {
     @State private var hovered = false
 
     private var selected: Bool { model.selection.contains(item.id) }
-    /// 键盘流高亮(单一当前行),与多选 selection 的蓝底样式区分。
-    private var highlighted: Bool { model.highlightedID == item.id }
+    private var highlighted: Bool { model.highlightedQuickEntryID == model.quickEntryID(for: item) }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -316,17 +375,12 @@ struct ShelfRowView: View {
         .background(selected ? Color.accentColor.opacity(0.12) : hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay {
             if highlighted && !selected {
-                // 白描边 + 浅底:键盘流“当前行”指示,与多选蓝底、悬停灰底都不同。
-                // 必须 allowsHitTesting(false):overlay 在行内容之上,否则浅底
-                // 会拦截整行点击(高亮默认落在第一行,首行按钮/单击全部失效)。
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .strokeBorder(.white.opacity(0.55), lineWidth: 1)
                     .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .allowsHitTesting(false)
             }
         }
-        // 仅为右键菜单提供整行命中区域;单击手势只挂在 leading 上,
-        // 避免与悬停操作按钮发生手势仲裁(行级单击会把按钮点击抢成默认动作)。
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .contextMenu {
@@ -355,8 +409,6 @@ struct ShelfRowView: View {
         }
     }
 
-    /// 左侧图标 + 标题/副标题:行的单击(默认动作/多选)只挂在这里,
-    /// 与行尾悬停按钮隔离,按钮点击不再被行级手势抢占。
     private var leading: some View {
         HStack(spacing: 8) {
             itemIcon
@@ -409,9 +461,6 @@ struct ShelfRowView: View {
         .font(.system(size: 11))
     }
 
-    /// 行内操作按钮不用 Button:懒加载栈里行级手势与 Button 的仲裁在部分
-    /// macOS 版本上会把按钮点击抢成默认动作;图标 + onTapGesture 是最深层
-    /// 手势,必胜且无仲裁环节。也不要加 .help(会包 accessory 视图影响命中)。
     private func actionIcon(_ symbol: String, action: @escaping () -> Void) -> some View {
         Image(systemName: symbol)
             .frame(width: 18, height: 18)
