@@ -1,3 +1,25 @@
 # Tasks
 
-Placeholder.
+- [x] 创建 V2 Epic / Issue #23。
+- [x] 创建 `feature/smart-quick-shelf-v2` 开发分支。
+- [x] 完成 proposal / design / specification。
+- [ ] Core：ShelfItem 增加 useCount / lastUsedAt，保持旧 JSON 兼容。
+- [ ] Core：ShelfSettings 增加 workingSetItemIDs，保持旧 JSON 兼容。
+- [ ] Core：新增 SemanticKind 与本地识别器。
+- [ ] Core：新增 AppContextKind / SmartScore 排序逻辑。
+- [ ] Core：ShelfStoreService 增加 recordUse，并在删除/过期时清理 Working Set。
+- [ ] Core Tests：语义识别、评分、数据兼容、Working Set、recordUse。
+- [ ] App：前台 App 上下文检测（Finder / terminal / browser / generic）。
+- [ ] App：有边界 LocalFileSearchService。
+- [ ] AppModel：Working Set 分区与智能 Recent 排序。
+- [ ] AppModel：local file/folder 临时结果进入统一 QuickEntry 导航。
+- [ ] UI：Working Set 分区、加入/移除/清空操作。
+- [ ] UI：语义类型轻量 badge/icon。
+- [ ] UI：Local file/folder 搜索结果与默认动作。
+- [ ] Keyboard：↑/↓、Enter、Space 跨全部 V2 分区保持一致。
+- [ ] Regression：文件二次取回保持 file URL pasteboard 语义。
+- [ ] 更新中英文文案与 `VERIFY_ON_MAC.md`。
+- [ ] `swift test` 通过。
+- [ ] `swift build` 通过。
+- [ ] `python3 scripts/static_checks.py` 通过。
+- [ ] 创建 PR 并通过 GitHub Actions。
