@@ -40,6 +40,7 @@ struct ShelfRootView: View {
         }
         .onReceive(model.$focusRequestToken) { token in
             guard token != nil else { return }
+            model.refreshSmartContext()
             if searchFocused {
                 searchFocused = false
                 DispatchQueue.main.async { searchFocused = true }
@@ -54,7 +55,7 @@ struct ShelfRootView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.text("quickShelf", model.language)).font(.system(size: 13, weight: .semibold))
-                Text("Finder · File · Text · URL · Mac").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text("Smart · Finder · Clipboard").font(.system(size: 9)).foregroundStyle(.secondary)
             }
             Spacer()
             Menu {
@@ -153,8 +154,16 @@ struct ShelfRootView: View {
     @ViewBuilder
     private var content: some View {
         let groups = model.grouped
+        let working = model.workingSetItems
         let finderEntries = model.visibleFinderEntries
-        if finderEntries.isEmpty && groups.pinned.isEmpty && groups.recent.isEmpty {
+        let localEntries = model.visibleLocalEntries
+        let isEmpty = finderEntries.isEmpty
+            && working.isEmpty
+            && groups.pinned.isEmpty
+            && groups.recent.isEmpty
+            && localEntries.isEmpty
+
+        if isEmpty {
             if model.query.isEmpty && model.kindFilter == .all {
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.system(size: 24, weight: .light)).foregroundStyle(.secondary)
@@ -183,15 +192,46 @@ struct ShelfRootView: View {
                             }
                         }
 
-                        ForEach(Array(model.visibleItems.enumerated()), id: \.element.id) { index, item in
-                            if index == 0, !groups.pinned.isEmpty {
-                                SectionHeader(title: L10n.text("pinned", model.language), count: groups.pinned.count)
+                        if !working.isEmpty {
+                            SectionHeader(
+                                title: L10n.text("workingSet", model.language),
+                                count: working.count,
+                                action: L10n.text("clear", model.language),
+                                onAction: model.clearWorkingSet
+                            )
+                            ForEach(working) { item in
+                                ShelfRowView(model: model, clipboard: clipboard, item: item)
+                                    .id(model.quickEntryID(for: item))
                             }
-                            if index == groups.pinned.count, !groups.recent.isEmpty {
-                                SectionHeader(title: L10n.text("recent", model.language), count: groups.recent.count, action: L10n.text("clear", model.language), onAction: model.clearRecent)
+                        }
+
+                        if !groups.pinned.isEmpty {
+                            SectionHeader(title: L10n.text("pinned", model.language), count: groups.pinned.count)
+                            ForEach(groups.pinned) { item in
+                                ShelfRowView(model: model, clipboard: clipboard, item: item)
+                                    .id(model.quickEntryID(for: item))
                             }
-                            ShelfRowView(model: model, clipboard: clipboard, item: item)
-                                .id(model.quickEntryID(for: item))
+                        }
+
+                        if !groups.recent.isEmpty {
+                            SectionHeader(
+                                title: L10n.text("recent", model.language),
+                                count: groups.recent.count,
+                                action: L10n.text("clear", model.language),
+                                onAction: model.clearRecent
+                            )
+                            ForEach(groups.recent) { item in
+                                ShelfRowView(model: model, clipboard: clipboard, item: item)
+                                    .id(model.quickEntryID(for: item))
+                            }
+                        }
+
+                        if !localEntries.isEmpty {
+                            SectionHeader(title: L10n.text("localResults", model.language), count: localEntries.count)
+                            ForEach(localEntries) { entry in
+                                LocalQuickShelfRowView(model: model, clipboard: clipboard, entry: entry)
+                                    .id(entry.id)
+                            }
                         }
                     }
                     .padding(.horizontal, 8)
@@ -211,7 +251,7 @@ struct ShelfRootView: View {
         HStack {
             Text(L10n.text("clipboardHint", model.language))
             Spacer()
-            Text(L10n.text("unifiedFooter", model.language))
+            Text(contextLabel)
         }
         .font(.system(size: 9))
         .foregroundStyle(.secondary)
@@ -226,6 +266,15 @@ struct ShelfRootView: View {
                     .offset(y: -36)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
+        }
+    }
+
+    private var contextLabel: String {
+        switch model.appContext {
+        case .finder: return "Smart · Finder"
+        case .terminal: return "Smart · Terminal"
+        case .browser: return "Smart · Browser"
+        case .generic: return L10n.text("unifiedFooter", model.language)
         }
     }
 
@@ -253,7 +302,7 @@ struct ShelfRootView: View {
             Image(systemName: "tray.full").foregroundStyle(.secondary)
             Text(L10n.text("quickShelf", model.language)).font(.system(size: 11, weight: .semibold))
             Spacer()
-            Text("\(model.grouped.pinned.count) · \(model.grouped.recent.count)").font(.system(size: 9)).foregroundStyle(.secondary)
+            Text("\(model.visibleItems.count)").font(.system(size: 9)).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 14)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -343,6 +392,81 @@ private struct FinderQuickShelfRowView: View {
     }
 }
 
+private struct LocalQuickShelfRowView: View {
+    @ObservedObject var model: AppModel
+    let clipboard: ClipboardManager
+    let entry: QuickShelfEntry
+    @State private var hovered = false
+
+    private var highlighted: Bool { model.highlightedQuickEntryID == entry.id }
+    private var path: String { entry.localPath ?? "" }
+    private var isDirectory: Bool { entry.localIsDirectory ?? false }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 24, height: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                    Text(path).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { model.openLocalEntry(entry, using: clipboard) }
+
+            Spacer(minLength: 4)
+            if hovered {
+                if !isDirectory {
+                    Image(systemName: "eye")
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                        .onTapGesture { preview() }
+                }
+                Image(systemName: isDirectory ? "arrow.up.right.square" : "doc.on.doc")
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.openLocalEntry(entry, using: clipboard) }
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 42)
+        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay {
+            if highlighted {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(.white.opacity(0.55), lineWidth: 1)
+                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .allowsHitTesting(false)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .contextMenu {
+            Button(isDirectory ? L10n.text("openFolder", model.language) : L10n.text("copy", model.language)) {
+                model.openLocalEntry(entry, using: clipboard)
+            }
+            if !isDirectory {
+                Button(L10n.text("quickLook", model.language)) { preview() }
+                Button(L10n.text("reveal", model.language)) {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+            }
+            Button(L10n.text("copyPath", model.language)) {
+                clipboard.copyFromApp(path)
+                model.showToast(L10n.text("pathCopied", model.language))
+            }
+        }
+    }
+
+    private func preview() {
+        let item = ShelfItem(kind: .file, title: entry.title, content: path, storageMode: .reference)
+        QuickLookService.shared.preview(item)
+    }
+}
+
 struct ShelfRowView: View {
     @ObservedObject var model: AppModel
     let clipboard: ClipboardManager
@@ -387,7 +511,7 @@ struct ShelfRowView: View {
             if item.kind == .text || item.kind == .url {
                 Button(L10n.text("copy", model.language)) {
                     clipboard.copyFromApp(item.content)
-                    model.touchItem(item.id)
+                    model.recordUse(item.id)
                     model.showToast(L10n.text("copied", model.language))
                 }
             }
@@ -403,6 +527,9 @@ struct ShelfRowView: View {
                 Button(L10n.text("reveal", model.language)) { ItemActionService.reveal(item) }
             }
             Divider()
+            Button(model.isInWorkingSet(item) ? L10n.text("workingSetRemove", model.language) : L10n.text("workingSetAdd", model.language)) {
+                model.toggleWorkingSet(item)
+            }
             Button(item.pinned ? L10n.text("unpin", model.language) : L10n.text("pin", model.language)) { model.togglePin(item) }
             Button(L10n.text("edit", model.language)) { model.beginEdit(item) }
             Button(L10n.text("remove", model.language), role: .destructive) { model.remove(Set([item.id])) }
@@ -414,7 +541,17 @@ struct ShelfRowView: View {
             itemIcon
                 .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                    if let badge = semanticBadgeText {
+                        Text(badge)
+                            .font(.system(size: 7.5, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.primary.opacity(0.06), in: Capsule())
+                    }
+                }
                 Text(subtitle).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
         }
@@ -443,7 +580,7 @@ struct ShelfRowView: View {
             if item.kind == .text || item.kind == .url {
                 actionIcon("doc.on.doc") {
                     clipboard.copyFromApp(item.content)
-                    model.touchItem(item.id)
+                    model.recordUse(item.id)
                     model.showToast(L10n.text("copied", model.language))
                 }
             }
@@ -455,6 +592,7 @@ struct ShelfRowView: View {
                     FloatingPreviewController.shared.show(item: item, language: model.language)
                 }
             }
+            actionIcon(model.isInWorkingSet(item) ? "tray.full.fill" : "tray.full") { model.toggleWorkingSet(item) }
             actionIcon(item.pinned ? "pin.slash" : "pin") { model.togglePin(item) }
         }
         .foregroundStyle(.secondary)
@@ -468,14 +606,32 @@ struct ShelfRowView: View {
             .onTapGesture { action() }
     }
 
+    private var semanticBadgeText: String? {
+        switch model.semanticKind(for: item) {
+        case .ipv4: return L10n.text("semanticIP", model.language)
+        case .ssh: return L10n.text("semanticSSH", model.language)
+        case .command: return L10n.text("semanticCommand", model.language)
+        case .path: return L10n.text("semanticPath", model.language)
+        case .url where item.kind == .text: return L10n.text("semanticURL", model.language)
+        default: return nil
+        }
+    }
+
     private var symbolName: String {
-        switch item.kind {
-        case .text: return "doc.text"
-        case .url: return "globe"
-        case .action: return "play.circle"
-        case .file: return "doc"
-        case .folder: return "folder"
-        case .application: return "app"
+        switch model.semanticKind(for: item) {
+        case .ipv4: return "network"
+        case .ssh: return "terminal"
+        case .command: return "chevron.left.forwardslash.chevron.right"
+        case .path: return "point.topleft.down.curvedto.point.bottomright.up"
+        default:
+            switch item.kind {
+            case .text: return "doc.text"
+            case .url: return "globe"
+            case .action: return "play.circle"
+            case .file: return "doc"
+            case .folder: return "folder"
+            case .application: return "app"
+            }
         }
     }
 
