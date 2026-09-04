@@ -96,7 +96,7 @@ final class SmartShelfRankingTests: XCTestCase {
     }
 
     func testQueryMatchTierCannotBeOvertakenByContextOrFrequency() {
-        let now: UInt64 = 31_000
+        let now: UInt64 = 1_000_000
         let exact = ShelfItem(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
             kind: .text,
