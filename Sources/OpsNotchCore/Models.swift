@@ -110,6 +110,8 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
     public var finderDefaultPath: String
     /// 用户收藏目录；数组位置固定绑定数字键 1...9，展示顺序可独立动态调整。
     public var finderQuickPaths: [FinderQuickPath]
+    /// Smart Quick Shelf V2 工作集，仅保存 ShelfItem ID；最多保留 64 项。
+    public var workingSetItemIDs: [UUID]
 
     public init(
         tempTTLHours: UInt64 = 24,
@@ -120,7 +122,8 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         finderRevealAppName: String = "gf.app",
         finderRevealHotkey: HotkeyShortcut? = nil,
         finderDefaultPath: String = "~",
-        finderQuickPaths: [FinderQuickPath] = []
+        finderQuickPaths: [FinderQuickPath] = [],
+        workingSetItemIDs: [UUID] = []
     ) {
         self.tempTTLHours = tempTTLHours
         self.addMode = addMode
@@ -131,6 +134,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         self.finderRevealHotkey = finderRevealHotkey
         self.finderDefaultPath = finderDefaultPath
         self.finderQuickPaths = Array(finderQuickPaths.prefix(9))
+        self.workingSetItemIDs = Self.uniqueIDs(workingSetItemIDs, limit: 64)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -143,6 +147,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         case finderRevealHotkey = "finder_reveal_hotkey"
         case finderDefaultPath = "finder_default_path"
         case finderQuickPaths = "finder_quick_paths"
+        case workingSetItemIDs = "working_set_item_ids"
     }
 
     public init(from decoder: Decoder) throws {
@@ -156,6 +161,21 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         finderRevealHotkey = try container.decodeIfPresent(HotkeyShortcut.self, forKey: .finderRevealHotkey)
         finderDefaultPath = try container.decodeIfPresent(String.self, forKey: .finderDefaultPath) ?? "~"
         finderQuickPaths = Array((try container.decodeIfPresent([FinderQuickPath].self, forKey: .finderQuickPaths) ?? []).prefix(9))
+        workingSetItemIDs = Self.uniqueIDs(
+            try container.decodeIfPresent([UUID].self, forKey: .workingSetItemIDs) ?? [],
+            limit: 64
+        )
+    }
+
+    private static func uniqueIDs(_ ids: [UUID], limit: Int) -> [UUID] {
+        var seen = Set<UUID>()
+        var result: [UUID] = []
+        for id in ids where !seen.contains(id) {
+            seen.insert(id)
+            result.append(id)
+            if result.count >= limit { break }
+        }
+        return result
     }
 }
 
@@ -170,6 +190,10 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
     public var storageMode: StorageMode?
     public var actionKind: SafeActionKind?
     public var fileExtension: String?
+    /// V2：成功默认取回/使用次数。
+    public var useCount: UInt64
+    /// V2：最近一次成功使用时间（Unix seconds）。0 表示从未使用。
+    public var lastUsedAt: UInt64
 
     public init(
         id: UUID = UUID(),
@@ -181,7 +205,9 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         updatedAt: UInt64 = ShelfClock.now(),
         storageMode: StorageMode? = nil,
         actionKind: SafeActionKind? = nil,
-        fileExtension: String? = nil
+        fileExtension: String? = nil,
+        useCount: UInt64 = 0,
+        lastUsedAt: UInt64 = 0
     ) {
         self.id = id
         self.kind = kind
@@ -193,6 +219,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         self.storageMode = storageMode
         self.actionKind = actionKind
         self.fileExtension = fileExtension
+        self.useCount = useCount
+        self.lastUsedAt = lastUsedAt
     }
 
     enum CodingKeys: String, CodingKey {
@@ -202,6 +230,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         case storageMode = "storage_mode"
         case actionKind = "action_kind"
         case fileExtension = "extension"
+        case useCount = "use_count"
+        case lastUsedAt = "last_used_at"
     }
 
     public init(from decoder: Decoder) throws {
@@ -224,6 +254,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         storageMode = try? container.decode(StorageMode.self, forKey: .storageMode)
         actionKind = try? container.decode(SafeActionKind.self, forKey: .actionKind)
         fileExtension = try? container.decode(String.self, forKey: .fileExtension)
+        useCount = (try? container.decode(UInt64.self, forKey: .useCount)) ?? 0
+        lastUsedAt = Self.decodeTimestamp(container, key: .lastUsedAt) ?? 0
     }
 
     private static func decodeTimestamp(
@@ -238,7 +270,7 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct ShelfStore: Codable, Equatable, Sendable {
-    public static let currentVersion = 22
+    public static let currentVersion = 23
 
     public var version: Int
     public var items: [ShelfItem]
