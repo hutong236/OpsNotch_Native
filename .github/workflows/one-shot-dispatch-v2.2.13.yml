@@ -1,0 +1,24 @@
+name: one-shot-dispatch-v2.2.13
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-dispatch-v2.2.13.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch package workflow for v2.2.13
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.2.13
+          echo "Dispatched package-app.yml for v2.2.13"
