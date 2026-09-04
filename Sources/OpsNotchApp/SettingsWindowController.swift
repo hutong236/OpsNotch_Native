@@ -7,12 +7,14 @@ import OpsNotchCore
 final class SettingsWindowController {
     private let model: AppModel
     private let finderReveal: FinderRevealController
+    private let inputMethodManager: InputMethodManager
     private let loginItem = LoginItemService()
     private var window: NSWindow?
 
-    init(model: AppModel, finderReveal: FinderRevealController) {
+    init(model: AppModel, finderReveal: FinderRevealController, inputMethodManager: InputMethodManager) {
         self.model = model
         self.finderReveal = finderReveal
+        self.inputMethodManager = inputMethodManager
     }
 
     func show() {
@@ -21,10 +23,15 @@ final class SettingsWindowController {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let view = SettingsView(model: model, loginItem: loginItem, finderReveal: finderReveal)
+        let view = SettingsView(
+            model: model,
+            loginItem: loginItem,
+            finderReveal: finderReveal,
+            inputMethodManager: inputMethodManager
+        )
         let hosting = NSHostingView(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 760),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -43,6 +50,7 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var loginItem: LoginItemService
     @ObservedObject var finderReveal: FinderRevealController
+    @ObservedObject var inputMethodManager: InputMethodManager
 
     var body: some View {
         ScrollView {
@@ -74,6 +82,10 @@ struct SettingsView: View {
                     settingRow(L10n.text("hotkeyRow", model.language)) { HotkeyRecorderView(model: model) }
                     Text(L10n.text("hotkeyHint", model.language))
                         .font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 2)
+                }
+
+                group(model.language == .zhCN ? "输入法管理" : "Input Method Manager") {
+                    InputMethodSettingsView(model: model, manager: inputMethodManager)
                 }
 
                 group(model.language == .zhCN ? "Finder 快捷路径" : "Finder Quick Paths") {

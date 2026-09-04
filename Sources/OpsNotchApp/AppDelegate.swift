@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
     private var hotkey: HotkeyService!
     private var finderReveal: FinderRevealController!
+    private var inputMethodManager: InputMethodManager!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -30,7 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.apply(model.settings.hotkey)
 
         finderReveal = FinderRevealController(model: model)
-        settingsWindow = SettingsWindowController(model: model, finderReveal: finderReveal)
+        inputMethodManager = InputMethodManager()
+        settingsWindow = SettingsWindowController(
+            model: model,
+            finderReveal: finderReveal,
+            inputMethodManager: inputMethodManager
+        )
         statusBar = StatusBarController(model: model, shelf: shelf, sensors: sensors, settings: settingsWindow)
 
         model.settingsDidChange = { [weak self] in
