@@ -187,7 +187,9 @@ public final class ShelfStoreService: @unchecked Sendable {
 
     @discardableResult
     public func clearRecent() throws -> ShelfStore {
-        let ids = Set((try load()).items.filter { !$0.pinned }.map(\.id))
+        let value = try load()
+        let workingSetIDs = Set(value.settings.workingSetItemIDs)
+        let ids = Set(value.items.filter { !$0.pinned && !workingSetIDs.contains($0.id) }.map(\.id))
         return try remove(ids: ids)
     }
 
