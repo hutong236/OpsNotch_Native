@@ -38,7 +38,10 @@ final class FinderRevealController: ObservableObject {
     }
 
     /// 方法名保留兼容现有设置页/状态栏调用；实际打开统一 Quick Shelf。
+    /// Finder 兼容热键代表明确的“我要目录”意图，因此清除临时搜索/类型筛选并定位默认目录。
     func showLauncher() {
+        model.query = ""
+        model.setKindFilter(to: .all)
         summonUnifiedShelf()
         model.highlightFinderDefault()
     }
