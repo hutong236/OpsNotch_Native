@@ -11,15 +11,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var settings = ShelfSettings()
     @Published var query = "" {
         didSet {
-            // 过滤结果变化后,高亮回落到新的第一行。
-            highlightedID = visibleItems.first?.id
+            resetQuickHighlight()
         }
     }
     /// 类型筛选(全部/文件/文本/URL/应用),与搜索词叠加;仅会话内有效,不落盘。
     @Published var kindFilter: ShelfKindFilter = .all {
         didSet {
-            // 与 query.didSet 同规则:过滤结果变化后高亮回落首行。
-            highlightedID = visibleItems.first?.id
+            resetQuickHighlight()
         }
     }
     @Published var selection: Set<UUID> = []
@@ -29,8 +27,8 @@ final class AppModel: ObservableObject {
     /// 键盘流焦点请求令牌:ShelfWindowController 置为新 UUID 时,ShelfView 的搜索框应自动聚焦。
     /// 面板隐藏时清空,保证每次热键呼出都触发一次新的聚焦。
     @Published var focusRequestToken: UUID?
-    /// 键盘流当前高亮行,与多选 selection 语义/样式相互独立。
-    @Published var highlightedID: UUID?
+    /// 统一键盘流当前高亮条目。Finder 与 Shelf 共享稳定字符串 ID。
+    @Published var highlightedQuickEntryID: String?
 
     let store: ShelfStoreService
     var settingsDidChange: (() -> Void)?
@@ -39,6 +37,8 @@ final class AppModel: ObservableObject {
     var requestHide: (() -> Void)?
     /// Enter 复制后:短暂延迟收起面板(给 toast 留显示时间)。
     var requestDelayedHide: (() -> Void)?
+    /// Finder 路径执行通道，由 ShelfWindowController 注入并复用 FinderWindowService。
+    var requestOpenFinderPath: ((String, UUID?) -> Void)?
     /// 设置页写入快捷键的通道:先注册后落盘,注册失败(组合键被占用)不持久化。
     /// 由 AppDelegate 注入 HotkeyService.apply。
     var hotkeyApply: ((HotkeyShortcut?) -> HotkeyError?)?
@@ -57,29 +57,86 @@ final class AppModel: ObservableObject {
     var grouped: (pinned: [ShelfItem], recent: [ShelfItem]) { ShelfLogic.grouped(items, query: query, kindFilter: kindFilter) }
     var visibleItems: [ShelfItem] { grouped.pinned + grouped.recent }
 
-    func moveHighlight(_ delta: Int) {
-        let visible = visibleItems
-        guard !visible.isEmpty else {
-            highlightedID = nil
-            return
+    /// Finder 快捷路径只在“全部/文件”中出现，并与 Shelf 共用搜索框。
+    var visibleFinderEntries: [QuickShelfEntry] {
+        guard kindFilter == .all || kindFilter == .file else { return [] }
+
+        var entries: [QuickShelfEntry] = []
+        let defaultPath = expandedFinderPath(settings.finderDefaultPath)
+        let defaultTitle = L10n.text("finderDefaultPath", language)
+        if finderMatches(title: defaultTitle, path: defaultPath) {
+            entries.append(.finder(
+                id: QuickShelfEntry.finderDefaultID,
+                title: defaultTitle,
+                path: defaultPath,
+                quickPathID: nil
+            ))
         }
-        let index = visible.firstIndex { $0.id == highlightedID } ?? -1
-        let next = min(max(index + delta, 0), visible.count - 1)
-        highlightedID = visible[next].id
+
+        for ranked in FinderQuickPathRanking.ranked(settings.finderQuickPaths) {
+            let path = expandedFinderPath(ranked.item.path)
+            guard finderMatches(title: ranked.item.label, path: path) else { continue }
+            entries.append(.finder(
+                id: QuickShelfEntry.finderID(ranked.item.id),
+                title: ranked.item.label,
+                path: path,
+                quickPathID: ranked.item.id
+            ))
+        }
+        return entries
     }
 
-    /// Enter:复制高亮条目(只写剪贴板,不执行任何打开动作),刷新上浮并收起面板。
-    /// 与"复制所选"同一 payload 语义:文件/图片条目复制文件本身(文件 URL),
-    /// 文字/URL 复制文本——不再把文件路径当文本复制导致 Finder 粘贴无文件。
+    var visibleQuickEntries: [QuickShelfEntry] {
+        visibleFinderEntries + visibleItems.map(QuickShelfEntry.shelf)
+    }
+
+    func quickEntryID(for item: ShelfItem) -> String {
+        QuickShelfEntry.shelfID(item.id)
+    }
+
+    func moveHighlight(_ delta: Int) {
+        let visible = visibleQuickEntries
+        guard !visible.isEmpty else {
+            highlightedQuickEntryID = nil
+            return
+        }
+        let index = visible.firstIndex { $0.id == highlightedQuickEntryID } ?? -1
+        let next = min(max(index + delta, 0), visible.count - 1)
+        highlightedQuickEntryID = visible[next].id
+    }
+
+    /// Enter：Finder 项打开目录；Shelf 项继续按原 copy payload 语义取回。
+    /// 文件/图片条目仍写文件 URL，文字/URL 写文本，不把文件路径降级成字符串。
     func confirmHighlight(using clipboard: ClipboardManager) {
-        guard let id = highlightedID,
-              let item = visibleItems.first(where: { $0.id == id }) else { return }
-        let payload = ShelfLogic.copyPayload(items: [item])
-        guard !payload.isEmpty else { return }
-        clipboard.copyPayload(payload)
-        touchItem(id)
-        showToast(L10n.text("copied", language))
-        requestDelayedHide?()
+        guard let entry = highlightedQuickEntry else { return }
+        switch entry {
+        case .finder(_, _, let path, let quickPathID):
+            requestOpenFinderPath?(path, quickPathID)
+        case .shelf(let item):
+            let payload = ShelfLogic.copyPayload(items: [item])
+            guard !payload.isEmpty else { return }
+            clipboard.copyPayload(payload)
+            touchItem(item.id)
+            showToast(L10n.text("copied", language))
+            requestDelayedHide?()
+        }
+    }
+
+    func openFinderEntry(_ entry: QuickShelfEntry) {
+        guard case .finder(_, _, let path, let quickPathID) = entry else { return }
+        requestOpenFinderPath?(path, quickPathID)
+    }
+
+    func highlightFinderDefault() {
+        if visibleFinderEntries.contains(where: { $0.id == QuickShelfEntry.finderDefaultID }) {
+            highlightedQuickEntryID = QuickShelfEntry.finderDefaultID
+        } else {
+            resetQuickHighlight()
+        }
+    }
+
+    func resetQuickHighlight() {
+        highlightedQuickEntryID = visibleQuickEntries.first?.id
     }
 
     func escapeShelf() {
@@ -91,10 +148,9 @@ final class AppModel: ObservableObject {
         kindFilter = filter
     }
 
-    /// Space:Quick Look 预览键盘高亮条目(仅可预览类型),面板保持展开、不写剪贴板。
+    /// Space:Quick Look 预览键盘高亮的 Shelf 条目；Finder 路径不触发预览。
     func quickLookHighlighted() {
-        guard let id = highlightedID,
-              let item = visibleItems.first(where: { $0.id == id }),
+        guard case .shelf(let item)? = highlightedQuickEntry,
               ItemPreviewKind.isPreviewable(item) else { return }
         QuickLookService.shared.preview(item)
     }
@@ -105,6 +161,10 @@ final class AppModel: ObservableObject {
             items = value.items
             settings = value.settings
             selection = selection.intersection(Set(items.map(\.id)))
+            if highlightedQuickEntryID != nil,
+               !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
+                resetQuickHighlight()
+            }
         } catch {
             showToast(error.localizedDescription)
         }
@@ -117,6 +177,10 @@ final class AppModel: ObservableObject {
             let storeValue = try store.updateSettings(next)
             settings = storeValue.settings
             items = storeValue.items
+            if highlightedQuickEntryID != nil,
+               !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
+                resetQuickHighlight()
+            }
             settingsDidChange?()
         } catch { showToast(error.localizedDescription) }
     }
@@ -241,7 +305,6 @@ final class AppModel: ObservableObject {
     func copySelected(using clipboard: ClipboardManager) {
         let selected = visibleItems.filter { selection.contains($0.id) }
         let payload = ShelfLogic.copyPayload(items: selected)
-        // 理论上非空选择必产出 payload(全部 kind 均已归类),guard 仅为防御未来新增 kind 漏归类
         guard !payload.isEmpty else { return }
         clipboard.copyPayload(payload)
         showToast(L10n.text("copied", language))
@@ -278,16 +341,35 @@ final class AppModel: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url { addApplication(url) }
     }
 
+    private var highlightedQuickEntry: QuickShelfEntry? {
+        guard let id = highlightedQuickEntryID else { return nil }
+        return visibleQuickEntries.first(where: { $0.id == id })
+    }
+
+    private func finderMatches(title: String, path: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        return title.localizedCaseInsensitiveContains(trimmed)
+            || path.localizedCaseInsensitiveContains(trimmed)
+    }
+
+    private func expandedFinderPath(_ rawPath: String) -> String {
+        NSString(string: rawPath).expandingTildeInPath
+    }
+
     private func apply(_ storeValue: ShelfStore) {
         let knownIDs = Set(items.map(\.id))
         items = storeValue.items
         settings = storeValue.settings
-        // 新条目若会被当前类型筛选隐藏,筛选回到"全部",保证刚放入的条目可见。
         if kindFilter != .all {
             let incoming = storeValue.items.filter { !knownIDs.contains($0.id) }
             if incoming.contains(where: { !ShelfLogic.matches($0, query: "", kindFilter: kindFilter) }) {
                 kindFilter = .all
             }
+        }
+        if highlightedQuickEntryID == nil
+            || !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
+            resetQuickHighlight()
         }
     }
 }
