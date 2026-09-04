@@ -95,6 +95,36 @@ final class SmartShelfRankingTests: XCTestCase {
         XCTAssertEqual(ordered.first?.id, matchingText.id)
     }
 
+    func testQueryMatchTierCannotBeOvertakenByContextOrFrequency() {
+        let now: UInt64 = 31_000
+        let exact = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
+            kind: .text,
+            title: "prod",
+            content: "plain note",
+            createdAt: now - 300_000,
+            updatedAt: now - 300_000
+        )
+        let prefixCommand = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000011")!,
+            kind: .text,
+            title: "prod deploy helper",
+            content: "kubectl get pods",
+            createdAt: now,
+            updatedAt: now,
+            useCount: 10_000,
+            lastUsedAt: now
+        )
+
+        let ordered = SmartShelfRanking.ordered(
+            [prefixCommand, exact],
+            query: "prod",
+            appContext: .terminal,
+            now: now
+        )
+        XCTAssertEqual(ordered.first?.id, exact.id)
+    }
+
     func testUsageFrequencyContributesToRanking() {
         let now: UInt64 = 40_000
         let frequent = ShelfItem(
@@ -152,5 +182,26 @@ final class SmartShelfRankingTests: XCTestCase {
 
         value = try store.remove(ids: Set([id]))
         XCTAssertTrue(value.settings.workingSetItemIDs.isEmpty)
+    }
+
+    func testClearRecentPreservesWorkingSetItems() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("opsnotch-clear-recent-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = ShelfStoreService(rootURL: root)
+        var value = try store.addText("keep me", title: "Working")
+        let workingID = try XCTUnwrap(value.items.first?.id)
+        value = try store.addText("remove me", title: "Recent")
+        let recentID = try XCTUnwrap(value.items.first(where: { $0.id != workingID })?.id)
+
+        var settings = value.settings
+        settings.workingSetItemIDs = [workingID]
+        _ = try store.updateSettings(settings)
+
+        value = try store.clearRecent()
+        XCTAssertNotNil(value.items.first(where: { $0.id == workingID }))
+        XCTAssertNil(value.items.first(where: { $0.id == recentID }))
+        XCTAssertEqual(value.settings.workingSetItemIDs, [workingID])
     }
 }
