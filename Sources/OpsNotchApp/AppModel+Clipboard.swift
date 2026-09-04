@@ -19,18 +19,17 @@ extension AppModel {
     /// 文件/文件夹沿用当前 Reference / Copy-in 设置；`.app` 仍按应用条目保存。
     func captureClipboardFiles(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        for url in urls {
-            do {
-                if url.pathExtension.lowercased() == "app" {
-                    apply(try store.addApplication(url))
-                } else {
-                    apply(try store.addPath(url, mode: settings.addMode))
-                }
-            } catch {
-                showToast(error.localizedDescription)
-                return
-            }
+
+        let applications = urls.filter { $0.pathExtension.lowercased() == "app" }
+        let paths = urls.filter { $0.pathExtension.lowercased() != "app" }
+
+        if !paths.isEmpty {
+            addPaths(paths)
         }
+        for application in applications {
+            addApplication(application)
+        }
+
         showToast(L10n.text("clipboardCaught", language))
     }
 }
