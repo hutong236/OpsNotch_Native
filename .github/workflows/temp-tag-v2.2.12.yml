@@ -1,4 +1,4 @@
-name: Temporary tag v2.2.12
+name: Temporary release v2.2.12
 
 on:
   push:
@@ -7,28 +7,31 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
-  tag:
+  dispatch:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Create v2.2.12 on main merge commit
+      - name: Verify v2.2.12 target
         shell: bash
         run: |
           set -euo pipefail
           TAG="v2.2.12"
           TARGET="20af38ea683e1ecfc7cc70529a5a6c29ae21aa95"
           git fetch origin main --tags
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag already exists: $TAG"
-            exit 1
-          fi
-          git cat-file -e "$TARGET^{commit}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" "$TARGET" -m "Ops Notch $TAG"
-          git push origin "refs/tags/$TAG"
+          ACTUAL="$(git rev-list -n 1 "$TAG")"
+          echo "tag=$TAG actual=$ACTUAL expected=$TARGET"
+          test "$ACTUAL" = "$TARGET"
+
+      - name: Dispatch macOS package workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.2.12
+          echo "Dispatched package-app.yml for v2.2.12"
