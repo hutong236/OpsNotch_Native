@@ -206,3 +206,22 @@ Ops Notch 不应创建任何 1420 监听端口。
 10. Finder 路径高亮时按 `Space` 不触发 Quick Look；Shelf 文件高亮时 `Space` 仍正常预览。
 11. 双屏分别通过主快捷键/刘海触发统一面板，仍应显示在预期屏幕；Finder 打开后不残留第二个 Ops Notch 面板。
 12. 连续复制 20 段不同文字仍全部进入 Recent；Ops Notch 自身复制的文字/文件仍不得回灌为重复条目。
+
+## 20. Smart Quick Shelf V2（v2.3.0）
+
+1. 准备至少 6 个 Shelf 条目：普通文本、`192.168.10.40`、`ssh admin@192.168.10.40`、`kubectl get pods -n prod`、一个 URL、一个真实文件；界面应对 IP / SSH / 命令 / 路径或 URL 显示轻量语义提示，不增加明显行高。
+2. 将文件、kubectl 命令、IP、SSH 四项加入 Working Set：展示顺序应为 `Finder 快捷目录 → 工作集 → Pinned → 智能最近`；同一条目不得同时在 Working Set 与 Recent 重复出现。
+3. 退出并重新启动 Ops Notch：仍存在的 Working Set 条目应恢复；删除 Working Set 中一个 Shelf 条目后，该 ID 应自动从工作集清理；点击工作集“清空”后全部移除但原 Shelf 内容仍保留。
+4. 以前台 Finder 呼出 Quick Shelf：在最近时间相近时，文件/文件夹/路径类相对普通文本应获得更高排序；底部上下文提示显示 `Smart · Finder`。
+5. 以前台 Terminal、iTerm2 或 Warp 呼出：命令 / SSH / IP / 路径类相对普通文本获得更高排序；底部显示 `Smart · Terminal`。切换到 Safari/Chrome/Edge/Firefox/Arc 后，URL/文本获得浏览器上下文加权并显示 `Smart · Browser`。
+6. 在 Terminal 前台输入一个只精确命中普通文本标题的搜索词，同时存在更符合终端上下文但不相关的命令条目：精确/前缀搜索结果必须排在不相关命令之前，验证 query relevance 高于 App context。
+7. 对同一非置顶条目连续成功取回数次，再与创建/更新时间接近但从未使用的同类条目比较：前者应因 useCount / lastUsedAt 获得排序加权；重启后该排序信号仍有效。
+8. Working Set 中的真实文件高亮后按 `Enter`：到 Finder 执行 `⌘V` 必须粘贴为真实文件；不能变成文件名或路径文字。Recent/Pinned 中同一行为也必须一致。
+9. 输入已打开过的最近文件名称，或 Finder 默认/收藏目录第一层子项名称：可以出现“本地文件结果”；本地文件按 `Enter` 复制真实文件，本地文件夹按 `Enter` 打开 Finder；这些临时结果不得写入 `shelf.json`。
+10. 在包含大量子目录的收藏目录中搜索：只应匹配收藏根目录的第一层项目，不应递归进入孙级目录；搜索过程中 UI 不应出现明显全盘扫描卡顿，也不应弹出新的文件访问权限请求。
+11. 准备足够多的各类结果并连续按 `↓`：高亮应依次跨 `Finder → Working Set → Pinned → Smart Recent → Local File Results`，超过一屏后列表同步滚动；`↑` 反向行为一致。
+12. 本地文件结果高亮后按 `Space`：真实文件可 Quick Look，文件夹不触发 Quick Look；Finder 快捷路径仍不触发 Quick Look。
+13. 对 `ssh root@host`、`kubectl delete ...`、`rm ...` 等文本验证：V2 只允许识别/显示/排序/复制，绝不能自动执行，也不应启动 Terminal、shell、SSH 或产生网络连接。
+14. 打开“系统设置 → 隐私与安全性”验证：本功能不应新增 Accessibility / Input Monitoring 权限请求；应用也不得读取 shell history、浏览器历史或钥匙串内容。
+15. 连续复制 20 段不同文字、复制 Finder 文件、从 Working Set/Recent 二次取回文件各执行多轮：Clipboard Catch 仍完整记录外部复制，Ops Notch 自身复制不回灌，文件始终保持 file URL pasteboard 语义。
+16. 双显示器分别在 Finder / Terminal / Browser 前台呼出 Smart Quick Shelf：面板仍出现在预期屏幕，当前 App 上下文排序正确，多屏 Sensor / Finder 打开能力无回归。
