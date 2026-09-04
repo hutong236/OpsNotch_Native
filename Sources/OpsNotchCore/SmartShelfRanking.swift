@@ -120,10 +120,13 @@ public enum SmartShelfRanking {
         guard !q.isEmpty else { return 0 }
         let title = item.title.lowercased()
         let content = item.content.lowercased()
-        if title == q || content == q { return 1_000 }
-        if title.hasPrefix(q) || content.hasPrefix(q) { return 850 }
-        if title.contains(q) { return 700 }
-        if content.contains(q) { return 650 }
+
+        // 每个匹配等级的间隔都大于 recency + frequency + app-context 的最大总贡献，
+        // 保证用户显式搜索始终优先于环境推荐。
+        if title == q || content == q { return 4_000 }
+        if title.hasPrefix(q) || content.hasPrefix(q) { return 3_000 }
+        if title.contains(q) { return 2_000 }
+        if content.contains(q) { return 1_000 }
         return 0
     }
 
