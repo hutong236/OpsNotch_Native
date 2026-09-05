@@ -1,6 +1,9 @@
 import Foundation
 
 public final class ShelfStoreService: @unchecked Sendable {
+    /// 条目总数软上限。淘汰规则见 enforceItemLimit。
+    public static let maxItems = 500
+
     public let rootURL: URL
     public let storeURL: URL
     public let managedFilesURL: URL
@@ -17,7 +20,7 @@ public final class ShelfStoreService: @unchecked Sendable {
         self.fileManager = fileManager
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
     }
 
     public static func defaultRootURL(fileManager: FileManager = .default) -> URL {
@@ -37,14 +40,22 @@ public final class ShelfStoreService: @unchecked Sendable {
 
         let data = try Data(contentsOf: storeURL)
         var store = try decodeCompatible(data)
+        // 按需写盘:只有真实迁移或 TTL 清理才落盘,普通读取零写入。
+        // Sensor 触发等高频路径依赖"读取无副作用",不能每次 load 都重写整个文件。
+        let versionBeforeMigration = store.version
         migrate(&store)
+        let didMigrate = store.version != versionBeforeMigration
         let expired = ShelfLogic.expiredIDs(items: store.items, settings: store.settings)
+        var didExpire = false
         if !expired.isEmpty {
             store.items.removeAll { expired.contains($0.id) }
             for id in expired { try? removeManagedDirectory(id: id) }
+            didExpire = true
         }
         normalizeWorkingSet(&store)
-        try writeUnlocked(store)
+        if didMigrate || didExpire {
+            try writeUnlocked(store)
+        }
         return store
     }
 
@@ -55,6 +66,7 @@ public final class ShelfStoreService: @unchecked Sendable {
         var current = store
         current.version = ShelfStore.currentVersion
         normalizeWorkingSet(&current)
+        enforceItemLimit(&current)
         try writeUnlocked(current)
         return current
     }
@@ -198,7 +210,8 @@ public final class ShelfStoreService: @unchecked Sendable {
         try mutate { store in store.settings = settings }
     }
 
-    private func mutate(_ body: (inout ShelfStore) throws -> Void) throws -> ShelfStore {
+    /// 模块内可见(而非 private),供同模块扩展(如剪贴板捕获入口)复用单趟读改写管线。
+    func mutate(_ body: (inout ShelfStore) throws -> Void) throws -> ShelfStore {
         lock.lock(); defer { lock.unlock() }
         try ensureDirectories()
         var store: ShelfStore
@@ -210,9 +223,29 @@ public final class ShelfStoreService: @unchecked Sendable {
         migrate(&store)
         try body(&store)
         normalizeWorkingSet(&store)
+        enforceItemLimit(&store)
         store.version = ShelfStore.currentVersion
         try writeUnlocked(store)
         return store
+    }
+
+    /// 条目总数软上限:超过 maxItems 时淘汰最旧的未置顶且不在 Working Set 的条目,
+    /// 阻止捕获类写入让 shelf.json 无界膨胀。置顶与 Working Set 条目永不自动淘汰。
+    private func enforceItemLimit(_ store: inout ShelfStore) {
+        let overflow = store.items.count - Self.maxItems
+        guard overflow > 0 else { return }
+        let protectedIDs = Set(store.settings.workingSetItemIDs)
+        let evictIDs = Set(store.items
+            .filter { !$0.pinned && !protectedIDs.contains($0.id) }
+            .sorted { lhs, rhs in
+                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt < rhs.updatedAt }
+                return lhs.createdAt < rhs.createdAt
+            }
+            .prefix(overflow)
+            .map(\.id))
+        let managedCopies = store.items.filter { evictIDs.contains($0.id) && $0.storageMode == .copy }.map(\.id)
+        store.items.removeAll { evictIDs.contains($0.id) }
+        for id in managedCopies { try? removeManagedDirectory(id: id) }
     }
 
     private func ensureDirectories() throws {

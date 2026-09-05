@@ -90,16 +90,20 @@ public enum SmartShelfRanking {
         appContext: AppContextKind = .generic,
         now: UInt64 = ShelfClock.now()
     ) -> [ShelfItem] {
+        // 评分预计算:每条目只算一次 score,排序比较器不再重复全文评分。
+        // 排序键(score → updatedAt → createdAt → id)与逐次评分的旧实现逐字段一致。
         items
             .filter { ShelfLogic.matches($0, query: query, kindFilter: kindFilter) }
-            .sorted { lhs, rhs in
-                let left = score(item: lhs, query: query, appContext: appContext, now: now)
-                let right = score(item: rhs, query: query, appContext: appContext, now: now)
-                if left != right { return left > right }
-                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-                if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
-                return lhs.id.uuidString < rhs.id.uuidString
+            .map { item in
+                (item: item, score: score(item: item, query: query, appContext: appContext, now: now))
             }
+            .sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score > rhs.score }
+                if lhs.item.updatedAt != rhs.item.updatedAt { return lhs.item.updatedAt > rhs.item.updatedAt }
+                if lhs.item.createdAt != rhs.item.createdAt { return lhs.item.createdAt > rhs.item.createdAt }
+                return lhs.item.id.uuidString < rhs.item.id.uuidString
+            }
+            .map(\.item)
     }
 
     public static func score(

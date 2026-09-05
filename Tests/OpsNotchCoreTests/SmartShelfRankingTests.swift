@@ -204,4 +204,72 @@ final class SmartShelfRankingTests: XCTestCase {
         XCTAssertNil(value.items.first(where: { $0.id == recentID }))
         XCTAssertEqual(value.settings.workingSetItemIDs, [workingID])
     }
+
+    /// 旧实现的参考版本:排序比较器内逐次调用 score。评分预计算重构后,输出必须与它逐项一致。
+    private func legacyOrdered(
+        _ items: [ShelfItem],
+        query: String,
+        kindFilter: ShelfKindFilter,
+        appContext: AppContextKind,
+        now: UInt64
+    ) -> [ShelfItem] {
+        items
+            .filter { ShelfLogic.matches($0, query: query, kindFilter: kindFilter) }
+            .sorted { lhs, rhs in
+                let left = SmartShelfRanking.score(item: lhs, query: query, appContext: appContext, now: now)
+                let right = SmartShelfRanking.score(item: rhs, query: query, appContext: appContext, now: now)
+                if left != right { return left > right }
+                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+                if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+    }
+
+    func testPrecomputedScoringKeepsLegacyOrdering() {
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next(_ bound: UInt64) -> UInt64 {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return state % bound
+        }
+
+        let contents = [
+            "kubectl get pods -n prod", "https://example.com/deploy", "/Users/me/project/config.yaml",
+            "ssh admin@192.168.10.40", "192.168.10.40", "ordinary note", "prod deploy helper",
+            "docker compose up -d", "~/Downloads/archive", "git push origin main"
+        ]
+        let kinds: [ShelfKind] = [.text, .url, .file, .folder, .application, .action]
+        let now: UInt64 = 1_000_000
+        var items: [ShelfItem] = []
+        for index in 0..<200 {
+            let kind = kinds[Int(next(UInt64(kinds.count)))]
+            let actionKind: SafeActionKind? = kind == .action
+                ? (next(2) == 0 ? .openPath : .openURL) : nil
+            items.append(ShelfItem(
+                id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012X", index))!,
+                kind: kind,
+                title: contents[Int(next(UInt64(contents.count)))],
+                content: contents[Int(next(UInt64(contents.count)))] + " #\(index)",
+                pinned: next(4) == 0,
+                createdAt: now - next(200_000),
+                updatedAt: now - next(200_000),
+                actionKind: actionKind,
+                useCount: next(50),
+                lastUsedAt: now - next(200_000)
+            ))
+        }
+
+        let queries = ["", "prod", "kubectl", "config"]
+        let contexts: [AppContextKind] = [.generic, .finder, .terminal, .browser]
+        for query in queries {
+            for context in contexts {
+                for filter in ShelfKindFilter.allCases {
+                    let optimized = SmartShelfRanking.ordered(
+                        items, query: query, kindFilter: filter, appContext: context, now: now
+                    )
+                    let reference = legacyOrdered(items, query: query, kindFilter: filter, appContext: context, now: now)
+                    XCTAssertEqual(optimized.map(\.id), reference.map(\.id))
+                }
+            }
+        }
+    }
 }

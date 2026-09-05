@@ -6,8 +6,11 @@ import OpsNotchCore
 @MainActor
 final class ClipboardManager {
     /// NSPasteboard 没有提供通用剪贴板变更通知，因此使用轻量 changeCount 轮询。
-    /// 100ms 足以覆盖人工快速连续复制，同时每次只做整数比较，未变化时不会读取内容或写磁盘。
-    private static let pollIntervalNanoseconds: UInt64 = 100_000_000
+    /// 面板可见时 100ms 足以覆盖人工快速连续复制；不可见时放宽到 400ms 减少常驻主线程唤醒
+    /// (Sensor 的 mouseEntered 兜底 catchIfChanged 保证唤起时机不受轮询间隔影响)。
+    /// 每次只做整数比较，未变化时不会读取内容或写磁盘。
+    private static let activePollIntervalNanoseconds: UInt64 = 100_000_000
+    private static let idlePollIntervalNanoseconds: UInt64 = 400_000_000
     /// 某些应用一次 ⌘C 会连续更新多个 pasteboard flavor，changeCount 会变化多次但内容相同。
     /// 短时间内相同内容只消费一次；更长时间后的重复复制交给 store 层处理。
     private static let duplicateSuppressionInterval: TimeInterval = 1.0
@@ -19,6 +22,8 @@ final class ClipboardManager {
     private var lastCapturedTextAt: TimeInterval = 0
     private var lastCapturedFilePaths: [String]?
     private var lastCapturedFilesAt: TimeInterval = 0
+    /// Shelf 面板可见性提供者,由 AppDelegate 注入;未注入时按不可见处理。
+    var panelVisibleProvider: (() -> Bool)?
 
     init(model: AppModel) {
         self.model = model
@@ -31,8 +36,11 @@ final class ClipboardManager {
         guard monitorTask == nil else { return }
         monitorTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
+                let visible = self?.panelVisibleProvider?() ?? false
                 do {
-                    try await Task.sleep(nanoseconds: Self.pollIntervalNanoseconds)
+                    try await Task.sleep(
+                        nanoseconds: visible ? Self.activePollIntervalNanoseconds : Self.idlePollIntervalNanoseconds
+                    )
                 } catch {
                     break
                 }
