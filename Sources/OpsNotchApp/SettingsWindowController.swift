@@ -79,6 +79,18 @@ struct SettingsView: View {
                         }.frame(width: 190)
                     }
                     Divider()
+                    settingRow(L10n.text("keepShelfOpen", model.language)) {
+                        Toggle("", isOn: Binding(
+                            get: { model.settings.shelfKeepOpen },
+                            set: { value in
+                                model.updateSettings { $0.shelfKeepOpen = value }
+                                // 从设置关闭常驻且 Shelf 可见时,按默认延时收起。
+                                if !value { model.requestDelayedHide?() }
+                            }
+                        ))
+                        .toggleStyle(.switch).labelsHidden()
+                    }
+                    Divider()
                     settingRow(L10n.text("hotkeyRow", model.language)) { HotkeyRecorderView(model: model) }
                     Text(L10n.text("hotkeyHint", model.language))
                         .font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 2)

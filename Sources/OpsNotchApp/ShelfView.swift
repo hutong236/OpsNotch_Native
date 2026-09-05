@@ -58,6 +58,12 @@ struct ShelfRootView: View {
                 Text("Smart · Finder · Clipboard").font(.system(size: 9)).foregroundStyle(.secondary)
             }
             Spacer()
+            Image(systemName: model.settings.shelfKeepOpen ? "pin.fill" : "pin")
+                .foregroundStyle(model.settings.shelfKeepOpen ? Color.accentColor : Color.secondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+                .onTapGesture { toggleKeepOpen() }
+                .help(L10n.text(model.settings.shelfKeepOpen ? "keepShelfOpenOff" : "keepShelfOpenOn", model.language))
             Menu {
                 Button(L10n.text("addText", model.language)) { model.editorDraft = .text() }
                 Button(L10n.text("addFile", model.language)) { model.chooseFiles() }
@@ -74,6 +80,14 @@ struct ShelfRootView: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 9)
+    }
+
+    /// 常驻展开（图钉）开关:与条目级置顶(pin/pin.slash)区分,作用于整个 Shelf 窗口。
+    /// 关闭时立即收起(Esc 语义之外的显式隐藏);开启后保持当前展开。
+    private func toggleKeepOpen() {
+        let turningOn = !model.settings.shelfKeepOpen
+        model.updateSettings { $0.shelfKeepOpen = turningOn }
+        if !turningOn { model.requestHide?() }
     }
 
     private var search: some View {

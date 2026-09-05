@@ -13,6 +13,9 @@ final class SensorManager {
     private let clipboard: ClipboardManager
     private var panels: [CGDirectDisplayID: NSPanel] = [:]
     private var lastActiveDisplayID: CGDirectDisplayID?
+    /// Shelf 当前可见性与所在屏:重建面板时据此初始化指示点,重建后状态自愈。
+    private var shelfVisible = false
+    private var shelfVisibleDisplayID: CGDirectDisplayID?
     private var observer: NSObjectProtocol?
 
     init(model: AppModel, shelf: ShelfWindowController, clipboard: ClipboardManager) {
@@ -45,6 +48,40 @@ final class SensorManager {
             configure(panel: panel, for: screen)
             panels[id] = panel
         }
+        applyIndicatorState()
+    }
+
+    /// Shelf 可见性变化(事件驱动,来自 ShelfWindowController.onVisibilityChange):
+    /// 仅隐藏 Shelf 所在屏的指示点,其他屏保持显示。
+    func setShelfVisible(_ visible: Bool, onDisplayID: CGDirectDisplayID?) {
+        shelfVisible = visible
+        shelfVisibleDisplayID = onDisplayID
+        applyIndicatorState()
+    }
+
+    private func applyIndicatorState() {
+        for (id, panel) in panels {
+            (panel.contentView as? SensorView)?.showsIndicator = !(shelfVisible && (shelfVisibleDisplayID == nil || shelfVisibleDisplayID == id))
+        }
+    }
+
+    /// 常驻展开模式启动时选定初始屏：按显示策略取第一块屏。
+    func preferredLaunchScreen() -> NSScreen? {
+        screensForCurrentPolicy().first ?? preferredScreen()
+    }
+
+    /// 指示点在传感器视图内的圆心(视图坐标系,原点左下)。
+    /// 传感器高 38pt 而物理刘海深约 32pt:水平正中、距底缘过高都会被刘海挡住,
+    /// 故按安全区深度计算——刘海下有可见带时放底部窄带,刘海几乎占满时画在刘海左侧旁。
+    private func indicatorDotCenter(for screen: NSScreen) -> CGPoint {
+        let height = SensorGeometry.height(for: screen)
+        let band = height - screen.safeAreaInsets.top
+        let diameter: CGFloat = 4
+        if band >= 6 {
+            let inset = max(1.5, min(6, (band - diameter) / 2))
+            return CGPoint(x: SensorGeometry.width / 2, y: inset + diameter / 2)
+        }
+        return CGPoint(x: SensorGeometry.width / 2 - 98, y: height / 2)
     }
 
     func preferredScreen() -> NSScreen? {
@@ -71,18 +108,22 @@ final class SensorManager {
         panel.acceptsMouseMovedEvents = true
 
         let view = SensorView(frame: .zero)
+        view.indicatorDotCenter = indicatorDotCenter(for: screen)
         view.onMouseEnter = { [weak self] in
             guard let self else { return }
             self.lastActiveDisplayID = id
-            self.model.reload()
             _ = self.clipboard.catchIfChanged()
-            // 不再立即展开完整清单。拖拽进入 Sensor 时 AppKit 会紧接着发送
-            // draggingEntered；给它一个很短的优先窗口，避免 expanded 先闪现。
+            // 内存状态即最新(所有写路径实时回写 model),触发路径不做任何磁盘 I/O。
+            // 拖拽进入时 AppKit 会紧接着发送 draggingEntered;给它一个很短的优先窗口,
+            // 避免 expanded 先闪现。
             self.shelf.scheduleExpanded(on: screen, delay: 0.10)
         }
         view.onMouseExit = { [weak self] in
-            self?.shelf.cancelScheduledExpand()
-            self?.shelf.scheduleHide()
+            guard let self else { return }
+            self.shelf.cancelScheduledExpand()
+            // 常驻展开模式：移出不触发隐藏调度。
+            guard !self.model.settings.shelfKeepOpen else { return }
+            self.shelf.scheduleHide()
         }
         view.onDragEntered = { [weak self] in
             guard let self else { return }
@@ -102,7 +143,12 @@ final class SensorManager {
             if accepted {
                 // 放入后只显示成功反馈，不再展开完整 Shelf。
                 self.shelf.showPeek(on: screen)
-                self.shelf.scheduleHide(delay: 0.85)
+                if self.model.settings.shelfKeepOpen {
+                    // 常驻模式：成功反馈展示后重新展开并保持,不调度自动隐藏。
+                    self.shelf.scheduleExpanded(on: screen, delay: 0.85)
+                } else {
+                    self.shelf.scheduleHide(delay: 0.85)
+                }
             }
             return accepted
         }
@@ -130,10 +176,10 @@ final class SensorManager {
             model.addPaths(urls)
             return !urls.isEmpty
         case .url(let url):
-            model.addURL(url.absoluteString)
+            model.captureDroppedURL(url.absoluteString)
             return true
         case .text(let text):
-            model.addText(text, toast: false)
+            model.captureDroppedText(text)
             return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
@@ -225,6 +271,14 @@ final class SensorView: NSView {
     var onDragExited: (() -> Void)?
     var onDrop: ((NativeDropPayload) -> Bool)?
 
+    /// 收起态入口指示点:仅 Shelf 完全收起时绘制(SensorManager 依可见性事件驱动)。
+    /// 纯视觉元素,不改变命中区域语义。
+    var showsIndicator = false {
+        didSet { needsDisplay = true }
+    }
+    /// 指示点圆心(视图坐标):由 SensorManager 依屏幕安全区计算,避开物理刘海。
+    var indicatorDotCenter = CGPoint(x: 0, y: 2)
+
     private var tracking: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
@@ -235,6 +289,28 @@ final class SensorView: NSView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         registerForDraggedTypes([.fileURL, .URL, .string])
+    }
+
+    /// 指示点样式:深色描边环 + 白色内核,对明暗菜单栏背景都不敏感;复测微调只动这里。
+    private enum DotStyle {
+        static let coreDiameter: CGFloat = 4
+        static let ringOuterDiameter: CGFloat = 6.5
+        static let coreAlpha: CGFloat = 0.85
+        static let ringAlpha: CGFloat = 0.35
+    }
+
+    /// 普通视图 draw 自动按 bounds 裁剪;刻意不开 wantsLayer(layer 内容不裁剪)。
+    override func draw(_ dirtyRect: NSRect) {
+        guard showsIndicator else { return }
+        let center = indicatorDotCenter
+        func fillCircle(_ diameter: CGFloat, _ color: NSColor) {
+            color.setFill()
+            NSBezierPath(
+                ovalIn: NSRect(x: center.x - diameter / 2, y: center.y - diameter / 2, width: diameter, height: diameter)
+            ).fill()
+        }
+        fillCircle(DotStyle.ringOuterDiameter, NSColor.black.withAlphaComponent(DotStyle.ringAlpha))
+        fillCircle(DotStyle.coreDiameter, NSColor.white.withAlphaComponent(DotStyle.coreAlpha))
     }
 
     override func updateTrackingAreas() {

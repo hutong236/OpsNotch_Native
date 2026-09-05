@@ -26,6 +26,10 @@ final class ShelfWindowController: NSObject {
     private(set) var presentation: Presentation = .expanded
     /// 抽屉窗口拖放入柜处理器,由 AppDelegate 注入(复用 SensorManager 的入柜逻辑)。
     var dropHandler: ((NativeDropPayload) -> Bool)?
+    /// Shelf 可见性变化回调(可见?, 所在屏 displayID):供 Sensor 驱动入口指示点,事件驱动、无轮询。
+    var onVisibilityChange: ((Bool, CGDirectDisplayID?) -> Void)?
+    /// Shelf 当前展示所在屏的 displayID;隐藏时为 nil。
+    private(set) var visibleDisplayID: CGDirectDisplayID?
 
     init(model: AppModel, clipboard: ClipboardManager) {
         self.model = model
@@ -76,7 +80,11 @@ final class ShelfWindowController: NSObject {
             Task { @MainActor in
                 guard let self, self.panel.isVisible else { return }
                 let menuTracking = NSApp.keyWindow?.level == .popUpMenu
-                if !menuTracking { self.hide() }
+                // 常驻展开模式下失 key 不收起,保留可见。
+                // 编辑器 sheet 在展示期间会夺走 key,不能因此把面板连同 sheet 收起。
+                if !menuTracking, !self.model.settings.shelfKeepOpen, self.model.editorDraft == nil {
+                    self.hide()
+                }
             }
         }
 
@@ -167,6 +175,7 @@ final class ShelfWindowController: NSObject {
         // 避免 Esc/失焦时出现拖沓感。
         guard presentation != .expanded, let screen = currentScreen else {
             panel.orderOut(nil)
+            notifyVisibility(false)
             return
         }
 
@@ -176,10 +185,24 @@ final class ShelfWindowController: NSObject {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().setFrame(collapsed, display: true)
             panel.animator().alphaValue = 0
-        } completionHandler: { [weak panel] in
+        } completionHandler: { [weak panel, weak self] in
             panel?.orderOut(nil)
             panel?.alphaValue = 1
+            // 收起动画结束后再通知,避免指示点与收回动画重叠闪烁。
+            Task { @MainActor in self?.notifyVisibility(false) }
         }
+    }
+
+    private func notifyVisibility(_ visible: Bool) {
+        let nextID = visible ? displayID(of: currentScreen) : nil
+        guard nextID != visibleDisplayID else { return }
+        visibleDisplayID = nextID
+        onVisibilityChange?(visible, nextID)
+    }
+
+    private func displayID(of screen: NSScreen?) -> CGDirectDisplayID? {
+        guard let screen else { return nil }
+        return (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
     }
 
     /// 全局热键呼出的切换语义:拖放会话(drop 态)忽略;面板可见即收起;
@@ -199,8 +222,14 @@ final class ShelfWindowController: NSObject {
     private func acceptDrop(_ payload: NativeDropPayload) -> Bool {
         let accepted = dropHandler?(payload) ?? false
         if accepted {
-            show(.peek, on: currentScreen ?? screenUnderMouse())
-            scheduleHide(delay: 0.85)
+            let screen = currentScreen ?? screenUnderMouse()
+            show(.peek, on: screen)
+            if model.settings.shelfKeepOpen {
+                // 常驻模式：成功反馈展示后重新展开并保持,不调度隐藏。
+                scheduleExpanded(on: screen, delay: 0.85)
+            } else {
+                scheduleHide(delay: 0.85)
+            }
         }
         return accepted
     }
@@ -216,6 +245,8 @@ final class ShelfWindowController: NSObject {
 
     func scheduleHide(delay: TimeInterval = 0.5) {
         cancelHide()
+        // 常驻展开（图钉）模式：所有自动隐藏路径在汇聚点失效；显式隐藏(Esc/取消图钉)走 hide() 直达路径。
+        guard !model.settings.shelfKeepOpen else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.model.shelfHovered, self.model.editorDraft == nil else { return }
             let mouseInsidePanel = self.panel.frame.contains(NSEvent.mouseLocation)
@@ -276,6 +307,7 @@ final class ShelfWindowController: NSObject {
         if state == .expanded {
             panel.makeKey()
         }
+        notifyVisibility(true)
     }
 
     private func rootView(for state: Presentation) -> AnyView {

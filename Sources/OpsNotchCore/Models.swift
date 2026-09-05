@@ -112,6 +112,8 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
     public var finderQuickPaths: [FinderQuickPath]
     /// Smart Quick Shelf V2 工作集，仅保存 ShelfItem ID；最多保留 64 项。
     public var workingSetItemIDs: [UUID]
+    /// 常驻展开（图钉）模式：开启后 Shelf 不因鼠标移出/失焦等自动路径收起。
+    public var shelfKeepOpen: Bool
 
     public init(
         tempTTLHours: UInt64 = 24,
@@ -123,7 +125,8 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         finderRevealHotkey: HotkeyShortcut? = nil,
         finderDefaultPath: String = "~",
         finderQuickPaths: [FinderQuickPath] = [],
-        workingSetItemIDs: [UUID] = []
+        workingSetItemIDs: [UUID] = [],
+        shelfKeepOpen: Bool = false
     ) {
         self.tempTTLHours = tempTTLHours
         self.addMode = addMode
@@ -135,6 +138,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         self.finderDefaultPath = finderDefaultPath
         self.finderQuickPaths = Array(finderQuickPaths.prefix(9))
         self.workingSetItemIDs = Self.uniqueIDs(workingSetItemIDs, limit: 64)
+        self.shelfKeepOpen = shelfKeepOpen
     }
 
     enum CodingKeys: String, CodingKey {
@@ -148,6 +152,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         case finderDefaultPath = "finder_default_path"
         case finderQuickPaths = "finder_quick_paths"
         case workingSetItemIDs = "working_set_item_ids"
+        case shelfKeepOpen = "shelf_keep_open"
     }
 
     public init(from decoder: Decoder) throws {
@@ -165,6 +170,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
             try container.decodeIfPresent([UUID].self, forKey: .workingSetItemIDs) ?? [],
             limit: 64
         )
+        shelfKeepOpen = try container.decodeIfPresent(Bool.self, forKey: .shelfKeepOpen) ?? false
     }
 
     private static func uniqueIDs(_ ids: [UUID], limit: Int) -> [UUID] {

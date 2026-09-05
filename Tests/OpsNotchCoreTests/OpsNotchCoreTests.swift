@@ -155,6 +155,24 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertEqual(decoded.hotkey, settings.hotkey)
     }
 
+    func testSettingsShelfKeepOpenDefaultsFalse() throws {
+        // 旧 shelf.json 缺 shelf_keep_open 字段时按 false 解码,不破坏加载。
+        let json = #"{"temp_ttl_hours":24,"add_mode":"reference","display_target":"all","language":"zh-CN"}"#.data(using: .utf8)!
+        let settings = try JSONDecoder().decode(ShelfSettings.self, from: json)
+        XCTAssertFalse(settings.shelfKeepOpen)
+    }
+
+    func testShelfKeepOpenRoundTrip() throws {
+        var settings = ShelfSettings()
+        settings.shelfKeepOpen = true
+        let on = try JSONDecoder().decode(ShelfSettings.self, from: try JSONEncoder().encode(settings))
+        XCTAssertTrue(on.shelfKeepOpen)
+
+        settings.shelfKeepOpen = false
+        let off = try JSONDecoder().decode(ShelfSettings.self, from: try JSONEncoder().encode(settings))
+        XCTAssertFalse(off.shelfKeepOpen)
+    }
+
     func testHotkeyValidationRequiresStrongModifier() {
         let keyO: UInt32 = 31
         XCTAssertTrue(HotkeyValidation.isAcceptable(keyCode: keyO, carbonModifiers: HotkeyValidation.carbonControl | HotkeyValidation.carbonOption))

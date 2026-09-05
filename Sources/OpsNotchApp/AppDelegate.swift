@@ -25,6 +25,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shelf = ShelfWindowController(model: model, clipboard: clipboard)
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
+        // Shelf 可见性 → 各屏 Sensor 指示点(事件驱动,无轮询)。
+        shelf.onVisibilityChange = { [weak sensors] visible, displayID in
+            sensors?.setShelfVisible(visible, onDisplayID: displayID)
+        }
+        // 剪贴板轮询间隔随面板可见性自适应:可见 100ms,不可见 400ms。
+        clipboard.panelVisibleProvider = { [weak shelf] in shelf?.isPanelVisible ?? false }
 
         unifiedFinder = UnifiedFinderCoordinator(model: model, shelf: shelf)
         model.requestOpenFinderPath = { [weak unifiedFinder] path, quickPathID in
@@ -58,6 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.statusBar.rebuildMenu()
             self.hotkey.apply(self.model.settings.hotkey)
             self.finderReveal.syncFromSettings()
+        }
+
+        // 常驻展开（图钉）模式：启动后按显示策略直接展开。
+        if model.settings.shelfKeepOpen, let screen = sensors.preferredLaunchScreen() {
+            shelf.showExpanded(on: screen)
         }
     }
 
