@@ -2,7 +2,6 @@
 import AppKit
 import Combine
 import Foundation
-import UniformTypeIdentifiers
 import OpsNotchCore
 
 @MainActor
@@ -439,6 +438,8 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = true
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
+        // 应用未激活时模态面板会呈灰色禁用态,先激活再弹出。
+        NSApplication.shared.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK { addPaths(panel.urls) }
     }
 
@@ -447,6 +448,7 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
+        NSApplication.shared.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK { addPaths(panel.urls) }
     }
 
@@ -456,7 +458,8 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [UTType(filenameExtension: "app") ?? .application]
+        panel.allowedContentTypes = [.application]
+        NSApplication.shared.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url { addApplication(url) }
     }
 
@@ -513,7 +516,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func apply(_ storeValue: ShelfStore) {
+    /// 模块内可见(而非 private),供同模块扩展(剪贴板/拖入捕获)直接应用 store 返回值。
+    func apply(_ storeValue: ShelfStore) {
         let knownIDs = Set(items.map(\.id))
         items = storeValue.items
         settings = storeValue.settings
