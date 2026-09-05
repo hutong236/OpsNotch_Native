@@ -262,7 +262,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func updateSettings(_ change: (inout ShelfSettings) -> Void) {
+    /// 保存设置。Working Set 仅是 Quick Shelf 数据状态，可选择不触发 Sensor/热键/Finder 等系统设置重载。
+    func updateSettings(notifyServices: Bool = true, _ change: (inout ShelfSettings) -> Void) {
         var next = settings
         change(&next)
         do {
@@ -273,7 +274,7 @@ final class AppModel: ObservableObject {
                !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
                 resetQuickHighlight()
             }
-            settingsDidChange?()
+            if notifyServices { settingsDidChange?() }
             scheduleLocalFileSearch()
         } catch { showToast(error.localizedDescription) }
     }
@@ -336,7 +337,7 @@ final class AppModel: ObservableObject {
     }
 
     func toggleWorkingSet(_ item: ShelfItem) {
-        updateSettings { settings in
+        updateSettings(notifyServices: false) { settings in
             if let index = settings.workingSetItemIDs.firstIndex(of: item.id) {
                 settings.workingSetItemIDs.remove(at: index)
             } else {
@@ -348,7 +349,7 @@ final class AppModel: ObservableObject {
     }
 
     func clearWorkingSet() {
-        updateSettings { $0.workingSetItemIDs.removeAll() }
+        updateSettings(notifyServices: false) { $0.workingSetItemIDs.removeAll() }
         showToast(L10n.text("workingSetCleared", language))
     }
 
