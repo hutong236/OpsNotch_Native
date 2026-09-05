@@ -4,7 +4,7 @@ import QuickLookUI
 import OpsNotchCore
 
 @MainActor
-final class QuickLookService: NSObject, QLPreviewPanelDataSource {
+final class QuickLookService: NSObject, @preconcurrency QLPreviewPanelDataSource {
     static let shared = QuickLookService()
     private var previewURL: URL?
 

@@ -470,7 +470,7 @@ private final class ZoomableImageView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         // 惯性阶段(momentum)不参与缩放,否则松手后还会持续缩很久
-        guard event.momentumPhase == .none else { return }
+        guard event.momentumPhase.isEmpty else { return }
         if abs(event.scrollingDeltaY) > 0.01 {
             applyZoom(multiplier: 1 - event.scrollingDeltaY * 0.002, anchor: convert(event.locationInWindow, from: nil))
         } else if abs(event.scrollingDeltaX) > 0.01, scale > 1 {

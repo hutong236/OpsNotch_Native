@@ -33,8 +33,9 @@ final class SpotlightRevealService {
             forName: .NSMetadataQueryDidFinishGathering,
             object: query,
             queue: .main
-        ) { [weak self, weak query] _ in
-            guard let self, let query else { return }
+        ) { [weak self] note in
+            // addObserver 已限定 object: query,从通知取回即可,避免 @Sendable 闭包捕获非 Sendable 的 NSMetadataQuery
+            guard let self, let query = note.object as? NSMetadataQuery else { return }
             MainActor.assumeIsolated {
                 query.disableUpdates()
 
