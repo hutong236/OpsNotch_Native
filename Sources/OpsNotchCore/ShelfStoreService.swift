@@ -43,6 +43,7 @@ public final class ShelfStoreService: @unchecked Sendable {
             store.items.removeAll { expired.contains($0.id) }
             for id in expired { try? removeManagedDirectory(id: id) }
         }
+        normalizeWorkingSet(&store)
         try writeUnlocked(store)
         return store
     }
@@ -53,6 +54,7 @@ public final class ShelfStoreService: @unchecked Sendable {
         try ensureDirectories()
         var current = store
         current.version = ShelfStore.currentVersion
+        normalizeWorkingSet(&current)
         try writeUnlocked(current)
         return current
     }
@@ -161,18 +163,33 @@ public final class ShelfStoreService: @unchecked Sendable {
         }
     }
 
+    /// V2：成功使用 Shelf 条目后累计频率并记录最近使用时间。
+    @discardableResult
+    public func recordUse(id: UUID, now: UInt64 = ShelfClock.now()) throws -> ShelfStore {
+        try mutate { store in
+            guard let index = store.items.firstIndex(where: { $0.id == id }) else { return }
+            store.items[index].useCount &+= 1
+            store.items[index].lastUsedAt = now
+            // 保留 V1 行为：一次成功取回也会使条目在最近列表中上浮。
+            store.items[index].updatedAt = now
+        }
+    }
+
     @discardableResult
     public func remove(ids: Set<UUID>) throws -> ShelfStore {
         try mutate { store in
             let copies = store.items.filter { ids.contains($0.id) && $0.storageMode == .copy }.map(\.id)
             store.items.removeAll { ids.contains($0.id) }
+            store.settings.workingSetItemIDs.removeAll { ids.contains($0) }
             for id in copies { try? removeManagedDirectory(id: id) }
         }
     }
 
     @discardableResult
     public func clearRecent() throws -> ShelfStore {
-        let ids = Set((try load()).items.filter { !$0.pinned }.map(\.id))
+        let value = try load()
+        let workingSetIDs = Set(value.settings.workingSetItemIDs)
+        let ids = Set(value.items.filter { !$0.pinned && !workingSetIDs.contains($0.id) }.map(\.id))
         return try remove(ids: ids)
     }
 
@@ -192,6 +209,7 @@ public final class ShelfStoreService: @unchecked Sendable {
         }
         migrate(&store)
         try body(&store)
+        normalizeWorkingSet(&store)
         store.version = ShelfStore.currentVersion
         try writeUnlocked(store)
         return store
@@ -217,6 +235,20 @@ public final class ShelfStoreService: @unchecked Sendable {
             }
             store.version = ShelfStore.currentVersion
         }
+        normalizeWorkingSet(&store)
+    }
+
+    private func normalizeWorkingSet(_ store: inout ShelfStore) {
+        let validIDs = Set(store.items.map(\.id))
+        var seen = Set<UUID>()
+        var normalized: [UUID] = []
+        for id in store.settings.workingSetItemIDs {
+            guard validIDs.contains(id), !seen.contains(id) else { continue }
+            seen.insert(id)
+            normalized.append(id)
+            if normalized.count >= 64 { break }
+        }
+        store.settings.workingSetItemIDs = normalized
     }
 
     private func writeUnlocked(_ store: ShelfStore) throws {

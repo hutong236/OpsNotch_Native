@@ -9,14 +9,18 @@ import OpsNotchCore
 final class AppModel: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
     @Published private(set) var settings = ShelfSettings()
+    @Published private(set) var appContext: AppContextKind = .generic
+    @Published private(set) var localFileResults: [LocalFileCandidate] = []
     @Published var query = "" {
         didSet {
+            scheduleLocalFileSearch()
             resetQuickHighlight()
         }
     }
     /// 类型筛选(全部/文件/文本/URL/应用),与搜索词叠加;仅会话内有效,不落盘。
     @Published var kindFilter: ShelfKindFilter = .all {
         didSet {
+            scheduleLocalFileSearch()
             resetQuickHighlight()
         }
     }
@@ -25,28 +29,22 @@ final class AppModel: ObservableObject {
     @Published var editorDraft: ItemDraft?
     @Published var shelfHovered = false
     /// 键盘流焦点请求令牌:ShelfWindowController 置为新 UUID 时,ShelfView 的搜索框应自动聚焦。
-    /// 面板隐藏时清空,保证每次热键呼出都触发一次新的聚焦。
     @Published var focusRequestToken: UUID?
-    /// 统一键盘流当前高亮条目。Finder 与 Shelf 共享稳定字符串 ID。
+    /// Finder / Working Set / Shelf / Local Search 共用的一套键盘高亮 ID。
     @Published var highlightedQuickEntryID: String?
 
     let store: ShelfStoreService
     var settingsDidChange: (() -> Void)?
     var shelfHoverChanged: ((Bool) -> Void)?
-    /// Esc:立即收起面板。
     var requestHide: (() -> Void)?
-    /// Enter 复制后:短暂延迟收起面板(给 toast 留显示时间)。
     var requestDelayedHide: (() -> Void)?
-    /// Finder 路径执行通道，由 ShelfWindowController 注入并复用 FinderWindowService。
     var requestOpenFinderPath: ((String, UUID?) -> Void)?
-    /// 设置页写入快捷键的通道:先注册后落盘,注册失败(组合键被占用)不持久化。
-    /// 由 AppDelegate 注入 HotkeyService.apply。
     var hotkeyApply: ((HotkeyShortcut?) -> HotkeyError?)?
-    /// 最近一次快捷键写入是否因注册冲突被拒绝,设置页据此显示红字提示。
     @Published var hotkeyConflict = false
 
     private var toastWorkItem: DispatchWorkItem?
     private var lastSelectionID: UUID?
+    private var localSearchTask: Task<Void, Never>?
 
     init(store: ShelfStoreService) {
         self.store = store
@@ -54,8 +52,40 @@ final class AppModel: ObservableObject {
     }
 
     var language: AppLanguage { settings.language }
-    var grouped: (pinned: [ShelfItem], recent: [ShelfItem]) { ShelfLogic.grouped(items, query: query, kindFilter: kindFilter) }
-    var visibleItems: [ShelfItem] { grouped.pinned + grouped.recent }
+
+    var workingSetItems: [ShelfItem] {
+        let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        let orderedByWorkingSet = settings.workingSetItemIDs.compactMap { byID[$0] }
+        return SmartShelfRanking.ordered(
+            orderedByWorkingSet,
+            query: query,
+            kindFilter: kindFilter,
+            appContext: appContext
+        )
+    }
+
+    var grouped: (pinned: [ShelfItem], recent: [ShelfItem]) {
+        let workingIDs = Set(settings.workingSetItemIDs)
+        let remaining = items.filter { !workingIDs.contains($0.id) }
+        let pinned = SmartShelfRanking.ordered(
+            remaining.filter(\.pinned),
+            query: query,
+            kindFilter: kindFilter,
+            appContext: appContext
+        )
+        let recent = SmartShelfRanking.ordered(
+            remaining.filter { !$0.pinned },
+            query: query,
+            kindFilter: kindFilter,
+            appContext: appContext
+        )
+        return (pinned, recent)
+    }
+
+    var visibleItems: [ShelfItem] {
+        let groups = grouped
+        return workingSetItems + groups.pinned + groups.recent
+    }
 
     /// Finder 快捷路径只在“全部/文件”中出现，并与 Shelf 共用搜索框。
     var visibleFinderEntries: [QuickShelfEntry] {
@@ -86,12 +116,49 @@ final class AppModel: ObservableObject {
         return entries
     }
 
+    var visibleLocalEntries: [QuickShelfEntry] {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              kindFilter == .all || kindFilter == .file else { return [] }
+
+        let shelfPaths = Set(items.compactMap { item -> String? in
+            guard [.file, .folder, .application].contains(item.kind) else { return nil }
+            return standardizedPath(item.content)
+        })
+        let finderPaths = Set(visibleFinderEntries.compactMap { $0.finderPath }.map(standardizedPath))
+
+        return localFileResults.compactMap { candidate in
+            let standardized = standardizedPath(candidate.path)
+            guard !shelfPaths.contains(standardized), !finderPaths.contains(standardized) else { return nil }
+            return .local(
+                id: QuickShelfEntry.localID(path: standardized),
+                title: candidate.title,
+                path: standardized,
+                isDirectory: candidate.isDirectory
+            )
+        }
+    }
+
     var visibleQuickEntries: [QuickShelfEntry] {
-        visibleFinderEntries + visibleItems.map(QuickShelfEntry.shelf)
+        visibleFinderEntries
+            + visibleItems.map(QuickShelfEntry.shelf)
+            + visibleLocalEntries
     }
 
     func quickEntryID(for item: ShelfItem) -> String {
         QuickShelfEntry.shelfID(item.id)
+    }
+
+    func semanticKind(for item: ShelfItem) -> SemanticKind {
+        ShelfSemantic.kind(for: item)
+    }
+
+    func refreshSmartContext() {
+        let next = AppContextResolver.current()
+        if appContext != next {
+            appContext = next
+            resetQuickHighlight()
+        }
+        scheduleLocalFileSearch()
     }
 
     func moveHighlight(_ delta: Int) {
@@ -105,8 +172,7 @@ final class AppModel: ObservableObject {
         highlightedQuickEntryID = visible[next].id
     }
 
-    /// Enter：Finder 项打开目录；Shelf 项继续按原 copy payload 语义取回。
-    /// 文件/图片条目仍写文件 URL，文字/URL 写文本，不把文件路径降级成字符串。
+    /// Enter：Finder/Local Folder 打开目录；Shelf/Local File 维持正确 pasteboard 语义。
     func confirmHighlight(using clipboard: ClipboardManager) {
         guard let entry = highlightedQuickEntry else { return }
         switch entry {
@@ -116,15 +182,33 @@ final class AppModel: ObservableObject {
             let payload = ShelfLogic.copyPayload(items: [item])
             guard !payload.isEmpty else { return }
             clipboard.copyPayload(payload)
-            touchItem(item.id)
+            recordUse(item.id)
             showToast(L10n.text("copied", language))
             requestDelayedHide?()
+        case .local(_, _, let path, let isDirectory):
+            if isDirectory {
+                requestOpenFinderPath?(path, nil)
+            } else {
+                clipboard.copyPayload(ShelfCopyPayload(filePaths: [path]))
+                showToast(L10n.text("copied", language))
+                requestDelayedHide?()
+            }
         }
     }
 
     func openFinderEntry(_ entry: QuickShelfEntry) {
         guard case .finder(_, _, let path, let quickPathID) = entry else { return }
         requestOpenFinderPath?(path, quickPathID)
+    }
+
+    func openLocalEntry(_ entry: QuickShelfEntry, using clipboard: ClipboardManager) {
+        guard case .local(_, _, let path, let isDirectory) = entry else { return }
+        if isDirectory {
+            requestOpenFinderPath?(path, nil)
+        } else {
+            clipboard.copyPayload(ShelfCopyPayload(filePaths: [path]))
+            showToast(L10n.text("copied", language))
+        }
     }
 
     func highlightFinderDefault() {
@@ -143,16 +227,23 @@ final class AppModel: ObservableObject {
         requestHide?()
     }
 
-    /// ⌘1~⌘5 与筛选 chips 共用的切换入口;didSet 负责高亮回落。
     func setKindFilter(to filter: ShelfKindFilter) {
         kindFilter = filter
     }
 
-    /// Space:Quick Look 预览键盘高亮的 Shelf 条目；Finder 路径不触发预览。
     func quickLookHighlighted() {
-        guard case .shelf(let item)? = highlightedQuickEntry,
-              ItemPreviewKind.isPreviewable(item) else { return }
-        QuickLookService.shared.preview(item)
+        guard let entry = highlightedQuickEntry else { return }
+        switch entry {
+        case .shelf(let item):
+            guard ItemPreviewKind.isPreviewable(item) else { return }
+            QuickLookService.shared.preview(item)
+        case .local(_, let title, let path, let isDirectory):
+            guard !isDirectory else { return }
+            let item = ShelfItem(kind: .file, title: title, content: path, storageMode: .reference)
+            QuickLookService.shared.preview(item)
+        case .finder:
+            return
+        }
     }
 
     func reload() {
@@ -165,12 +256,14 @@ final class AppModel: ObservableObject {
                !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
                 resetQuickHighlight()
             }
+            scheduleLocalFileSearch()
         } catch {
             showToast(error.localizedDescription)
         }
     }
 
-    func updateSettings(_ change: (inout ShelfSettings) -> Void) {
+    /// 保存设置。Working Set 仅是 Quick Shelf 数据状态，可选择不触发 Sensor/热键/Finder 等系统设置重载。
+    func updateSettings(notifyServices: Bool = true, _ change: (inout ShelfSettings) -> Void) {
         var next = settings
         change(&next)
         do {
@@ -181,12 +274,11 @@ final class AppModel: ObservableObject {
                !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
                 resetQuickHighlight()
             }
-            settingsDidChange?()
+            if notifyServices { settingsDidChange?() }
+            scheduleLocalFileSearch()
         } catch { showToast(error.localizedDescription) }
     }
 
-    /// 设置页写入快捷键:先经 HotkeyService 注册(消费型全局热键),失败则拒绝并提示冲突,
-    /// 保持原快捷键继续生效;成功才持久化。nil 表示清除。
     func setHotkey(_ shortcut: HotkeyShortcut?) {
         guard let hotkeyApply else { return }
         if let _ = hotkeyApply(shortcut) {
@@ -240,9 +332,36 @@ final class AppModel: ObservableObject {
         catch { showToast(error.localizedDescription) }
     }
 
-    /// 复制成功后刷新条目最近使用时间,使其按排序规则上浮到所在分区顶部。
+    func isInWorkingSet(_ item: ShelfItem) -> Bool {
+        settings.workingSetItemIDs.contains(item.id)
+    }
+
+    func toggleWorkingSet(_ item: ShelfItem) {
+        updateSettings(notifyServices: false) { settings in
+            if let index = settings.workingSetItemIDs.firstIndex(of: item.id) {
+                settings.workingSetItemIDs.remove(at: index)
+            } else {
+                settings.workingSetItemIDs.insert(item.id, at: 0)
+                settings.workingSetItemIDs = Array(settings.workingSetItemIDs.prefix(64))
+            }
+        }
+        showToast(L10n.text(isInWorkingSet(item) ? "workingSetAdded" : "workingSetRemoved", language))
+    }
+
+    func clearWorkingSet() {
+        updateSettings(notifyServices: false) { $0.workingSetItemIDs.removeAll() }
+        showToast(L10n.text("workingSetCleared", language))
+    }
+
+    /// V1 兼容入口：只刷新 updatedAt。
     func touchItem(_ id: UUID) {
         do { apply(try store.touch(id: id)) }
+        catch { showToast(error.localizedDescription) }
+    }
+
+    /// V2：成功使用后累计 useCount / lastUsedAt，并维持最近上浮行为。
+    func recordUse(_ id: UUID) {
+        do { apply(try store.recordUse(id: id)) }
         catch { showToast(error.localizedDescription) }
     }
 
@@ -357,6 +476,43 @@ final class AppModel: ObservableObject {
         NSString(string: rawPath).expandingTildeInPath
     }
 
+    private func standardizedPath(_ rawPath: String) -> String {
+        NSString(string: NSString(string: rawPath).expandingTildeInPath).standardizingPath
+    }
+
+    private func scheduleLocalFileSearch() {
+        localSearchTask?.cancel()
+        localFileResults = []
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              kindFilter == .all || kindFilter == .file else { return }
+
+        let recent = LocalFileSearchService.recentDocumentPaths()
+        let shelfPaths = items.compactMap { item -> String? in
+            [.file, .folder, .application].contains(item.kind) ? item.content : nil
+        }
+        let finderPaths = [settings.finderDefaultPath] + settings.finderQuickPaths.map(\.path)
+        let expectedQuery = trimmed
+
+        localSearchTask = Task { [weak self] in
+            let results = await LocalFileSearchService.search(
+                query: expectedQuery,
+                recentDocumentPaths: recent,
+                shelfPaths: shelfPaths,
+                finderPaths: finderPaths,
+                limit: 20
+            )
+            guard !Task.isCancelled, let self else { return }
+            guard self.query.trimmingCharacters(in: .whitespacesAndNewlines) == expectedQuery,
+                  self.kindFilter == .all || self.kindFilter == .file else { return }
+            self.localFileResults = results
+            if self.highlightedQuickEntryID == nil {
+                self.resetQuickHighlight()
+            }
+        }
+    }
+
     private func apply(_ storeValue: ShelfStore) {
         let knownIDs = Set(items.map(\.id))
         items = storeValue.items
@@ -371,6 +527,7 @@ final class AppModel: ObservableObject {
             || !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
             resetQuickHighlight()
         }
+        scheduleLocalFileSearch()
     }
 }
 
