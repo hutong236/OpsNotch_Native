@@ -19,3 +19,6 @@ DerivedData/
 .idea/
 .vscode/
 xcuserdata/
+
+# ZCode 会话内部文件
+.zcode/plans/
