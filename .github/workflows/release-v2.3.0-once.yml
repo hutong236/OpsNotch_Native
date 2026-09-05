@@ -1,0 +1,47 @@
+name: 一次性发布 v2.3.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-v2.3.0-once.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create annotated tag at V2 merge commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="v2.3.0"
+          TARGET="eec70c4dea2386c27cdb1c249ea8bf9450eb96b5"
+          git fetch --force --tags origin
+          git cat-file -e "${TARGET}^{commit}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag already exists: ${TAG}"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" "${TARGET}" -m "Ops Notch ${TAG}"
+          git push origin "refs/tags/${TAG}"
+
+      - name: Dispatch formal macOS package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.3.0
+          echo "Dispatched package-app.yml for v2.3.0"
