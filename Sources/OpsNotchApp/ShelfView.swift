@@ -140,6 +140,7 @@ struct ShelfRootView: View {
             (.text, L10n.text("filterText", model.language)),
             (.url, L10n.text("filterURL", model.language)),
             (.application, L10n.text("filterApp", model.language)),
+            (.action, L10n.text("filterAction", model.language)),
         ]
     }
 
@@ -682,16 +683,53 @@ struct ItemEditorView: View {
                     Text(L10n.text("safeURL", model.language)).tag(SafeActionKind.openURL)
                 }.pickerStyle(.segmented)
             }
+            if let hint = inlineHint {
+                Text(hint)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Spacer()
                 Button(L10n.text("cancel", model.language)) { model.editorDraft = nil; dismiss() }
-                Button(L10n.text("save", model.language)) { model.saveDraft(draft); dismiss() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(L10n.text("save", model.language)) {
+                    if model.saveDraft(draft) { dismiss() }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!draftIsValid)
             }
         }
         .padding(18)
         .frame(width: 390)
+    }
+
+    /// 草稿能否保存:新建文字/编辑要求非空,添加网址与安全操作按类型实时校验。
+    private var draftIsValid: Bool {
+        switch draft.mode {
+        case .newText, .edit:
+            return !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .newURL:
+            return SafeActionValidator.isHTTPURL(draft.content)
+        case .newAction:
+            return SafeActionValidator.validate(kind: draft.actionKind, content: draft.content)
+        }
+    }
+
+    /// 就地的无效原因提示;内容为空或仍是初始模板时保持安静。
+    private var inlineHint: String? {
+        if draftIsValid { return nil }
+        let content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return nil }
+        switch draft.mode {
+        case .newURL:
+            return content == "https://" ? nil : L10n.text("invalidURLInput", model.language)
+        case .newAction:
+            return draft.actionKind == .openPath
+                ? L10n.text("invalidPathInput", model.language)
+                : L10n.text("invalidURLInput", model.language)
+        case .newText, .edit:
+            return nil
+        }
     }
 
     private var title: String {

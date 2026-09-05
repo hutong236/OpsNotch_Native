@@ -309,11 +309,6 @@ final class AppModel: ObservableObject {
         catch { showToast(error.localizedDescription) }
     }
 
-    func addSafeAction(title: String, content: String, kind: SafeActionKind) {
-        do { apply(try store.addAction(title: title, content: content, kind: kind)) }
-        catch { showToast(L10n.text("invalidAction", language)) }
-    }
-
     func addPaths(_ urls: [URL], forcedKind: ShelfKind? = nil) {
         for url in urls {
             do { apply(try store.addPath(url, mode: settings.addMode, forcedKind: forcedKind)) }
@@ -376,17 +371,26 @@ final class AppModel: ObservableObject {
         catch { showToast(error.localizedDescription) }
     }
 
-    func saveDraft(_ draft: ItemDraft) {
-        switch draft.mode {
-        case .newText: addText(draft.content, title: draft.title, toast: false)
-        case .newURL: addURL(draft.content, title: draft.title)
-        case .newAction:
-            addSafeAction(title: draft.title, content: draft.content, kind: draft.actionKind)
-        case .edit(let id):
-            do { apply(try store.edit(id: id, title: draft.title, content: draft.content)) }
-            catch { showToast(error.localizedDescription) }
+    /// 保存编辑器草稿。成功时清空 editorDraft(sheet 随之关闭)并返回 true;
+    /// 失败时保持 editorDraft 与用户输入,toast 提示原因并返回 false。
+    @discardableResult
+    func saveDraft(_ draft: ItemDraft) -> Bool {
+        do {
+            switch draft.mode {
+            case .newText: apply(try store.addText(draft.content, title: draft.title))
+            case .newURL: apply(try store.addURL(draft.content, title: draft.title))
+            case .newAction: apply(try store.addAction(title: draft.title, content: draft.content, kind: draft.actionKind))
+            case .edit(let id): apply(try store.edit(id: id, title: draft.title, content: draft.content))
+            }
+            editorDraft = nil
+            return true
+        } catch ShelfStoreError.unsafeAction {
+            showToast(L10n.text("invalidAction", language))
+            return false
+        } catch {
+            showToast(error.localizedDescription)
+            return false
         }
-        editorDraft = nil
     }
 
     func beginEdit(_ item: ShelfItem) {

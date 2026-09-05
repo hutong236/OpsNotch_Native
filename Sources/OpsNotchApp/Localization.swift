@@ -88,6 +88,8 @@ enum L10n {
             "safePath": "本地路径",
             "safeURL": "HTTP/HTTPS URL",
             "invalidAction": "安全操作只允许本地绝对路径或 HTTP/HTTPS URL。",
+            "invalidPathInput": "本地路径须以 / 或 ~ 开头。",
+            "invalidURLInput": "仅支持 HTTP/HTTPS 网址。",
             "dragHandle": "拖动",
             "zoomPreview": "放大预览",
             "previewClose": "关闭",
@@ -109,6 +111,7 @@ enum L10n {
             "filterText": "文本",
             "filterURL": "URL",
             "filterApp": "应用",
+            "filterAction": "安全操作",
             "noMatch": "没有匹配的条目"
         ]
         let en: [String: String] = [
@@ -194,6 +197,8 @@ enum L10n {
             "safePath": "Local path",
             "safeURL": "HTTP/HTTPS URL",
             "invalidAction": "Safe Action only supports an absolute local path or HTTP/HTTPS URL.",
+            "invalidPathInput": "Local path must start with / or ~.",
+            "invalidURLInput": "Only HTTP/HTTPS URLs are supported.",
             "dragHandle": "Drag",
             "zoomPreview": "Magnify",
             "previewClose": "Close",
@@ -215,6 +220,7 @@ enum L10n {
             "filterText": "Text",
             "filterURL": "URLs",
             "filterApp": "Apps",
+            "filterAction": "Actions",
             "noMatch": "No matching items"
         ]
         return (language == .zhCN ? zh : en)[key] ?? key

@@ -95,9 +95,10 @@ public final class ShelfStoreService: @unchecked Sendable {
 
     @discardableResult
     public func addAction(title: String, content: String, kind: SafeActionKind) throws -> ShelfStore {
-        guard SafeActionValidator.validate(kind: kind, content: content) else { throw ShelfStoreError.unsafeAction }
+        guard let normalized = SafeActionValidator.normalizedActionContent(kind: kind, content: content)
+        else { throw ShelfStoreError.unsafeAction }
         return try mutate { store in
-            store.items.append(ShelfItem(kind: .action, title: title.nonEmpty ?? "Action", content: content, actionKind: kind))
+            store.items.append(ShelfItem(kind: .action, title: title.nonEmpty ?? "Action", content: normalized, actionKind: kind))
         }
     }
 
@@ -155,10 +156,13 @@ public final class ShelfStoreService: @unchecked Sendable {
                     let value = content.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !value.isEmpty { store.items[index].content = value }
                 case .url:
-                    if SafeActionValidator.isHTTPURL(content) { store.items[index].content = content }
+                    if let normalized = SafeActionValidator.normalizedActionContent(kind: .openURL, content: content) {
+                        store.items[index].content = normalized
+                    }
                 case .action:
-                    if let kind = store.items[index].actionKind, SafeActionValidator.validate(kind: kind, content: content) {
-                        store.items[index].content = content
+                    if let kind = store.items[index].actionKind,
+                       let normalized = SafeActionValidator.normalizedActionContent(kind: kind, content: content) {
+                        store.items[index].content = normalized
                     }
                 default: break
                 }

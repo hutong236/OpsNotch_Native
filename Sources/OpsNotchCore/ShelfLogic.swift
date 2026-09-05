@@ -1,13 +1,14 @@
 import Foundation
 
-/// 类型筛选位:与搜索词叠加的条目类型收窄。
-/// action 条目按其目标类型归入"文件"(openPath)或"URL"(openURL),文件夹归入"文件"。
+/// 类型筛选位:与搜索词叠加的条目类型收窄,六个分类互斥。
+/// action 条目独占"安全操作"分类;文件夹归入"文件"。
 public enum ShelfKindFilter: Equatable, Hashable, Sendable, CaseIterable {
     case all
     case file
     case text
     case url
     case application
+    case action
 }
 
 /// "复制所选"写入系统剪贴板的 payload:文件类条目产出路径列表(写文件 URL flavor),
@@ -38,13 +39,14 @@ public enum ShelfLogic {
             return true
         case .file:
             return item.kind == .file || item.kind == .folder
-                || (item.kind == .action && item.actionKind == .openPath)
         case .text:
             return item.kind == .text
         case .url:
-            return item.kind == .url || (item.kind == .action && item.actionKind == .openURL)
+            return item.kind == .url
         case .application:
             return item.kind == .application
+        case .action:
+            return item.kind == .action
         }
     }
 

@@ -118,6 +118,26 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertFalse(SafeActionValidator.validate(kind: .openURL, content: "javascript:alert(1)"))
     }
 
+    func testExpandedLocalPathAcceptsHomeTildeOnly() {
+        XCTAssertEqual(SafeActionValidator.expandedLocalPath("~/Documents"), NSHomeDirectory() + "/Documents")
+        XCTAssertEqual(SafeActionValidator.expandedLocalPath("~"), NSHomeDirectory())
+        XCTAssertEqual(SafeActionValidator.expandedLocalPath("  ~/Documents  "), NSHomeDirectory() + "/Documents")
+        XCTAssertNil(SafeActionValidator.expandedLocalPath("~other/Documents"))
+        XCTAssertNil(SafeActionValidator.expandedLocalPath("Documents"))
+        XCTAssertNil(SafeActionValidator.expandedLocalPath("rm -rf /"))
+        XCTAssertNil(SafeActionValidator.expandedLocalPath(""))
+    }
+
+    func testNormalizedActionContent() {
+        XCTAssertEqual(
+            SafeActionValidator.normalizedActionContent(kind: .openPath, content: "~/Documents"),
+            NSHomeDirectory() + "/Documents"
+        )
+        XCTAssertEqual(SafeActionValidator.normalizedActionContent(kind: .openURL, content: " https://example.com "), "https://example.com")
+        XCTAssertNil(SafeActionValidator.normalizedActionContent(kind: .openURL, content: "example.com"))
+        XCTAssertNil(SafeActionValidator.normalizedActionContent(kind: .openPath, content: "relative/path"))
+    }
+
     func testPreviewKindDetectsImageExtensions() {
         XCTAssertTrue(ItemPreviewKind.isImagePath("/tmp/photo.JPG"))
         XCTAssertTrue(ItemPreviewKind.isImagePath("/tmp/photo.heic"))
@@ -214,6 +234,21 @@ final class OpsNotchCoreTests: XCTestCase {
         XCTAssertEqual(groups.recent.count, 1)
     }
 
+    func testAddActionExpandsHomeTildeBeforePersisting() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+
+        let store = try service.addAction(title: "Docs", content: "~/Documents", kind: .openPath)
+        XCTAssertEqual(try XCTUnwrap(store.items.first).content, NSHomeDirectory() + "/Documents")
+
+        let edited = try service.edit(id: store.items[0].id, title: "Docs", content: "~/Downloads")
+        XCTAssertEqual(try XCTUnwrap(edited.items.first).content, NSHomeDirectory() + "/Downloads")
+
+        XCTAssertThrowsError(try service.addAction(title: "Bad", content: "relative/path", kind: .openPath))
+        XCTAssertThrowsError(try service.addAction(title: "Bad", content: "~other/Documents", kind: .openPath))
+    }
+
     func testKindFilterClassifiesAllKinds() {
         let items = [
             ShelfItem(kind: .file, title: "File", content: "/tmp/a.txt", createdAt: 1, updatedAt: 1),
@@ -230,10 +265,11 @@ final class OpsNotchCoreTests: XCTestCase {
         }
 
         XCTAssertEqual(recentTitles(.all), Set(["File", "Folder", "ActPath", "ActURL", "Text", "URL", "App"]))
-        XCTAssertEqual(recentTitles(.file), Set(["File", "Folder", "ActPath"]))
+        XCTAssertEqual(recentTitles(.file), Set(["File", "Folder"]))
         XCTAssertEqual(recentTitles(.text), Set(["Text"]))
-        XCTAssertEqual(recentTitles(.url), Set(["URL", "ActURL"]))
+        XCTAssertEqual(recentTitles(.url), Set(["URL"]))
         XCTAssertEqual(recentTitles(.application), Set(["App"]))
+        XCTAssertEqual(recentTitles(.action), Set(["ActPath", "ActURL"]))
     }
 
     func testKindFilterCombinesWithQuery() {

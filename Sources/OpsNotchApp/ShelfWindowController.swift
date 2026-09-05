@@ -115,10 +115,10 @@ final class ShelfWindowController: NSObject {
                     MainActor.assumeIsolated { self.model.focusRequestToken = UUID() }
                 }
                 return nil
-            case 18, 19, 20, 21, 23:
+            case 18, 19, 20, 21, 22, 23:
                 guard modifiers == .command,
-                      let index = [18, 19, 20, 21, 23].firstIndex(of: event.keyCode) else { return event }
-                let filters: [ShelfKindFilter] = [.all, .file, .text, .url, .application]
+                      let index = [18, 19, 20, 21, 23, 22].firstIndex(of: event.keyCode) else { return event }
+                let filters: [ShelfKindFilter] = [.all, .file, .text, .url, .application, .action]
                 MainActor.assumeIsolated { self.model.setKindFilter(to: filters[index]) }
                 return nil
             case 49:
