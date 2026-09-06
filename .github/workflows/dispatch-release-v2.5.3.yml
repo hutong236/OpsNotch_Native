@@ -19,6 +19,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Dispatch the repository's canonical release workflow for v2.5.3.
           gh workflow run release.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
