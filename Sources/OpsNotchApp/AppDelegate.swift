@@ -14,15 +14,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var finderReveal: FinderRevealController!
     private var unifiedFinder: UnifiedFinderCoordinator!
     private var inputMethodManager: InputMethodManager!
+    private var desktopCommands: DesktopCommandIntegration!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
 
         let store = ShelfStoreService(rootURL: ShelfStoreService.defaultRootURL())
         model = AppModel(store: store)
+        desktopCommands = DesktopCommandIntegration(model: model)
         clipboard = ClipboardManager(model: model)
         clipboard.startMonitoring()
         shelf = ShelfWindowController(model: model, clipboard: clipboard)
+        desktopCommands.shelf = shelf
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
         // Shelf 可见性 → 各屏 Sensor 指示点(事件驱动,无轮询)。
