@@ -29,3 +29,5 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "${api}" \
             -d "{\"ref\":\"refs/tags/v2.5.2\",\"sha\":\"${TARGET_SHA}\"}"
+
+# second push: workflow already exists in the parent commit
