@@ -38,6 +38,7 @@ final class AppModel: ObservableObject {
     var requestHide: (() -> Void)?
     var requestDelayedHide: (() -> Void)?
     var requestOpenFinderPath: ((String, UUID?) -> Void)?
+    var requestDesktopCommand: ((DesktopCommand) -> Void)?
     var hotkeyApply: ((HotkeyShortcut?) -> HotkeyError?)?
     @Published var hotkeyConflict = false
 
@@ -159,8 +160,40 @@ final class AppModel: ObservableObject {
         return entries
     }
 
+    var visibleDesktopEntries: [QuickShelfEntry] {
+        guard kindFilter == .all,
+              let command = DesktopCommandParser.parse(query) else { return [] }
+
+        switch command {
+        case .list:
+            let subtitle = language == .zhCN
+                ? "按 Enter 查看所有桌面"
+                : "Press Enter to view desktops"
+            return [.desktop(
+                id: QuickShelfEntry.desktopListID,
+                title: L10n.text("desktopList", language),
+                subtitle: subtitle,
+                command: command
+            )]
+        case .switchTo(let index):
+            let title = language == .zhCN
+                ? "切换到桌面 \(index)"
+                : "Switch to Desktop \(index)"
+            let subtitle = language == .zhCN
+                ? "按 Enter 执行 · d \(index)"
+                : "Press Enter · d \(index)"
+            return [.desktop(
+                id: QuickShelfEntry.desktopSwitchID(index),
+                title: title,
+                subtitle: subtitle,
+                command: command
+            )]
+        }
+    }
+
     var visibleQuickEntries: [QuickShelfEntry] {
-        visibleFinderEntries
+        visibleDesktopEntries
+            + visibleFinderEntries
             + visibleItems.map(QuickShelfEntry.shelf)
             + visibleLocalEntries
     }
@@ -197,6 +230,8 @@ final class AppModel: ObservableObject {
     func confirmHighlight(using clipboard: ClipboardManager) {
         guard let entry = highlightedQuickEntry else { return }
         switch entry {
+        case .desktop(_, _, _, let command):
+            requestDesktopCommand?(command)
         case .finder(_, _, let path, let quickPathID):
             requestOpenFinderPath?(path, quickPathID)
         case .shelf(let item):
@@ -259,6 +294,8 @@ final class AppModel: ObservableObject {
     func quickLookHighlighted() {
         guard let entry = highlightedQuickEntry else { return }
         switch entry {
+        case .desktop:
+            return
         case .shelf(let item):
             guard ItemPreviewKind.isPreviewable(item) else { return }
             QuickLookService.shared.preview(item)
