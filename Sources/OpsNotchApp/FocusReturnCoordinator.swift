@@ -37,8 +37,8 @@ final class FocusReturnCoordinator {
             guard let panel = notification.object as? ShelfPanel else { return }
             Task { @MainActor [weak self, weak panel] in
                 // ShelfWindowController 也会响应 didResignKey 并执行 orderOut。
-                // 让出一次主执行器，确保先观察到最终的可见性状态。
-                await Task.yield()
+                // 给它一个极短的主线程窗口完成隐藏，再判断最终可见性；10ms 对交互不可感知。
+                try? await Task.sleep(nanoseconds: 10_000_000)
                 guard let self, let panel else { return }
                 self.handlePanelResignedKey(panel)
             }
