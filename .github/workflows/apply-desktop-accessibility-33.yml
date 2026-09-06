@@ -1,0 +1,29 @@
+name: Apply desktop accessibility fix
+
+on:
+  push:
+    branches:
+      - fix/desktop-accessibility-33
+    paths:
+      - .github/workflows/apply-desktop-accessibility-33.yml
+      - .github/scripts/fix_desktop_accessibility_33.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/desktop-accessibility-33
+      - name: Patch DesktopSpaceController
+        run: python3 .github/scripts/fix_desktop_accessibility_33.py
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Sources/OpsNotchApp/DesktopSpaceController.swift
+          git commit -m "fix: continue desktop switch after accessibility grant"
+          git push origin HEAD:fix/desktop-accessibility-33
