@@ -12,6 +12,9 @@ struct LocalFileCandidate: Identifiable, Equatable, Sendable {
 
 @MainActor
 enum LocalFileSearchService {
+    /// 键盘连续输入时先给旧任务一个短取消窗口，避免每个字符都启动一次目录扫描。
+    private static let debounceNanoseconds: UInt64 = 120_000_000
+
     static func recentDocumentPaths(limit: Int = 20) -> [String] {
         Array(NSDocumentController.shared.recentDocumentURLs.prefix(limit)).map(\.path)
     }
@@ -26,7 +29,16 @@ enum LocalFileSearchService {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, limit > 0 else { return [] }
 
-        return await Task.detached(priority: .userInitiated) {
+        do {
+            try await Task.sleep(nanoseconds: debounceNanoseconds)
+        } catch {
+            return []
+        }
+        guard !Task.isCancelled else { return [] }
+
+        // detached 负责把文件系统访问移出 MainActor；显式把调用方取消传递给它，
+        // 否则快速输入时旧搜索仍会在后台跑完，造成瞬时 CPU/内存叠加。
+        let searchTask = Task.detached(priority: .userInitiated) {
             searchSync(
                 query: trimmed,
                 recentDocumentPaths: recentDocumentPaths,
@@ -34,7 +46,13 @@ enum LocalFileSearchService {
                 finderPaths: finderPaths,
                 limit: limit
             )
-        }.value
+        }
+
+        return await withTaskCancellationHandler(operation: {
+            await searchTask.value
+        }, onCancel: {
+            searchTask.cancel()
+        })
     }
 
     nonisolated private static func searchSync(
@@ -44,13 +62,16 @@ enum LocalFileSearchService {
         finderPaths: [String],
         limit: Int
     ) -> [LocalFileCandidate] {
+        guard !Task.isCancelled else { return [] }
+
         let fm = FileManager.default
         let q = query.lowercased()
         var candidates: [LocalFileCandidate] = []
         var seenPaths = Set<String>()
 
         func addPath(_ path: String) {
-            guard candidates.count < max(limit * 4, limit) else { return }
+            guard !Task.isCancelled,
+                  candidates.count < max(limit * 4, limit) else { return }
             let standardized = NSString(string: path).standardizingPath
             guard !standardized.isEmpty, !seenPaths.contains(standardized) else { return }
 
@@ -63,11 +84,15 @@ enum LocalFileSearchService {
             candidates.append(LocalFileCandidate(path: standardized, title: title, isDirectory: isDirectory.boolValue))
         }
 
-        for path in recentDocumentPaths { addPath(path) }
+        for path in recentDocumentPaths {
+            guard !Task.isCancelled else { return [] }
+            addPath(path)
+        }
 
         var roots: [String] = []
         var seenRoots = Set<String>()
         func appendRoot(_ raw: String) {
+            guard !Task.isCancelled else { return }
             let expanded = NSString(string: raw).expandingTildeInPath
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: expanded, isDirectory: &isDirectory) else { return }
@@ -82,8 +107,10 @@ enum LocalFileSearchService {
 
         shelfPaths.forEach(appendRoot)
         finderPaths.forEach(appendRoot)
+        guard !Task.isCancelled else { return [] }
 
         for root in roots.prefix(16) {
+            guard !Task.isCancelled else { return [] }
             guard candidates.count < max(limit * 4, limit) else { break }
             guard let urls = try? fm.contentsOfDirectory(
                 at: URL(fileURLWithPath: root, isDirectory: true),
@@ -92,10 +119,13 @@ enum LocalFileSearchService {
             ) else { continue }
 
             for url in urls.prefix(64) {
+                guard !Task.isCancelled else { return [] }
                 addPath(url.path)
                 if candidates.count >= max(limit * 4, limit) { break }
             }
         }
+
+        guard !Task.isCancelled else { return [] }
 
         func matchScore(_ candidate: LocalFileCandidate) -> Int {
             let title = candidate.title.lowercased()
