@@ -236,19 +236,28 @@ final class DesktopSpaceController {
     }
 
     private func postDockSwipe(direction: Int, count: Int) {
-        guard count > 0, let event = CGEvent(source: nil) else { return }
+        guard count > 0,
+              let event = CGEvent(source: nil),
+              let eventTypeField = CGEventField(rawValue: 55),
+              let hidTypeField = CGEventField(rawValue: 110),
+              let motionField = CGEventField(rawValue: 123),
+              let progressField = CGEventField(rawValue: 124),
+              let velocityField = CGEventField(rawValue: 129),
+              let phaseField = CGEventField(rawValue: 132) else {
+            return
+        }
         let sign = direction > 0 ? 1.0 : -1.0
 
-        event.setIntegerValueField(CGEventField(rawValue: 55), value: 30)
-        event.setIntegerValueField(CGEventField(rawValue: 110), value: 23)
-        event.setIntegerValueField(CGEventField(rawValue: 123), value: 1)
-        event.setDoubleValueField(CGEventField(rawValue: 124), value: sign)
-        event.setDoubleValueField(CGEventField(rawValue: 129), value: sign * 9999.0)
+        event.setIntegerValueField(eventTypeField, value: 30)
+        event.setIntegerValueField(hidTypeField, value: 23)
+        event.setIntegerValueField(motionField, value: 1)
+        event.setDoubleValueField(progressField, value: sign)
+        event.setDoubleValueField(velocityField, value: sign * 9999.0)
 
         for _ in 0..<count {
-            event.setIntegerValueField(CGEventField(rawValue: 132), value: 1)
+            event.setIntegerValueField(phaseField, value: 1)
             event.post(tap: .cgSessionEventTap)
-            event.setIntegerValueField(CGEventField(rawValue: 132), value: 4)
+            event.setIntegerValueField(phaseField, value: 4)
             event.post(tap: .cgSessionEventTap)
         }
     }
