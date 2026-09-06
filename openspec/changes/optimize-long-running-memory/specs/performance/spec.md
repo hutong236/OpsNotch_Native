@@ -18,6 +18,16 @@ Local file search SHALL avoid launching filesystem work for superseded keystroke
 - **THEN** superseded queries exit without starting a directory scan
 - **AND** a background scan that has already started observes cancellation during traversal and exits without publishing stale results
 
+### Requirement: Closed floating previews SHALL release heavy content views
+
+Closing the floating preview SHALL keep the reusable panel shell but release the hosting/content view tree that owns the last previewed text or image.
+
+#### Scenario: User closes a large image preview
+- **WHEN** a floating preview containing a large image is closed
+- **THEN** the panel is hidden
+- **AND** the panel no longer retains its previous contentView/NSHostingView
+- **AND** reopening a preview creates content again on demand
+
 ### Requirement: Existing clipboard capture responsiveness SHALL be preserved
 
 The optimization SHALL NOT widen the configured clipboard polling intervals or remove the Sensor `catchIfChanged()` fallback.
