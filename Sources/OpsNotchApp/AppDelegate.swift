@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: AppModel!
     private var clipboard: ClipboardManager!
     private var shelf: ShelfWindowController!
+    private var focusReturn: FocusReturnCoordinator!
     private var sensors: SensorManager!
     private var settingsWindow: SettingsWindowController!
     private var statusBar: StatusBarController!
@@ -25,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboard = ClipboardManager(model: model)
         clipboard.startMonitoring()
         shelf = ShelfWindowController(model: model, clipboard: clipboard)
+        // Quick Shelf 会临时成为 key window；集中管理原应用焦点的记录与归还。
+        focusReturn = FocusReturnCoordinator()
         desktopCommands.shelf = shelf
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
