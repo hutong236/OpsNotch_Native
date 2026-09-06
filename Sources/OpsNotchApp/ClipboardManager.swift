@@ -15,12 +15,20 @@ final class ClipboardManager {
     /// 短时间内相同内容只消费一次；更长时间后的重复复制交给 store 层处理。
     private static let duplicateSuppressionInterval: TimeInterval = 1.0
 
+    /// 去重只需要知道“刚才是不是同一份内容”，不需要把上一份完整剪贴板再强引用一遍。
+    /// 对大段日志/代码或大量文件路径，保存固定大小指纹可避免应用长期额外占用同等体积内存。
+    private struct ContentFingerprint: Equatable {
+        let digest: Int
+        let byteCount: Int
+        let itemCount: Int
+    }
+
     private let model: AppModel
     private var handledChangeCount: Int
     private var monitorTask: Task<Void, Never>?
-    private var lastCapturedText: String?
+    private var lastCapturedTextFingerprint: ContentFingerprint?
     private var lastCapturedTextAt: TimeInterval = 0
-    private var lastCapturedFilePaths: [String]?
+    private var lastCapturedFilesFingerprint: ContentFingerprint?
     private var lastCapturedFilesAt: TimeInterval = 0
     /// Shelf 面板可见性提供者,由 AppDelegate 注入;未注入时按不可见处理。
     var panelVisibleProvider: (() -> Bool)?
@@ -67,11 +75,12 @@ final class ClipboardManager {
         if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: fileOptions) as? [NSURL], !objects.isEmpty {
             let urls = objects.map { $0 as URL }
             let paths = urls.map(\.path)
+            let fingerprint = Self.fingerprint(paths: paths)
             let now = ProcessInfo.processInfo.systemUptime
-            if paths == lastCapturedFilePaths, now - lastCapturedFilesAt < Self.duplicateSuppressionInterval {
+            if fingerprint == lastCapturedFilesFingerprint, now - lastCapturedFilesAt < Self.duplicateSuppressionInterval {
                 return false
             }
-            lastCapturedFilePaths = paths
+            lastCapturedFilesFingerprint = fingerprint
             lastCapturedFilesAt = now
             model.captureClipboardFiles(urls)
             return true
@@ -81,11 +90,12 @@ final class ClipboardManager {
         let text = normalizedClipboardText(rawText)
         guard !text.isEmpty else { return false }
 
+        let fingerprint = Self.fingerprint(text: text)
         let now = ProcessInfo.processInfo.systemUptime
-        if text == lastCapturedText, now - lastCapturedTextAt < Self.duplicateSuppressionInterval {
+        if fingerprint == lastCapturedTextFingerprint, now - lastCapturedTextAt < Self.duplicateSuppressionInterval {
             return false
         }
-        lastCapturedText = text
+        lastCapturedTextFingerprint = fingerprint
         lastCapturedTextAt = now
 
         model.captureClipboardText(text)
@@ -122,6 +132,30 @@ final class ClipboardManager {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func fingerprint(text: String) -> ContentFingerprint {
+        var hasher = Hasher()
+        hasher.combine(text)
+        return ContentFingerprint(
+            digest: hasher.finalize(),
+            byteCount: text.utf8.count,
+            itemCount: 1
+        )
+    }
+
+    private static func fingerprint(paths: [String]) -> ContentFingerprint {
+        var hasher = Hasher()
+        var byteCount = 0
+        for path in paths {
+            hasher.combine(path)
+            byteCount += path.utf8.count
+        }
+        return ContentFingerprint(
+            digest: hasher.finalize(),
+            byteCount: byteCount,
+            itemCount: paths.count
+        )
     }
 }
 #endif
