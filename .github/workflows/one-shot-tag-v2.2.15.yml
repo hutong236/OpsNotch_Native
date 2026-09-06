@@ -1,0 +1,37 @@
+name: One-shot tag v2.2.15
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/one-shot-tag-v2.2.15.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create v2.2.15 tag on merged feature commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="v2.2.15"
+          TARGET="e33bc6b4cc3dd20f178f568b6585671ab9d70ee0"
+
+          git fetch --tags --force
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$TARGET" -m "Ops Notch $TAG"
+          git push origin "refs/tags/$TAG"
