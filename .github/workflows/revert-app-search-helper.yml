@@ -1,0 +1,25 @@
+name: Temporary revert App search
+
+on:
+  push:
+    branches:
+      - revert/remove-app-directory-search
+
+permissions:
+  contents: write
+
+jobs:
+  revert:
+    if: github.event.head_commit.message == 'chore: trigger app search revert'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Revert App search merge
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git revert -m 1 986365c4d236282655ff8778f3a23d548292b824 --no-edit
+          git push origin HEAD:revert/remove-app-directory-search
