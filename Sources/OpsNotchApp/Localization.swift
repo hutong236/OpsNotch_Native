@@ -112,7 +112,16 @@ enum L10n {
             "filterURL": "URL",
             "filterApp": "应用",
             "filterAction": "安全操作",
-            "noMatch": "没有匹配的条目"
+            "noMatch": "没有匹配的条目",
+            "desktop": "桌面",
+            "desktopList": "快速切换桌面",
+            "desktopCurrent": "当前",
+            "desktopFullscreen": "全屏",
+            "desktopNoSpaces": "没有可切换的桌面",
+            "desktopAccessibilityRequired": "需要授予 Ops Notch 辅助功能权限后才能切换桌面",
+            "desktopTopologyUnavailable": "无法读取 macOS 桌面信息",
+            "desktopNotFound": "未找到桌面 %d",
+            "desktopSwitchFailed": "切换到桌面 %d 失败"
         ]
         let en: [String: String] = [
             "quickShelf": "Quick Shelf",
@@ -221,7 +230,16 @@ enum L10n {
             "filterURL": "URLs",
             "filterApp": "Apps",
             "filterAction": "Actions",
-            "noMatch": "No matching items"
+            "noMatch": "No matching items",
+            "desktop": "Desktop",
+            "desktopList": "Switch Desktop",
+            "desktopCurrent": "Current",
+            "desktopFullscreen": "Full Screen",
+            "desktopNoSpaces": "No switchable desktops found",
+            "desktopAccessibilityRequired": "Grant Ops Notch Accessibility permission to switch desktops",
+            "desktopTopologyUnavailable": "Unable to read macOS desktop information",
+            "desktopNotFound": "Desktop %d was not found",
+            "desktopSwitchFailed": "Could not switch to Desktop %d"
         ]
         return (language == .zhCN ? zh : en)[key] ?? key
     }
