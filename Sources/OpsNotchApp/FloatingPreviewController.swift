@@ -54,6 +54,11 @@ final class FloatingPreviewController: NSObject {
 
     func close() {
         panel?.orderOut(nil)
+        // NSPanel 本身需要复用，但关闭后不应继续强引用最后一棵 SwiftUI 视图树。
+        // 图片预览中的 NSImage / 文本视图可能很大；拆掉 contentView 并释放 hostingView，
+        // 下次 show() 再按需创建，可让关闭预览后内存真正回落。
+        panel?.contentView = nil
+        hostingView = nil
         currentPayload = nil
     }
 
