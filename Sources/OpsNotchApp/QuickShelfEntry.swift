@@ -3,14 +3,17 @@ import Foundation
 import OpsNotchCore
 
 /// Quick Shelf 仅用于展示/交互层的统一条目，不进入 shelf.json。
-/// Finder、持久化 ShelfItem 与 V2 本地搜索候选共享一套键盘导航 ID。
+/// Finder、持久化 ShelfItem、Desktop 命令与 V2 本地搜索候选共享一套键盘导航 ID。
 enum QuickShelfEntry: Identifiable, Equatable {
+    case desktop(id: String, title: String, subtitle: String, command: DesktopCommand)
     case finder(id: String, title: String, path: String, quickPathID: UUID?)
     case shelf(ShelfItem)
     case local(id: String, title: String, path: String, isDirectory: Bool)
 
     var id: String {
         switch self {
+        case .desktop(let id, _, _, _):
+            return id
         case .finder(let id, _, _, _):
             return id
         case .shelf(let item):
@@ -22,10 +25,21 @@ enum QuickShelfEntry: Identifiable, Equatable {
 
     var title: String {
         switch self {
+        case .desktop(_, let title, _, _): return title
         case .finder(_, let title, _, _): return title
         case .shelf(let item): return item.title
         case .local(_, let title, _, _): return title
         }
+    }
+
+    var desktopSubtitle: String? {
+        guard case .desktop(_, _, let subtitle, _) = self else { return nil }
+        return subtitle
+    }
+
+    var desktopCommand: DesktopCommand? {
+        guard case .desktop(_, _, _, let command) = self else { return nil }
+        return command
     }
 
     var finderPath: String? {
@@ -59,6 +73,11 @@ enum QuickShelfEntry: Identifiable, Equatable {
     }
 
     static let finderDefaultID = "finder:default"
+    static let desktopListID = "desktop:list"
+
+    static func desktopSwitchID(_ index: Int) -> String {
+        "desktop:switch:\(index)"
+    }
 
     static func finderID(_ id: UUID) -> String {
         "finder:\(id.uuidString)"

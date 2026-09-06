@@ -169,10 +169,12 @@ struct ShelfRootView: View {
     @ViewBuilder
     private var content: some View {
         let groups = model.grouped
+        let desktopEntries = model.visibleDesktopEntries
         let working = model.workingSetItems
         let finderEntries = model.visibleFinderEntries
         let localEntries = model.visibleLocalEntries
-        let isEmpty = finderEntries.isEmpty
+        let isEmpty = desktopEntries.isEmpty
+            && finderEntries.isEmpty
             && working.isEmpty
             && groups.pinned.isEmpty
             && groups.recent.isEmpty
@@ -199,6 +201,14 @@ struct ShelfRootView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 3) {
+                        if !desktopEntries.isEmpty {
+                            SectionHeader(title: L10n.text("desktop", model.language), count: desktopEntries.count)
+                            ForEach(desktopEntries) { entry in
+                                DesktopQuickShelfRowView(model: model, entry: entry)
+                                    .id(entry.id)
+                            }
+                        }
+
                         if !finderEntries.isEmpty {
                             SectionHeader(title: L10n.text("finderQuickPaths", model.language), count: finderEntries.count)
                             ForEach(finderEntries) { entry in
@@ -341,6 +351,53 @@ private struct SectionHeader: View {
             }
         }
         .padding(.horizontal, 6).padding(.top, 6).padding(.bottom, 2)
+    }
+}
+
+private struct DesktopQuickShelfRowView: View {
+    @ObservedObject var model: AppModel
+    let entry: QuickShelfEntry
+    @State private var hovered = false
+
+    private var highlighted: Bool { model.highlightedQuickEntryID == entry.id }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "rectangle.3.group")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                if let subtitle = entry.desktopSubtitle {
+                    Text(subtitle)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 4)
+            Image(systemName: "return")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 42)
+        .contentShape(Rectangle())
+        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay {
+            if highlighted {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 1)
+            }
+        }
+        .onHover { hovered = $0 }
+        .onTapGesture {
+            guard let command = entry.desktopCommand else { return }
+            model.requestDesktopCommand?(command)
+        }
     }
 }
 

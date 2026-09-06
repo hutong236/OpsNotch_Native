@@ -10,26 +10,25 @@ public enum DesktopCommandParser {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let command = trimmed.lowercased()
-        if command == "d" || command == "desktop" || command == "桌面" {
+        let parts = trimmed.lowercased().split(whereSeparator: { $0.isWhitespace })
+        guard let prefix = parts.first.map(String.init),
+              ["d", "desktop", "桌面"].contains(prefix) else {
+            return nil
+        }
+
+        if parts.count == 1 {
             return .list
         }
 
-        for prefix in ["desktop", "桌面", "d"] {
-            guard command.hasPrefix(prefix) else { continue }
-            let suffix = String(command.dropFirst(prefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            guard let first = suffix.first,
-                  first != "0",
-                  suffix.allSatisfy(\.isNumber),
-                  let index = Int(suffix),
-                  index > 0 else {
-                continue
-            }
-            return .switchTo(index: index)
+        guard parts.count == 2 else { return nil }
+        let indexText = String(parts[1])
+        guard indexText.first != "0",
+              indexText.allSatisfy(\.isNumber),
+              let index = Int(indexText),
+              index > 0 else {
+            return nil
         }
 
-        return nil
+        return .switchTo(index: index)
     }
 }
