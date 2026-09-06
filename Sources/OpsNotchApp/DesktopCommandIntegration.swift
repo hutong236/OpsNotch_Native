@@ -1,6 +1,5 @@
 #if os(macOS)
 import AppKit
-import Combine
 import OpsNotchCore
 
 @MainActor
@@ -9,51 +8,12 @@ final class DesktopCommandIntegration {
 
     private weak var model: AppModel?
     private let spaces = DesktopSpaceController()
-    private var queryCancellable: AnyCancellable?
-    private var scheduledCommand: DispatchWorkItem?
 
     init(model: AppModel) {
         self.model = model
-        queryCancellable = model.$query
-            .removeDuplicates()
-            .sink { [weak self] query in
-                self?.scheduleIfNeeded(query)
-            }
-    }
-
-    deinit {
-        scheduledCommand?.cancel()
-    }
-
-    private func scheduleIfNeeded(_ query: String) {
-        scheduledCommand?.cancel()
-        scheduledCommand = nil
-
-        guard let command = DesktopCommandParser.parse(query) else { return }
-
-        // A small debounce keeps "d" from opening the desktop list while the
-        // user is still typing "d1", and makes d1/d2 feel like direct commands.
-        let delay: TimeInterval
-        switch command {
-        case .list:
-            delay = 0.34
-        case .switchTo:
-            delay = 0.24
+        model.requestDesktopCommand = { [weak self] command in
+            self?.execute(command)
         }
-
-        let expectedQuery = query
-        let work = DispatchWorkItem { [weak self] in
-            guard let self,
-                  let model = self.model,
-                  model.query == expectedQuery,
-                  let currentCommand = DesktopCommandParser.parse(model.query),
-                  currentCommand == command else {
-                return
-            }
-            self.execute(command)
-        }
-        scheduledCommand = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func execute(_ command: DesktopCommand) {
@@ -81,7 +41,7 @@ final class DesktopCommandIntegration {
 
             let menu = NSMenu(title: L10n.text("desktopList", model.language))
             for desktop in desktops {
-                var title = "d\(desktop.index)  \(L10n.text("desktop", model.language)) \(desktop.index)"
+                var title = "d \(desktop.index)  \(L10n.text("desktop", model.language)) \(desktop.index)"
                 title += " · \(desktop.displayName)"
                 if desktop.isFullscreen {
                     title += " · \(L10n.text("desktopFullscreen", model.language))"
@@ -113,8 +73,6 @@ final class DesktopCommandIntegration {
     private func switchToDesktop(_ index: Int) {
         guard let model else { return }
 
-        scheduledCommand?.cancel()
-        scheduledCommand = nil
         model.query = ""
         shelf?.hide()
 
