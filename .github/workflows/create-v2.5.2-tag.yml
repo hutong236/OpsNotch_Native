@@ -1,0 +1,31 @@
+name: Create v2.5.2 tag
+
+on:
+  push:
+    branches:
+      - feat/desktop-space-jump-29
+    paths:
+      - .github/workflows/create-v2.5.2-tag.yml
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create v2.5.2 on main release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET_SHA: 3f082661a7afbd8b35ea832bfa35bc23eddb1412
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${REPOSITORY}/git/refs"
+          curl --fail-with-body -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${api}" \
+            -d "{\"ref\":\"refs/tags/v2.5.2\",\"sha\":\"${TARGET_SHA}\"}"
