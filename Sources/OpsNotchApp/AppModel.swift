@@ -116,25 +116,47 @@ final class AppModel: ObservableObject {
     }
 
     var visibleLocalEntries: [QuickShelfEntry] {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              kindFilter == .all || kindFilter == .file else { return [] }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              kindFilter == .all || kindFilter == .file || kindFilter == .application else { return [] }
 
         let shelfPaths = Set(items.compactMap { item -> String? in
             guard [.file, .folder, .application].contains(item.kind) else { return nil }
             return standardizedPath(item.content)
         })
         let finderPaths = Set(visibleFinderEntries.compactMap { $0.finderPath }.map(standardizedPath))
+        var seenPaths = shelfPaths.union(finderPaths)
+        var entries: [QuickShelfEntry] = []
 
-        return localFileResults.compactMap { candidate in
-            let standardized = standardizedPath(candidate.path)
-            guard !shelfPaths.contains(standardized), !finderPaths.contains(standardized) else { return nil }
-            return .local(
-                id: QuickShelfEntry.localID(path: standardized),
-                title: candidate.title,
-                path: standardized,
-                isDirectory: candidate.isDirectory
-            )
+        if kindFilter == .all || kindFilter == .application {
+            for candidate in ApplicationSearchService.search(query: trimmed, limit: 20) {
+                let standardized = standardizedPath(candidate.path)
+                guard !seenPaths.contains(standardized) else { continue }
+                seenPaths.insert(standardized)
+                entries.append(.local(
+                    id: QuickShelfEntry.localID(path: standardized),
+                    title: candidate.title,
+                    path: standardized,
+                    isDirectory: true
+                ))
+            }
         }
+
+        if kindFilter == .all || kindFilter == .file {
+            for candidate in localFileResults {
+                let standardized = standardizedPath(candidate.path)
+                guard !isApplicationPath(standardized), !seenPaths.contains(standardized) else { continue }
+                seenPaths.insert(standardized)
+                entries.append(.local(
+                    id: QuickShelfEntry.localID(path: standardized),
+                    title: candidate.title,
+                    path: standardized,
+                    isDirectory: candidate.isDirectory
+                ))
+            }
+        }
+
+        return entries
     }
 
     var visibleQuickEntries: [QuickShelfEntry] {
@@ -171,7 +193,7 @@ final class AppModel: ObservableObject {
         highlightedQuickEntryID = visible[next].id
     }
 
-    /// Enter：Finder/Local Folder 打开目录；Shelf/Local File 维持正确 pasteboard 语义。
+    /// Enter：Finder/Local Folder 打开目录；Shelf/Local File 维持正确 pasteboard 语义；App 直接启动。
     func confirmHighlight(using clipboard: ClipboardManager) {
         guard let entry = highlightedQuickEntry else { return }
         switch entry {
@@ -185,7 +207,9 @@ final class AppModel: ObservableObject {
             showToast(L10n.text("copied", language))
             requestDelayedHide?()
         case .local(_, _, let path, let isDirectory):
-            if isDirectory {
+            if isApplicationPath(path) {
+                launchApplication(at: path)
+            } else if isDirectory {
                 requestOpenFinderPath?(path, nil)
             } else {
                 clipboard.copyPayload(ShelfCopyPayload(filePaths: [path]))
@@ -202,7 +226,9 @@ final class AppModel: ObservableObject {
 
     func openLocalEntry(_ entry: QuickShelfEntry, using clipboard: ClipboardManager) {
         guard case .local(_, _, let path, let isDirectory) = entry else { return }
-        if isDirectory {
+        if isApplicationPath(path) {
+            launchApplication(at: path)
+        } else if isDirectory {
             requestOpenFinderPath?(path, nil)
         } else {
             clipboard.copyPayload(ShelfCopyPayload(filePaths: [path]))
@@ -237,7 +263,7 @@ final class AppModel: ObservableObject {
             guard ItemPreviewKind.isPreviewable(item) else { return }
             QuickLookService.shared.preview(item)
         case .local(_, let title, let path, let isDirectory):
-            guard !isDirectory else { return }
+            guard !isDirectory, !isApplicationPath(path) else { return }
             let item = ShelfItem(kind: .file, title: title, content: path, storageMode: .reference)
             QuickLookService.shared.preview(item)
         case .finder:
@@ -485,6 +511,36 @@ final class AppModel: ObservableObject {
 
     private func standardizedPath(_ rawPath: String) -> String {
         NSString(string: NSString(string: rawPath).expandingTildeInPath).standardizingPath
+    }
+
+    private func isApplicationPath(_ rawPath: String) -> Bool {
+        URL(fileURLWithPath: rawPath).pathExtension.caseInsensitiveCompare("app") == .orderedSame
+    }
+
+    private func launchApplication(at rawPath: String) {
+        let path = standardizedPath(rawPath)
+        var isDirectory: ObjCBool = false
+        guard isApplicationPath(path),
+              FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            showToast(language == .zhCN ? "应用不存在：\(path)" : "Application not found: \(path)")
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: path, isDirectory: true),
+            configuration: configuration
+        ) { [weak self] _, error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error {
+                    self.showToast(error.localizedDescription)
+                } else {
+                    self.requestHide?()
+                }
+            }
+        }
     }
 
     private func scheduleLocalFileSearch() {
