@@ -87,41 +87,23 @@ final class DragSessionCoordinator {
         state = .idle
     }
 
-    func sensorDidEnter(on screen: NSScreen) {
-        successResetWorkItem?.cancel()
-        successResetWorkItem = nil
-        sessionRecognized = true
-        currentScreen = screen
-        overlay.hide()
-        overlay.setReady(false)
-        shelf.cancelScheduledExpand()
-        shelf.showDrop(on: screen)
-        if let id = displayID(of: screen) {
-            state = .receiving(displayID: id)
-        }
-    }
+    /// Shelf/Sensor 的可见性是现有系统拖放链路的事实来源。
+    /// 一旦顶部 Sensor 展开 Drop 面板，附近目标立即让位；Sensor 收起而拖拽仍继续时再恢复附近目标。
+    func shelfVisibilityDidChange(_ visible: Bool, onDisplayID displayID: CGDirectDisplayID?) {
+        guard sessionRecognized else { return }
 
-    func sensorDidExit() {
-        shelf.cancelScheduledExpand()
-        shelf.scheduleHide(delay: 0.18)
-
-        guard sessionRecognized,
-              let screen = screenUnderMouse(),
-              let id = displayID(of: screen) else {
-            state = .idle
+        if visible {
+            overlay.hide()
+            if let id = displayID ?? displayID(of: currentScreen) {
+                state = .trackingExternalDrag(changeCount: dragPasteboard.changeCount, displayID: id)
+            }
             return
         }
+
+        guard let screen = screenUnderMouse(), let id = displayID(of: screen) else { return }
         currentScreen = screen
         overlay.show(near: NSEvent.mouseLocation, on: screen, language: model.language)
         state = .targetVisible(displayID: id)
-    }
-
-    func sensorDropFinished(_ accepted: Bool, on screen: NSScreen) {
-        if accepted {
-            finishAcceptedDrop(on: screen)
-        } else {
-            cancelSession(restoreShelf: true)
-        }
     }
 
     private func handleExternalDragEvent() {
@@ -151,16 +133,20 @@ final class DragSessionCoordinator {
         }
 
         guard let screen = screenUnderMouse(), let id = displayID(of: screen) else { return }
-        if displayID(of: currentScreen) != id {
-            currentScreen = screen
-            if shelf.isPanelVisible {
-                overlay.hide()
-                state = .trackingExternalDrag(changeCount: changeCount, displayID: id)
-            } else {
-                overlay.show(near: NSEvent.mouseLocation, on: screen, language: model.language)
-                state = .targetVisible(displayID: id)
-            }
+        let changedDisplay = displayID(of: currentScreen) != id
+        currentScreen = screen
+
+        if shelf.isPanelVisible {
+            if overlay.isVisible { overlay.hide() }
+            state = .trackingExternalDrag(changeCount: changeCount, displayID: id)
+            return
         }
+
+        // 同屏时目标保持固定，用户才能真正把拖拽物“追上”并放进去；只有跨屏或目标被隐藏时才重新定位。
+        if changedDisplay || !overlay.isVisible {
+            overlay.show(near: NSEvent.mouseLocation, on: screen, language: model.language)
+        }
+        state = .targetVisible(displayID: id)
     }
 
     private func handleExternalMouseUp() {
@@ -171,7 +157,7 @@ final class DragSessionCoordinator {
             overlay.hide()
             return
         }
-        cancelSession(restoreShelf: true)
+        cancelSession()
     }
 
     private func overlayDidEnter() {
@@ -192,7 +178,7 @@ final class DragSessionCoordinator {
     private func performOverlayDrop(_ payload: NativeDropPayload) -> Bool {
         let accepted = dropHandler?(payload) ?? false
         guard accepted else {
-            cancelSession(restoreShelf: false)
+            cancelSession()
             return false
         }
         let screen = currentScreen ?? screenUnderMouse() ?? NSScreen.main ?? NSScreen.screens.first
@@ -241,7 +227,7 @@ final class DragSessionCoordinator {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.95, execute: work)
     }
 
-    private func cancelSession(restoreShelf: Bool) {
+    private func cancelSession() {
         successResetWorkItem?.cancel()
         successResetWorkItem = nil
         state = .cancelling
@@ -249,15 +235,6 @@ final class DragSessionCoordinator {
         overlay.setReady(false)
         sessionRecognized = false
         baselineChangeCount = dragPasteboard.changeCount
-
-        if restoreShelf, shelf.presentation == .drop {
-            if model.settings.shelfKeepOpen, let screen = currentScreen ?? screenUnderMouse() {
-                shelf.scheduleExpanded(on: screen, delay: 0.05)
-            } else {
-                shelf.scheduleHide(delay: 0.12)
-            }
-        }
-
         currentScreen = nil
         state = .idle
     }
