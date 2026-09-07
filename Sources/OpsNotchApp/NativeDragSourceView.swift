@@ -5,24 +5,20 @@ import OpsNotchCore
 
 struct NativeDragSourceView: NSViewRepresentable {
     let items: [ShelfItem]
-    let onDragEnded: ([ShelfItem], NSDragOperation) -> Void
 
     func makeNSView(context: Context) -> DragSourceNSView {
         let view = DragSourceNSView()
         view.items = items
-        view.onDragEnded = onDragEnded
         return view
     }
 
     func updateNSView(_ nsView: DragSourceNSView, context: Context) {
         nsView.items = items
-        nsView.onDragEnded = onDragEnded
     }
 }
 
 final class DragSourceNSView: NSView, NSDraggingSource {
     var items: [ShelfItem] = []
-    var onDragEnded: (([ShelfItem], NSDragOperation) -> Void)?
 
     private var mouseDownEvent: NSEvent?
     private var activeSessionItems: [ShelfItem] = []
@@ -81,7 +77,7 @@ final class DragSourceNSView: NSView, NSDraggingSource {
         let completedItems = activeSessionItems
         activeSessionItems = []
         mouseDownEvent = nil
-        onDragEnded?(completedItems, operation)
+        DragOutLifecycleCoordinator.shared.draggingEnded(items: completedItems, operation: operation)
     }
 
     private func makeDraggingItem(_ item: ShelfItem) -> NSDraggingItem? {
