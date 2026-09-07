@@ -26,7 +26,7 @@
 - [x] 2.5 创建 session-scoped `drop-staging/<UUID>` 目录接收 promises。
 - [x] 2.6 使用 `NSFilePromiseReceiver.receivePromisedFiles` + 独立 `OperationQueue` 异步接收并在全部 reader 工作完成后汇总。
 - [x] 2.7 Promise 完成后按成功 URL 批量交给统一 ingest；部分成功只入柜成功项；全部失败不创建 ShelfItem。
-- [ ] 2.8 正常 promise 完成/失败路径已在 ingest 后清理 session staging；应用崩溃、异常终止及极端取消后的遗留 staging 仍需补启动清理/真机验证。
+- [x] 2.8 正常 Promise 完成/失败后清理 session staging；异常退出遗留的 `drop-staging` 在下一次应用启动、任何新 drag session 建立前统一安全清理。
 - [ ] 2.9 Nearby Drop Zone 已提供 `resolvingPromise` spinner，Sensor/Shelf 有接收反馈；超大文件最终复制仍需真机性能验证，暂不标记完成。
 - [ ] 2.10 Safari/Chrome/Photos/File Promise 与 Finder file URL 做真机回归。
 
@@ -49,9 +49,9 @@
 
 ## 自动化验证
 
-- [x] A1 `swift test`（PR #51 CI run 93 通过）。
-- [x] A2 `swift build`（PR #51 CI run 93 Debug build 通过）。
-- [x] A3 `python3 scripts/static_checks.py`（PR #51 CI run 93 Architecture checks 通过）。
+- [x] A1 `swift test`（PR #52 CI run 95 通过）。
+- [x] A2 `swift build`（PR #52 CI run 95 Debug build 通过）。
+- [x] A3 `python3 scripts/static_checks.py`（PR #52 CI run 95 Architecture checks 通过）。
 - [x] A4 Phase 4 新增 `drag_assist_mode` 持久化字段；`ShelfSettingsCompatibilityTests` 验证默认 nearby、旧 JSON 缺字段兼容和 sensor-only Codable round-trip，无破坏性 migration/version bump。
 - [ ] A5 为可抽离的 drag state transition/payload type priority 添加单元测试。
 
@@ -75,3 +75,4 @@
 - [ ] M16 模拟 drag-out consume 中断后重启，仍被持久化 Shelf 引用的受管文件从 recall stash 自动恢复，不发生数据丢失。
 - [ ] M17 设置 Drag Assist=Sensor only 后，外部拖拽不出现 Nearby Overlay，但顶部 Sensor 仍可接收 Finder/File Promise；切回 Nearby 后恢复默认行为。
 - [ ] M18 VoiceOver 开启时 Nearby Drop Zone 能读出“松开即可放入/Release to add”及提示；File Promise 接收中能读出 resolving 状态。
+- [ ] M19 人工制造旧 `drop-staging/<UUID>` 后重启应用，启动清理会删除残留且不影响现有 ShelfItem。
