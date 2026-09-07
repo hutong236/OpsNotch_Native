@@ -70,18 +70,18 @@ final class SensorManager {
         screensForCurrentPolicy().first ?? preferredScreen()
     }
 
-    /// 指示点在传感器视图内的圆心(视图坐标系,原点左下)。
-    /// 传感器高 38pt 而物理刘海深约 32pt:水平正中、距底缘过高都会被刘海挡住,
-    /// 故按安全区深度计算——刘海下有可见带时放底部窄带,刘海几乎占满时画在刘海左侧旁。
+    /// 入口提示中心(视图坐标系,原点左下)。刘海屏将 Sensor 向安全区下方额外延伸，
+    /// 提示条优先放在这条无遮挡带中；普通屏继续沿用紧凑入口。
     private func indicatorDotCenter(for screen: NSScreen) -> CGPoint {
         let height = SensorGeometry.height(for: screen)
-        let band = height - screen.safeAreaInsets.top
-        let diameter: CGFloat = 4
-        if band >= 6 {
-            let inset = max(1.5, min(6, (band - diameter) / 2))
-            return CGPoint(x: SensorGeometry.width / 2, y: inset + diameter / 2)
+        let width = SensorGeometry.width(for: screen)
+        let band = SensorGeometry.visibleBandHeight(for: screen)
+        let indicatorHeight: CGFloat = SensorGeometry.hasCameraHousing(screen) ? 5 : 4
+        if band >= indicatorHeight + 2 {
+            let inset = max(2, min(8, (band - indicatorHeight) / 2))
+            return CGPoint(x: width / 2, y: inset + indicatorHeight / 2)
         }
-        return CGPoint(x: SensorGeometry.width / 2 - 98, y: height / 2)
+        return CGPoint(x: width / 2 - min(98, width / 2 - 12), y: height / 2)
     }
 
     func preferredScreen() -> NSScreen? {
@@ -109,6 +109,7 @@ final class SensorManager {
 
         let view = SensorView(frame: .zero)
         view.indicatorDotCenter = indicatorDotCenter(for: screen)
+        view.usesWideIndicator = SensorGeometry.hasCameraHousing(screen)
         view.onMouseEnter = { [weak self] in
             guard let self else { return }
             self.lastActiveDisplayID = id
@@ -159,13 +160,17 @@ final class SensorManager {
 
     private func configure(panel: NSPanel, for screen: NSScreen) {
         let height = SensorGeometry.height(for: screen)
-        let width = SensorGeometry.width
+        let width = SensorGeometry.width(for: screen)
         let frame = NSRect(
             x: screen.frame.midX - width / 2,
             y: screen.frame.maxY - height,
             width: width,
             height: height
         )
+        if let view = panel.contentView as? SensorView {
+            view.indicatorDotCenter = indicatorDotCenter(for: screen)
+            view.usesWideIndicator = SensorGeometry.hasCameraHousing(screen)
+        }
         panel.setFrame(frame, display: true)
         panel.orderFrontRegardless()
     }
@@ -219,9 +224,27 @@ final class SensorPanel: NSPanel {
 }
 
 enum SensorGeometry {
-    static let width: CGFloat = 250
+    private static let compactWidth: CGFloat = 250
+    private static let notchWidth: CGFloat = 360
+    private static let minimumHeight: CGFloat = 38
+    /// 刘海屏向菜单栏安全区下方延伸一条无遮挡拖放带，避免真正可命中的位置只剩刘海两侧窄缝。
+    private static let notchDropReach: CGFloat = 24
+
+    static func hasCameraHousing(_ screen: NSScreen) -> Bool {
+        screen.auxiliaryTopLeftArea != nil || screen.auxiliaryTopRightArea != nil
+    }
+
+    static func width(for screen: NSScreen) -> CGFloat {
+        hasCameraHousing(screen) ? notchWidth : compactWidth
+    }
+
     static func height(for screen: NSScreen) -> CGFloat {
-        max(38, screen.safeAreaInsets.top)
+        let base = max(minimumHeight, screen.safeAreaInsets.top)
+        return base + (hasCameraHousing(screen) ? notchDropReach : 0)
+    }
+
+    static func visibleBandHeight(for screen: NSScreen) -> CGFloat {
+        max(0, height(for: screen) - screen.safeAreaInsets.top)
     }
 }
 
@@ -271,12 +294,16 @@ final class SensorView: NSView {
     var onDragExited: (() -> Void)?
     var onDrop: ((NativeDropPayload) -> Bool)?
 
-    /// 收起态入口指示点:仅 Shelf 完全收起时绘制(SensorManager 依可见性事件驱动)。
+    /// 收起态入口指示:仅 Shelf 完全收起时绘制(SensorManager 依可见性事件驱动)。
     /// 纯视觉元素,不改变命中区域语义。
     var showsIndicator = false {
         didSet { needsDisplay = true }
     }
-    /// 指示点圆心(视图坐标):由 SensorManager 依屏幕安全区计算,避开物理刘海。
+    /// 刘海屏使用短胶囊代替单个小点，显著提高入口可发现性但保持低干扰。
+    var usesWideIndicator = false {
+        didSet { needsDisplay = true }
+    }
+    /// 指示中心(视图坐标):由 SensorManager 依屏幕安全区计算,避开物理刘海。
     var indicatorDotCenter = CGPoint(x: 0, y: 2)
 
     private var tracking: NSTrackingArea?
@@ -291,26 +318,44 @@ final class SensorView: NSView {
         registerForDraggedTypes([.fileURL, .URL, .string])
     }
 
-    /// 指示点样式:深色描边环 + 白色内核,对明暗菜单栏背景都不敏感;复测微调只动这里。
-    private enum DotStyle {
-        static let coreDiameter: CGFloat = 4
-        static let ringOuterDiameter: CGFloat = 6.5
+    private enum IndicatorStyle {
+        static let dotCoreDiameter: CGFloat = 4
+        static let dotRingOuterDiameter: CGFloat = 6.5
+        static let pillCoreSize = NSSize(width: 36, height: 3.5)
+        static let pillRingSize = NSSize(width: 44, height: 7)
         static let coreAlpha: CGFloat = 0.85
-        static let ringAlpha: CGFloat = 0.35
+        static let ringAlpha: CGFloat = 0.30
     }
 
     /// 普通视图 draw 自动按 bounds 裁剪;刻意不开 wantsLayer(layer 内容不裁剪)。
     override func draw(_ dirtyRect: NSRect) {
         guard showsIndicator else { return }
         let center = indicatorDotCenter
+
+        if usesWideIndicator {
+            func fillPill(_ size: NSSize, _ color: NSColor) {
+                color.setFill()
+                let rect = NSRect(
+                    x: center.x - size.width / 2,
+                    y: center.y - size.height / 2,
+                    width: size.width,
+                    height: size.height
+                )
+                NSBezierPath(roundedRect: rect, xRadius: size.height / 2, yRadius: size.height / 2).fill()
+            }
+            fillPill(IndicatorStyle.pillRingSize, NSColor.black.withAlphaComponent(IndicatorStyle.ringAlpha))
+            fillPill(IndicatorStyle.pillCoreSize, NSColor.white.withAlphaComponent(IndicatorStyle.coreAlpha))
+            return
+        }
+
         func fillCircle(_ diameter: CGFloat, _ color: NSColor) {
             color.setFill()
             NSBezierPath(
                 ovalIn: NSRect(x: center.x - diameter / 2, y: center.y - diameter / 2, width: diameter, height: diameter)
             ).fill()
         }
-        fillCircle(DotStyle.ringOuterDiameter, NSColor.black.withAlphaComponent(DotStyle.ringAlpha))
-        fillCircle(DotStyle.coreDiameter, NSColor.white.withAlphaComponent(DotStyle.coreAlpha))
+        fillCircle(IndicatorStyle.dotRingOuterDiameter, NSColor.black.withAlphaComponent(IndicatorStyle.ringAlpha))
+        fillCircle(IndicatorStyle.dotCoreDiameter, NSColor.white.withAlphaComponent(IndicatorStyle.coreAlpha))
     }
 
     override func updateTrackingAreas() {
