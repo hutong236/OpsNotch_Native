@@ -38,6 +38,12 @@ public enum DisplayTarget: String, Codable, CaseIterable, Sendable {
     case current
 }
 
+/// 外部拖入辅助入口。nearby 为默认零权限鼠标附近目标；sensorOnly 仅保留顶部 Sensor 原生拖放。
+public enum DragAssistMode: String, Codable, CaseIterable, Sendable {
+    case nearby
+    case sensorOnly = "sensor_only"
+}
+
 public enum AppLanguage: String, Codable, CaseIterable, Sendable {
     case zhCN = "zh-CN"
     case enUS = "en-US"
@@ -99,6 +105,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
     public var tempTTLHours: UInt64
     public var addMode: StorageMode
     public var displayTarget: DisplayTarget
+    public var dragAssistMode: DragAssistMode
     public var language: AppLanguage
     public var hotkey: HotkeyShortcut?
 
@@ -119,6 +126,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         tempTTLHours: UInt64 = 24,
         addMode: StorageMode = .reference,
         displayTarget: DisplayTarget = .all,
+        dragAssistMode: DragAssistMode = .nearby,
         language: AppLanguage = .zhCN,
         hotkey: HotkeyShortcut? = nil,
         finderRevealAppName: String = "gf.app",
@@ -131,6 +139,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         self.tempTTLHours = tempTTLHours
         self.addMode = addMode
         self.displayTarget = displayTarget
+        self.dragAssistMode = dragAssistMode
         self.language = language
         self.hotkey = hotkey
         self.finderRevealAppName = finderRevealAppName
@@ -145,6 +154,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         case tempTTLHours = "temp_ttl_hours"
         case addMode = "add_mode"
         case displayTarget = "display_target"
+        case dragAssistMode = "drag_assist_mode"
         case language
         case hotkey
         case finderRevealAppName = "finder_reveal_app_name"
@@ -160,6 +170,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         tempTTLHours = try container.decodeIfPresent(UInt64.self, forKey: .tempTTLHours) ?? 24
         addMode = try container.decodeIfPresent(StorageMode.self, forKey: .addMode) ?? .reference
         displayTarget = try container.decodeIfPresent(DisplayTarget.self, forKey: .displayTarget) ?? .all
+        dragAssistMode = try container.decodeIfPresent(DragAssistMode.self, forKey: .dragAssistMode) ?? .nearby
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .zhCN
         hotkey = try container.decodeIfPresent(HotkeyShortcut.self, forKey: .hotkey)
         finderRevealAppName = try container.decodeIfPresent(String.self, forKey: .finderRevealAppName) ?? "gf.app"
