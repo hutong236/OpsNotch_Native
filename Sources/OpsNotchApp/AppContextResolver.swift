@@ -10,7 +10,8 @@ enum AppContextResolver {
         "dev.warp.warp-stable",
         "org.alacritty",
         "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm"
+        "com.github.wez.wezterm",
+        "com.cmuxterm.app"
     ]
 
     private static let browserBundleIDs: Set<String> = [
@@ -33,7 +34,7 @@ enum AppContextResolver {
 
         if bundle == "com.apple.finder" || name == "finder" { return .finder }
         if terminalBundleIDs.contains(bundle)
-            || ["terminal", "iterm", "warp", "alacritty", "kitty", "wezterm"].contains(where: name.contains) {
+            || ["terminal", "iterm", "warp", "alacritty", "kitty", "wezterm", "cmux"].contains(where: name.contains) {
             return .terminal
         }
         if browserBundleIDs.contains(bundle)
