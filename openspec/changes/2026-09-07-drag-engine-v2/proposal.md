@@ -8,7 +8,7 @@
 
 关联需求：GitHub Issue #47。
 
-## 目标
+## 本次需求目标
 
 将拖拽暂存升级为事件驱动、零额外权限优先的智能 Drag Engine：
 
@@ -20,27 +20,33 @@
 - 在当前鼠标所在屏显示明显、易命中的临时 Drop Zone，不要求用户寻找刘海小点。
 - 顶部 Sensor 继续作为稳定兜底入口与 Ops Notch 品牌入口。
 - 默认不新增 Accessibility / Input Monitoring 授权，不使用持续轮询。
-- 支持 Finder 文件/文件夹、http/https URL、文字，并新增 NSFilePromiseReceiver 兼容 Safari/Photos 等来源。
-- 拖拽取消、未落入、跨屏、显示器变化时正确收起/迁移，不残留悬浮窗口。
+- 支持 Finder 文件/文件夹、http/https URL、文字，并兼容 Safari/Photos 等 `NSFilePromiseReceiver` 来源。
+- 拖拽取消、未落入、跨屏时正确收起/迁移，不残留悬浮窗口。
 - 复用现有 ShelfStore、ShelfItem、Smart Quick Shelf、成功反馈与多屏策略。
 
-## 非目标
+## 完成边界
+
+本需求以“解决拖入入口难找和外部拖入可靠性”为完成标准。已经随实现合并的 Drag-out/Recall、Sensor-only 和可访问性增强保留，但不继续向外扩展产品范围。
+
+## 明确非目标
 
 - 不使用私有 API。
 - 不执行 shell / SSH / kubectl / 任意命令。
 - 不重写 Shelf 数据模型与 SmartScore。
-- P0 不引入持久化 Stack/Group 数据结构。
-- P0 不改变剪贴板历史捕获逻辑。
-- P0 不要求拖出后自动删除 Shelf 条目；Finder-style 拖出语义与 Recall 在后续阶段完成。
+- 不开发 ignored-app/source-app 排除列表。
+- 不开发多文件 Stack/grouping 或新的持久化 Stack 数据模型。
+- 不为了架构整洁继续拆分 payload priority/state machine，只要当前实现满足功能与 CI 即停止扩展。
+- 不新增独立 `locked` 持久化模型。
+- 不把 Finder 修饰键行为扩展为新的文件移动功能；文件语义以安全、不破坏原路径为准。
 
 ## 兼容性
 
 - Core/App 分层保持不变：系统拖拽检测、NSPanel、NSPasteboard、NSFilePromiseReceiver 全部留在 `OpsNotchApp`。
 - `OpsNotchCore` 不引入 AppKit/SwiftUI。
-- 保留 `SensorView.registerForDraggedTypes([.fileURL, .URL, .string])` 现有静态检查要求，并在其基础上追加 file promise readable types。
-- 默认模式无新增持久化设置也能工作；后续用户偏好字段必须带默认值兼容旧 `shelf.json`。
+- 保留 `SensorView.registerForDraggedTypes([.fileURL, .URL, .string])` 现有静态检查要求，并在其基础上追加 File Promise readable types。
+- `drag_assist_mode` 缺失时自动回落 Nearby，兼容旧 `shelf.json`。
 - 不改变现有文件条目的真实 file URL 取回语义。
 
 ## 验收
 
-以 GitHub Issue #47 与本变更下的 Specification 为准。建议目标发布版本为 `v2.6.0`。
+代码完成以 Issue #47 核心目标、Specification 与现有 CI 为准；真机 Finder/Safari/Photos/多屏检查作为 v2.6.0 发布前 smoke test，不扩展为新的开发功能。
