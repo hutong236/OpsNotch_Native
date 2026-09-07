@@ -1,0 +1,36 @@
+name: Release v2.5.5 once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-v2.5.5-once.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create tag and dispatch package workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 1fe90e5aeff24b42209fdb991b4d5e53353b3421
+          TAG: v2.5.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists"
+          else
+            git tag "$TAG" "$TARGET_SHA"
+            git push origin "$TAG"
+          fi
+          gh workflow run package-app.yml --ref "$TAG"
