@@ -28,7 +28,7 @@ enum AppContextResolver {
         return kind(bundleIdentifier: app.bundleIdentifier, localizedName: app.localizedName)
     }
 
-    nonisolated static func kind(bundleIdentifier: String?, localizedName: String?) -> AppContextKind {
+    static func kind(bundleIdentifier: String?, localizedName: String?) -> AppContextKind {
         let bundle = (bundleIdentifier ?? "").lowercased()
         let name = (localizedName ?? "").lowercased()
 
