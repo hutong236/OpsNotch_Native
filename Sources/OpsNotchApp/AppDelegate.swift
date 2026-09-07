@@ -34,6 +34,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
 
+        let promisedFilesHandler: ([URL]) -> Bool = { [weak model] urls in
+            guard let model else { return false }
+            return model.addPromisedPaths(urls) > 0
+        }
+        shelf.promisedFilesHandler = promisedFilesHandler
+
         // Drag Engine V2：外部有效拖拽时主动在鼠标附近提供零权限 Drop Zone。
         dragOverlay = DragDropOverlayController()
         dragCoordinator = DragSessionCoordinator(model: model, shelf: shelf, overlay: dragOverlay)
@@ -42,10 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // File Promise 来源只在 drop 后才生成真实文件，因此统一复制进 Shelf 管理目录，
         // 避免长期引用 drop-staging 临时路径。
-        dragCoordinator.promisedFilesHandler = { [weak model] urls in
-            guard let model else { return false }
-            return model.addPromisedPaths(urls) > 0
-        }
+        dragCoordinator.promisedFilesHandler = promisedFilesHandler
 
         // Shelf 可见性 → 各屏 Sensor 指示点 + Drag Assist 目标协调（事件驱动，无轮询）。
         shelf.onVisibilityChange = { [weak self] visible, displayID in
