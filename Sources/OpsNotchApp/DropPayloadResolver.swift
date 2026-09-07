@@ -17,8 +17,6 @@ final class DropPayloadResolver {
         NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
     }
 
-    /// 浏览器并不都提供 File Promise。Chrome/部分 WebView 拖网页图片时可能只提供图像数据，
-    /// 因此在 Promise/fileURL 之后接受常见图片 flavor，并把它物化成真实文件再入 Shelf。
     static let imagePasteboardTypes: [NSPasteboard.PasteboardType] = [
         NSPasteboard.PasteboardType("public.png"),
         NSPasteboard.PasteboardType("public.jpeg"),
@@ -26,7 +24,6 @@ final class DropPayloadResolver {
         NSPasteboard.PasteboardType("public.tiff"),
     ]
 
-    /// 某些富文本控件拖选中文字时只额外暴露 RTF；普通 `.string` 仍是首选，RTF 仅作兼容兜底。
     static let richTextPasteboardTypes: [NSPasteboard.PasteboardType] = [
         NSPasteboard.PasteboardType("public.rtf"),
     ]
@@ -60,9 +57,6 @@ final class DropPayloadResolver {
         return types.contains { accepted.contains($0) }
     }
 
-    /// 上一次进程异常终止时可能留下未清理的 Promise 临时目录。
-    /// Promise 成功入柜后总是复制到 Shelf 管理目录，staging 从不作为 ShelfItem 的长期路径，
-    /// 因此新进程启动且尚无活跃 promise session 时可安全清理整个旧根目录。
     func cleanupStaleStaging(rootURL: URL) {
         guard activePromiseQueues.isEmpty else { return }
         let stagingRoot = stagingRootURL(rootURL: rootURL)
@@ -76,8 +70,6 @@ final class DropPayloadResolver {
     }
 
     /// 首选入口：必须从 NSDraggingDestination.performDragOperation 内调用。
-    /// `NSDraggingInfo.enumerateDraggingItems` 是 Apple 推荐的 item-based File Promise 读取路径；
-    /// 同时保留 pasteboard.readObjects 兼容 non-item based promise source。
     func performDrop(
         from draggingInfo: NSDraggingInfo,
         in destinationView: NSView,
@@ -98,8 +90,7 @@ final class DropPayloadResolver {
         )
     }
 
-    /// 兼容旧 ShelfDropContainerView 的 pasteboard 入口。
-    /// Nearby/Sensor 使用上面的 item-based 入口；这里仍优先 promise，再处理 file/image/text。
+    /// 兼容 ShelfDropContainerView 的 pasteboard 入口。
     func performDrop(
         from pasteboard: NSPasteboard,
         onPromiseStarted: () -> Void,
@@ -126,12 +117,12 @@ final class DropPayloadResolver {
         handleImmediate: (NativeDropPayload) -> Bool,
         handlePromised: ([URL]) -> Void
     ) -> Bool {
-        // Finder/Mail 等真正文件 URL 必须优先于浏览器缩略图数据。
+        // 先读 pasteboard 明确声明的 fileURL/path。不能先用泛型 NSURL object reader，
+        // 否则文件内容 flavor 可能被 AppKit 物化成 /tmp/... 并被错误持久化为源路径。
         if let filePayload = readFilePayload(from: pasteboard) {
             return handleImmediate(filePayload)
         }
 
-        // Safari 正常走 File Promise；Chrome/部分 WebView 没有 promise 时把图像 flavor 物化成文件。
         if let image = readableImageData(from: pasteboard) {
             return materializeImage(
                 image,
@@ -172,12 +163,8 @@ final class DropPayloadResolver {
     }
 
     private func readFilePayload(from pasteboard: NSPasteboard) -> NativeDropPayload? {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        guard let objects = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: options
-        ) as? [NSURL], !objects.isEmpty else { return nil }
-        return .files(objects.map { $0 as URL })
+        let urls = PasteboardFileURLReader.read(from: pasteboard)
+        return urls.isEmpty ? nil : .files(urls)
     }
 
     private struct ImageDataPayload {
@@ -280,8 +267,6 @@ final class DropPayloadResolver {
                     }
                 }
             }
-            // item-based source 通常一 receiver 一文件；legacy/non-item source 在 receive 调用后
-            // 会通过 fileNames 暴露同一 receiver 承诺的多个文件名。
             expectedCallbacks += max(receiver.fileNames.count, 1)
         }
 
@@ -307,7 +292,6 @@ final class DropPayloadResolver {
             "file promise receive finished success=\(snapshot.urls.count, privacy: .public) failure=\(snapshot.failures, privacy: .public)"
         )
 
-        // handler 同步把 promise 文件复制进 Shelf 管理目录，随后 staging 即可删除。
         completion(snapshot.urls)
         activePromiseQueues[sessionID] = nil
         try? fileManager.removeItem(at: stagingURL)
