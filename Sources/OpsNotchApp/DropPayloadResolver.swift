@@ -14,7 +14,7 @@ final class DropPayloadResolver {
     private init() {}
 
     static var promisePasteboardTypes: [NSPasteboard.PasteboardType] {
-        NSFilePromiseReceiver.readableDraggedTypes.map(NSPasteboard.PasteboardType.init)
+        NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
     }
 
     static func canRead(_ pasteboard: NSPasteboard) -> Bool {
