@@ -86,10 +86,9 @@ final class DragDropOverlayController {
     }
 
     private func targetFrame(near cursor: NSPoint, on screen: NSScreen) -> NSRect {
-        // Smoke test 反馈 228x84 命中区和文字都偏小。附近目标应该是“明显、容易放入”的目标，
-        // 而不是另一个需要精确瞄准的小按钮。
-        let size = NSSize(width: 320, height: 118)
-        let gap: CGFloat = 40
+        // 第二轮 Smoke 继续优先可发现性：先把目标再放大一档，等真机体验稳定后再回收到最终尺寸。
+        let size = NSSize(width: 360, height: 132)
+        let gap: CGFloat = 44
         let inset: CGFloat = 12
         let visible = screen.visibleFrame
 
@@ -139,11 +138,11 @@ final class NearbyDropView: NSVisualEffectView {
         blendingMode = .behindWindow
         state = .active
         wantsLayer = true
-        layer?.cornerRadius = 20
+        layer?.cornerRadius = 22
         layer?.masksToBounds = true
         configureAccessibility()
 
-        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 31, weight: .semibold)
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 34, weight: .semibold)
         iconView.image = NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfiguration)
         iconView.contentTintColor = .labelColor
@@ -154,11 +153,11 @@ final class NearbyDropView: NSVisualEffectView {
         progressIndicator.isDisplayedWhenStopped = false
         progressIndicator.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        hintLabel.font = .systemFont(ofSize: 12)
+        hintLabel.font = .systemFont(ofSize: 13)
         hintLabel.textColor = .secondaryLabelColor
         hintLabel.lineBreakMode = .byWordWrapping
         hintLabel.maximumNumberOfLines = 2
@@ -169,22 +168,22 @@ final class NearbyDropView: NSVisualEffectView {
         addSubview(titleLabel)
         addSubview(hintLabel)
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 42),
-            iconView.heightAnchor.constraint(equalToConstant: 42),
+            iconView.widthAnchor.constraint(equalToConstant: 46),
+            iconView.heightAnchor.constraint(equalToConstant: 46),
 
             progressIndicator.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
             progressIndicator.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -20),
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 28),
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 18),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -22),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 31),
 
             hintLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            hintLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 7),
-            hintLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -18),
+            hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -22),
+            hintLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            hintLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -20),
         ])
 
         registerDropTypes()
@@ -202,7 +201,6 @@ final class NearbyDropView: NSVisualEffectView {
     }
 
     private func registerDropTypes() {
-        // 保留项目静态检查要求的基础注册调用，再扩展 File Promise / 浏览器图片 / 富文本类型。
         registerForDraggedTypes([.fileURL, .URL, .string])
         registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.extraPasteboardTypes)
     }
