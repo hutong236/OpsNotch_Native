@@ -24,11 +24,14 @@ final class DragSessionCoordinator {
     private var baselineChangeCount: Int
     private var currentScreen: NSScreen?
     private var sessionRecognized = false
+    private var externalDragActivityNotified = false
     private var successResetWorkItem: DispatchWorkItem?
 
     private(set) var state: State = .idle
     var dropHandler: ((NativeDropPayload) -> Bool)?
     var promisedFilesHandler: (([URL]) -> Bool)?
+    /// Sensor 用它暂停普通 hover 展开，避免 Nearby 与完整 Shelf 在同一 drag session 竞争。
+    var onExternalDragActivityChange: ((Bool) -> Void)?
 
     init(model: AppModel, shelf: ShelfWindowController, overlay: DragDropOverlayController) {
         self.model = model
@@ -93,6 +96,7 @@ final class DragSessionCoordinator {
         sessionRecognized = false
         currentScreen = nil
         state = .idle
+        setExternalDragActivity(false)
     }
 
     /// Shelf/Sensor 的可见性是现有系统拖放链路的事实来源。
@@ -133,6 +137,7 @@ final class DragSessionCoordinator {
             successResetWorkItem = nil
             sessionRecognized = true
             currentScreen = screen
+            setExternalDragActivity(true)
 
             if shelf.isPanelVisible || !nearbyAssistEnabled {
                 state = .trackingExternalDrag(changeCount: changeCount, displayID: id)
@@ -173,9 +178,10 @@ final class DragSessionCoordinator {
             currentScreen = nil
             baselineChangeCount = dragPasteboard.changeCount
             overlay.hide()
+            setExternalDragActivity(false)
         case .resolvingPromise:
             // File Promise 已在 performDragOperation 内启动。鼠标松开是正常 drop 结束，
-            // 不能把仍在后台写入的 promise 当作取消。
+            // 不能把仍在后台写入的 promise 当作取消，也继续抑制 Sensor hover 直到 promise 完成。
             sessionRecognized = false
             baselineChangeCount = dragPasteboard.changeCount
         default:
@@ -213,6 +219,7 @@ final class DragSessionCoordinator {
             model.showToast(model.language == .zhCN ? "文件接收失败" : "Could not receive promised file")
             currentScreen = nil
             state = .idle
+            setExternalDragActivity(false)
             return
         }
 
@@ -223,6 +230,7 @@ final class DragSessionCoordinator {
             overlay.hide()
             currentScreen = nil
             state = .idle
+            setExternalDragActivity(false)
         }
     }
 
@@ -239,6 +247,7 @@ final class DragSessionCoordinator {
             overlay.hide()
             sessionRecognized = false
             state = .idle
+            setExternalDragActivity(false)
         }
         return true
     }
@@ -249,6 +258,7 @@ final class DragSessionCoordinator {
         currentScreen = screen
         sessionRecognized = false
         baselineChangeCount = dragPasteboard.changeCount
+        setExternalDragActivity(false)
 
         shelf.showPeek(on: screen)
         if model.settings.shelfKeepOpen {
@@ -288,6 +298,13 @@ final class DragSessionCoordinator {
         baselineChangeCount = dragPasteboard.changeCount
         currentScreen = nil
         state = .idle
+        setExternalDragActivity(false)
+    }
+
+    private func setExternalDragActivity(_ active: Bool) {
+        guard externalDragActivityNotified != active else { return }
+        externalDragActivityNotified = active
+        onExternalDragActivityChange?(active)
     }
 
     private var nearbyAssistEnabled: Bool {
