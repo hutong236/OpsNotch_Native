@@ -10,15 +10,33 @@ final class DragOutLifecycleCoordinator {
     static let shared = DragOutLifecycleCoordinator()
 
     private weak var model: AppModel?
+    private var keyMonitor: Any?
 
     private init() {}
 
     func bind(model: AppModel) {
         self.model = model
+        installRecallShortcutIfNeeded()
     }
 
     func draggingEnded(items: [ShelfItem], operation: NSDragOperation) {
         model?.handleDragOutEnded(items: items, operation: operation)
+    }
+
+    private func installRecallShortcutIfNeeded() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 6, // Z
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  NSApp.keyWindow is ShelfPanel,
+                  !(NSApp.keyWindow?.firstResponder is NSTextView) else {
+                return event
+            }
+            MainActor.assumeIsolated {
+                self?.model?.recallLastDragOut()
+            }
+            return nil
+        }
     }
 }
 #endif
