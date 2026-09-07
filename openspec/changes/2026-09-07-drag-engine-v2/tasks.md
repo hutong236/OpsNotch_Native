@@ -2,20 +2,20 @@
 
 ## Phase 1 — P0 Drag Intent + Nearby Drop Zone
 
-- [ ] 1.1 新增 `DragSessionCoordinator.swift`，统一管理外部拖入状态。
-- [ ] 1.2 用 `NSEvent.addGlobalMonitorForEvents` 监听外部 mouse-drag/mouse-up；deinit/stop 时可靠移除 monitor。
-- [ ] 1.3 使用 `NSPasteboard(name: .drag).changeCount` + supported types 区分真实可接收拖放与普通窗口/滑块拖动。
-- [ ] 1.4 不使用 Timer 做 drag detection；pasteboard 首帧未就绪时依赖后续 mouseDragged 事件重试。
-- [ ] 1.5 新增 `DragDropOverlayController.swift`：borderless、nonactivating、不可成为 key、支持 all Spaces/full-screen auxiliary。
-- [ ] 1.6 新增 AppKit `DragDropTargetView`，注册与 Sensor 一致的基础拖放类型并实现 `NSDraggingDestination`。
-- [ ] 1.7 Overlay 初始位置基于 `NSEvent.mouseLocation`，按当前 `NSScreen.visibleFrame` clamp，并实现边缘自动翻转。
-- [ ] 1.8 拖拽跨显示器时迁移唯一 Overlay；禁止多屏重复出现活动 target。
-- [ ] 1.9 `SensorManager.onDragEntered/onDragExited/onDrop` 接入 coordinator；Sensor 接管时隐藏 nearby overlay。
-- [ ] 1.10 `ShelfWindowController` 的 drop/success/hide 调度接入统一 drag state，避免重复 hide/show work item 竞态。
-- [ ] 1.11 拖拽取消、mouseUp、draggingEnded、显示器变化均能回到 idle。
-- [ ] 1.12 保证 Drag Assist 失败/关闭时现有顶部 Sensor 行为完全可用。
-- [ ] 1.13 新增中英文 UI 文案：`放到这里暂存` / `Drop to Shelf` 等。
-- [ ] 1.14 drop 日志增加 session/state/display/category/count，禁止记录内容与完整路径。
+- [x] 1.1 新增 `DragSessionCoordinator.swift`，统一管理外部拖入状态。
+- [x] 1.2 用 `NSEvent.addGlobalMonitorForEvents` 监听外部 mouse-drag/mouse-up；deinit/stop 时可靠移除 monitor。
+- [x] 1.3 使用 `NSPasteboard(name: .drag).changeCount` + supported types 区分真实可接收拖放与普通窗口/滑块拖动。
+- [x] 1.4 不使用 Timer 做 drag detection；pasteboard 首帧未就绪时依赖后续 mouseDragged 事件重试。
+- [x] 1.5 新增 `DragDropOverlayController.swift`：borderless、nonactivating、不可成为 key、支持 all Spaces/full-screen auxiliary。
+- [x] 1.6 新增 AppKit `NearbyDropView`，注册与 Sensor 一致的基础拖放类型并实现 `NSDraggingDestination`。
+- [x] 1.7 Overlay 初始位置基于 `NSEvent.mouseLocation`，按当前 `NSScreen.visibleFrame` clamp，并实现边缘自动翻转。
+- [x] 1.8 拖拽跨显示器时迁移唯一 Overlay；禁止多屏重复出现活动 target。
+- [x] 1.9 通过现有 `ShelfWindowController.onVisibilityChange` 将 Sensor/Shelf 接管状态接入 coordinator；顶部 Sensor 出现时 nearby overlay 自动让位，保持 `SensorManager` 原拖放链路不变。
+- [ ] 1.10 进一步将 `ShelfWindowController` 的 drop/success/hide 调度完全收敛到统一 drag state；Phase 1 当前采用可见性事件协调，避免侵入既有 Shelf 生命周期。
+- [ ] 1.11 拖拽取消、mouseUp、跨屏已回到 idle；显示器热拔插/系统异常终止仍需真机验收后确认。
+- [x] 1.12 保证 Drag Assist 失败/关闭时现有顶部 Sensor 行为完全可用；Phase 1 未修改 Sensor 原接收实现。
+- [x] 1.13 Nearby Drop Zone 复用现有中英文 `dropTitle` / `dropHint` 文案，不新增重复字符串。
+- [ ] 1.14 当前日志仅记录 drag assist display 与 payload 类型/数量且不记录正文；session/state 完整结构化日志后续补齐。
 
 ## Phase 2 — P0/P1 File Promise 与 Payload Resolver
 
@@ -49,10 +49,10 @@
 
 ## 自动化验证
 
-- [ ] A1 `swift test`
-- [ ] A2 `swift build`
-- [ ] A3 `python3 scripts/static_checks.py`
-- [ ] A4 如新增 Core/Settings 字段，补 legacy `shelf.json` migration/compat tests。
+- [x] A1 `swift test`（PR #48 CI run 81 通过）
+- [x] A2 `swift build`（PR #48 CI run 81 Debug build 通过）
+- [x] A3 `python3 scripts/static_checks.py`（PR #48 CI run 81 Architecture checks 通过）
+- [x] A4 Phase 1 未新增 Core/Settings 持久化字段，无 migration 变更需要验证。
 - [ ] A5 为可抽离的 drag state transition/payload type priority 添加单元测试。
 
 ## 真机验收
