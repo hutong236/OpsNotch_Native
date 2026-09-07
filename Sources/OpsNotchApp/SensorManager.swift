@@ -108,16 +108,17 @@ final class SensorManager {
         panel.acceptsMouseMovedEvents = true
 
         let view = SensorView(frame: .zero)
-        view.indicatorDotCenter = indicatorDotCenter(for: screen)
-        view.usesWideIndicator = SensorGeometry.hasCameraHousing(screen)
+        configure(view: view, for: screen)
         view.onMouseEnter = { [weak self] in
             guard let self else { return }
             self.lastActiveDisplayID = id
             _ = self.clipboard.catchIfChanged()
-            // 内存状态即最新(所有写路径实时回写 model),触发路径不做任何磁盘 I/O。
-            // 拖拽进入时 AppKit 会紧接着发送 draggingEntered;给它一个很短的优先窗口,
-            // 避免 expanded 先闪现。
-            self.shelf.scheduleExpanded(on: screen, delay: 0.10)
+            // 普通鼠标只记录上下文；真正展开由 SensorView 的 hover intent 延迟确认触发。
+        }
+        view.onHoverIntent = { [weak self] in
+            guard let self else { return }
+            self.lastActiveDisplayID = id
+            self.shelf.showExpanded(on: screen)
         }
         view.onMouseExit = { [weak self] in
             guard let self else { return }
@@ -168,11 +169,17 @@ final class SensorManager {
             height: height
         )
         if let view = panel.contentView as? SensorView {
-            view.indicatorDotCenter = indicatorDotCenter(for: screen)
-            view.usesWideIndicator = SensorGeometry.hasCameraHousing(screen)
+            configure(view: view, for: screen)
         }
         panel.setFrame(frame, display: true)
         panel.orderFrontRegardless()
+    }
+
+    private func configure(view: SensorView, for screen: NSScreen) {
+        view.indicatorDotCenter = indicatorDotCenter(for: screen)
+        view.usesWideIndicator = SensorGeometry.hasCameraHousing(screen)
+        view.hoverIntentDelay = SensorGeometry.hoverIntentDelay(for: screen)
+        view.hoverActivationSize = SensorGeometry.hoverActivationSize(for: screen)
     }
 
     private func handle(payload: NativeDropPayload) -> Bool {
@@ -229,6 +236,9 @@ enum SensorGeometry {
     private static let minimumHeight: CGFloat = 38
     /// 刘海屏向菜单栏安全区下方延伸一条无遮挡拖放带，避免真正可命中的位置只剩刘海两侧窄缝。
     private static let notchDropReach: CGFloat = 24
+    /// 普通鼠标悬停只监听刘海下方中心窄带；拖放仍使用完整 Sensor bounds。
+    private static let notchHoverWidth: CGFloat = 180
+    private static let notchHoverHeight: CGFloat = 16
 
     static func hasCameraHousing(_ screen: NSScreen) -> Bool {
         screen.auxiliaryTopLeftArea != nil || screen.auxiliaryTopRightArea != nil
@@ -245,6 +255,18 @@ enum SensorGeometry {
 
     static func visibleBandHeight(for screen: NSScreen) -> CGFloat {
         max(0, height(for: screen) - screen.safeAreaInsets.top)
+    }
+
+    static func hoverActivationSize(for screen: NSScreen) -> NSSize? {
+        guard hasCameraHousing(screen) else { return nil }
+        return NSSize(
+            width: min(notchHoverWidth, width(for: screen)),
+            height: min(notchHoverHeight, max(8, visibleBandHeight(for: screen)))
+        )
+    }
+
+    static func hoverIntentDelay(for screen: NSScreen) -> TimeInterval {
+        hasCameraHousing(screen) ? 0.24 : 0.12
     }
 }
 
@@ -289,6 +311,7 @@ enum NativeDropPayload {
 
 final class SensorView: NSView {
     var onMouseEnter: (() -> Void)?
+    var onHoverIntent: (() -> Void)?
     var onMouseExit: (() -> Void)?
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
@@ -305,8 +328,14 @@ final class SensorView: NSView {
     }
     /// 指示中心(视图坐标):由 SensorManager 依屏幕安全区计算,避开物理刘海。
     var indicatorDotCenter = CGPoint(x: 0, y: 2)
+    /// nil 表示普通屏沿用整个 Sensor；刘海屏仅中心窄带参与普通 hover，完整 bounds 仍接收 drag。
+    var hoverActivationSize: NSSize? {
+        didSet { updateTrackingAreas() }
+    }
+    var hoverIntentDelay: TimeInterval = 0.12
 
     private var tracking: NSTrackingArea?
+    private var hoverIntentWorkItem: DispatchWorkItem?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -316,6 +345,10 @@ final class SensorView: NSView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         registerForDraggedTypes([.fileURL, .URL, .string])
+    }
+
+    deinit {
+        hoverIntentWorkItem?.cancel()
     }
 
     private enum IndicatorStyle {
@@ -362,8 +395,8 @@ final class SensorView: NSView {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
         let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            rect: effectiveHoverActivationRect,
+            options: [.mouseEnteredAndExited, .activeAlways],
             owner: self,
             userInfo: nil
         )
@@ -371,10 +404,55 @@ final class SensorView: NSView {
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { onMouseEnter?() }
-    override func mouseExited(with event: NSEvent) { onMouseExit?() }
+    private var effectiveHoverActivationRect: NSRect {
+        guard let size = hoverActivationSize else { return bounds }
+        let width = min(max(1, size.width), bounds.width)
+        let height = min(max(1, size.height), bounds.height)
+        return NSRect(
+            x: bounds.midX - width / 2,
+            y: bounds.minY,
+            width: width,
+            height: height
+        )
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onMouseEnter?()
+        scheduleHoverIntent()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        cancelHoverIntent()
+        onMouseExit?()
+    }
+
+    private func scheduleHoverIntent() {
+        cancelHoverIntent()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.hoverIntentWorkItem = nil
+            // 即使取消与执行恰好撞在临界点，也在真正展开前再次验证鼠标仍位于 hover 区域。
+            guard self.mouseIsInsideHoverActivationRect else { return }
+            self.onHoverIntent?()
+        }
+        hoverIntentWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + hoverIntentDelay, execute: work)
+    }
+
+    private func cancelHoverIntent() {
+        hoverIntentWorkItem?.cancel()
+        hoverIntentWorkItem = nil
+    }
+
+    private var mouseIsInsideHoverActivationRect: Bool {
+        guard let window else { return false }
+        let pointInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let pointInView = convert(pointInWindow, from: nil)
+        return effectiveHoverActivationRect.contains(pointInView)
+    }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        cancelHoverIntent()
         onDragEntered?()
         return NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
     }
@@ -383,9 +461,13 @@ final class SensorView: NSView {
         NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
     }
 
-    override func draggingExited(_ sender: NSDraggingInfo?) { onDragExited?() }
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        cancelHoverIntent()
+        onDragExited?()
+    }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        cancelHoverIntent()
         guard let payload = NativeDropPayload.read(from: sender.draggingPasteboard) else {
             dropLog.error("sensor drop: no readable payload")
             return false
