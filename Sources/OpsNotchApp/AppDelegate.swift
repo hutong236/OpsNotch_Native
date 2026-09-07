@@ -24,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let store = ShelfStoreService(rootURL: ShelfStoreService.defaultRootURL())
         model = AppModel(store: store)
+        DragOutLifecycleCoordinator.shared.bind(model: model)
+        model.cleanupStaleDragOutRecallStorage()
+
         desktopCommands = DesktopCommandIntegration(model: model)
         clipboard = ClipboardManager(model: model)
         clipboard.startMonitoring()
