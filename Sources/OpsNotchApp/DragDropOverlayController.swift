@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import QuartzCore
 import OpsNotchCore
 
 @MainActor
@@ -129,9 +130,10 @@ final class NearbyDropView: NSVisualEffectView {
         layer?.cornerRadius = 16
         layer?.masksToBounds = true
 
-        iconView.image = NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: nil)
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 23, weight: .semibold)
+        iconView.image = NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(symbolConfiguration)
         iconView.contentTintColor = .labelColor
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 23, weight: .semibold)
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -178,7 +180,9 @@ final class NearbyDropView: NSVisualEffectView {
         guard ready != newValue else { return }
         ready = newValue
         layer?.borderWidth = newValue ? 2 : 1
-        layer?.borderColor = (newValue ? NSColor.controlAccentColor : NSColor.separatorColor).withAlphaComponent(newValue ? 0.85 : 0.45).cgColor
+        layer?.borderColor = (newValue ? NSColor.controlAccentColor : NSColor.separatorColor)
+            .withAlphaComponent(newValue ? 0.85 : 0.45)
+            .cgColor
 
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         NSAnimationContext.runAnimationGroup { context in
