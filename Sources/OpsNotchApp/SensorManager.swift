@@ -142,21 +142,41 @@ final class SensorManager {
             self.lastActiveDisplayID = id
             self.shelf.cancelScheduledExpand()
             let accepted = self.handle(payload: payload)
-            if accepted {
-                // 放入后只显示成功反馈，不再展开完整 Shelf。
-                self.shelf.showPeek(on: screen)
-                if self.model.settings.shelfKeepOpen {
-                    // 常驻模式：成功反馈展示后重新展开并保持,不调度自动隐藏。
-                    self.shelf.scheduleExpanded(on: screen, delay: 0.85)
-                } else {
-                    self.shelf.scheduleHide(delay: 0.85)
-                }
-            }
+            if accepted { self.showAcceptedDropFeedback(on: screen) }
             return accepted
+        }
+        view.onPromiseStarted = { [weak self] in
+            guard let self else { return }
+            self.lastActiveDisplayID = id
+            self.shelf.cancelScheduledExpand()
+            self.shelf.showDrop(on: screen)
+            self.model.showToast(self.model.language == .zhCN ? "正在接收文件…" : "Receiving file…")
+        }
+        view.onPromisedFiles = { [weak self] urls in
+            guard let self else { return }
+            self.lastActiveDisplayID = id
+            let accepted = self.handlePromised(urls: urls)
+            if accepted {
+                self.showAcceptedDropFeedback(on: screen)
+            } else {
+                self.model.showToast(self.model.language == .zhCN ? "文件接收失败" : "Could not receive promised file")
+                if !self.model.settings.shelfKeepOpen { self.shelf.scheduleHide(delay: 0.5) }
+            }
         }
         panel.contentView = view
         panel.orderFrontRegardless()
         return panel
+    }
+
+    private func showAcceptedDropFeedback(on screen: NSScreen) {
+        // 放入后只显示成功反馈，不再展开完整 Shelf。
+        shelf.showPeek(on: screen)
+        if model.settings.shelfKeepOpen {
+            // 常驻模式：成功反馈展示后重新展开并保持,不调度自动隐藏。
+            shelf.scheduleExpanded(on: screen, delay: 0.85)
+        } else {
+            shelf.scheduleHide(delay: 0.85)
+        }
     }
 
     private func configure(panel: NSPanel, for screen: NSScreen) {
@@ -196,9 +216,18 @@ final class SensorManager {
         }
     }
 
+    private func handlePromised(urls: [URL]) -> Bool {
+        !urls.isEmpty && model.addPromisedPaths(urls) > 0
+    }
+
     /// 入柜处理,供 Sensor 与抽屉窗口拖放接收点(ShelfDropContainerView)共用。
     func handleDrop(payload: NativeDropPayload) -> Bool {
         handle(payload: payload)
+    }
+
+    /// File Promise 入柜处理，供 nearby / Sensor / Shelf 三个落点共用相同存储语义。
+    func handlePromisedDrop(urls: [URL]) -> Bool {
+        handlePromised(urls: urls)
     }
 
     private func screensForCurrentPolicy() -> [NSScreen] {
@@ -316,6 +345,8 @@ final class SensorView: NSView {
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
     var onDrop: ((NativeDropPayload) -> Bool)?
+    var onPromiseStarted: (() -> Void)?
+    var onPromisedFiles: (([URL]) -> Void)?
 
     /// 收起态入口指示:仅 Shelf 完全收起时绘制(SensorManager 依可见性事件驱动)。
     /// 纯视觉元素,不改变命中区域语义。
@@ -336,19 +367,26 @@ final class SensorView: NSView {
 
     private var tracking: NSTrackingArea?
     private var hoverIntentWorkItem: DispatchWorkItem?
+    private var resolvingPromise = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerDropTypes()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerDropTypes()
     }
 
     deinit {
         hoverIntentWorkItem?.cancel()
+    }
+
+    private func registerDropTypes() {
+        // 保留静态检查要求的基础类型，同时接受 Safari/Photos 等 File Promise。
+        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.promisePasteboardTypes)
     }
 
     private enum IndicatorStyle {
@@ -453,27 +491,41 @@ final class SensorView: NSView {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         cancelHoverIntent()
+        guard DropPayloadResolver.canRead(sender.draggingPasteboard) else { return [] }
         onDragEntered?()
-        return NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
+        return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
+        DropPayloadResolver.canRead(sender.draggingPasteboard) ? .copy : []
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         cancelHoverIntent()
+        guard !resolvingPromise else { return }
         onDragExited?()
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         cancelHoverIntent()
-        guard let payload = NativeDropPayload.read(from: sender.draggingPasteboard) else {
-            dropLog.error("sensor drop: no readable payload")
-            return false
-        }
-        dropLog.info("sensor drop \(payload.logSummary, privacy: .public)")
-        return onDrop?(payload) ?? false
+        let promisedHandler = onPromisedFiles
+        return DropPayloadResolver.shared.performDrop(
+            from: sender.draggingPasteboard,
+            onPromiseStarted: { [weak self] in
+                guard let self else { return }
+                self.resolvingPromise = true
+                self.onPromiseStarted?()
+            },
+            handleImmediate: { [weak self] payload in
+                guard let self else { return false }
+                dropLog.info("sensor drop \(payload.logSummary, privacy: .public)")
+                return self.onDrop?(payload) ?? false
+            },
+            handlePromised: { [weak self] urls in
+                self?.resolvingPromise = false
+                promisedHandler?(urls)
+            }
+        )
     }
 }
 #endif
