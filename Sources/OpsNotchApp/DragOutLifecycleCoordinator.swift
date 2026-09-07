@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import OpsNotchCore
 
 /// NSDraggingSource 与 SwiftUI/AppModel 之间的单一生命周期桥。
 /// AppDelegate 启动时绑定一次 model；拖动视图只上报 AppKit 的最终 operation，
