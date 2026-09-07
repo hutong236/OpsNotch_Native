@@ -89,12 +89,12 @@ final class DragSessionCoordinator {
 
     /// Shelf/Sensor 的可见性是现有系统拖放链路的事实来源。
     /// 一旦顶部 Sensor 展开 Drop 面板，附近目标立即让位；Sensor 收起而拖拽仍继续时再恢复附近目标。
-    func shelfVisibilityDidChange(_ visible: Bool, onDisplayID displayID: CGDirectDisplayID?) {
+    func shelfVisibilityDidChange(_ visible: Bool, onDisplayID visibleDisplayID: CGDirectDisplayID?) {
         guard sessionRecognized else { return }
 
         if visible {
             overlay.hide()
-            if let id = displayID ?? displayID(of: currentScreen) {
+            if let id = visibleDisplayID ?? displayID(of: currentScreen) {
                 state = .trackingExternalDrag(changeCount: dragPasteboard.changeCount, displayID: id)
             }
             return
