@@ -56,6 +56,47 @@ final class ClipboardCaptureDedupTests: XCTestCase {
         XCTAssertEqual(captured.items.first?.title, "Custom title")
     }
 
+    func testRepeatedTextCapturePreservesPinAndCanBeUnpinned() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+
+        let initial = try service.captureText("pinned text")
+        let id = try XCTUnwrap(initial.items.first?.id)
+        _ = try service.setPinned(id: id, pinned: true)
+
+        for _ in 0..<10 {
+            let captured = try service.captureText("pinned text")
+            XCTAssertEqual(captured.items.count, 1)
+            XCTAssertEqual(captured.items.first?.id, id)
+            XCTAssertEqual(captured.items.first?.pinned, true)
+        }
+
+        let unpinned = try service.setPinned(id: id, pinned: false)
+        XCTAssertEqual(unpinned.items.first(where: { $0.id == id })?.pinned, false)
+    }
+
+    func testRepeatedURLCapturePreservesPinAndCanBeUnpinned() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+
+        let url = "https://example.com/pinned"
+        let initial = try service.captureURL(url)
+        let id = try XCTUnwrap(initial.items.first?.id)
+        _ = try service.setPinned(id: id, pinned: true)
+
+        for _ in 0..<10 {
+            let captured = try service.captureURL(url)
+            XCTAssertEqual(captured.items.count, 1)
+            XCTAssertEqual(captured.items.first?.id, id)
+            XCTAssertEqual(captured.items.first?.pinned, true)
+        }
+
+        let unpinned = try service.setPinned(id: id, pinned: false)
+        XCTAssertEqual(unpinned.items.first(where: { $0.id == id })?.pinned, false)
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("opsnotch-clipboard-dedup-tests-\(UUID().uuidString)", isDirectory: true)
