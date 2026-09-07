@@ -10,7 +10,8 @@ enum AppContextResolver {
         "dev.warp.warp-stable",
         "org.alacritty",
         "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm"
+        "com.github.wez.wezterm",
+        "com.cmuxterm.app"
     ]
 
     private static let browserBundleIDs: Set<String> = [
@@ -27,13 +28,13 @@ enum AppContextResolver {
         return kind(bundleIdentifier: app.bundleIdentifier, localizedName: app.localizedName)
     }
 
-    static func kind(bundleIdentifier: String?, localizedName: String?) -> AppContextKind {
+    nonisolated static func kind(bundleIdentifier: String?, localizedName: String?) -> AppContextKind {
         let bundle = (bundleIdentifier ?? "").lowercased()
         let name = (localizedName ?? "").lowercased()
 
         if bundle == "com.apple.finder" || name == "finder" { return .finder }
         if terminalBundleIDs.contains(bundle)
-            || ["terminal", "iterm", "warp", "alacritty", "kitty", "wezterm"].contains(where: name.contains) {
+            || ["terminal", "iterm", "warp", "alacritty", "kitty", "wezterm", "cmux"].contains(where: name.contains) {
             return .terminal
         }
         if browserBundleIDs.contains(bundle)
