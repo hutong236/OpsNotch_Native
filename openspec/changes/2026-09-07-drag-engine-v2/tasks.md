@@ -42,17 +42,17 @@
 
 ## Phase 4 — P2 精细化
 
-- [ ] 4.1 增加 `dragAssistMode`：默认 nearby，可选 sensor-only；若持久化则提供 Codable 默认值与 migration test。
+- [x] 4.1 增加 `dragAssistMode`：默认 nearby，可选 sensor-only；持久化为 `drag_assist_mode`，旧配置缺字段时 Codable 自动回落 nearby，并有兼容/round-trip Core tests。
 - [ ] 4.2 评估 ignored app bundle IDs；仅在 source app 可可靠识别时实现。
 - [ ] 4.3 多文件一次拖入增加 UI-level session grouping/Stack 方案，避免立即修改持久化模型。
-- [ ] 4.4 为 Drag Assist 增加 Reduce Motion 与可访问性细节。
+- [x] 4.4 Drag Assist 遵循 macOS Reduce Motion；Nearby Drop Zone 暴露 VoiceOver group/label/help，File Promise resolving 状态同步更新可访问性文本。
 
 ## 自动化验证
 
-- [x] A1 `swift test`（PR #50 CI run 90 通过）。
-- [x] A2 `swift build`（PR #50 CI run 90 Debug build 通过）。
-- [x] A3 `python3 scripts/static_checks.py`（PR #50 CI run 90 Architecture checks 通过）。
-- [x] A4 Phase 1–3 未新增 Core/Settings 持久化字段；Phase 3 Recall 为 App 会话级临时状态，无 migration 变更需要验证。
+- [x] A1 `swift test`（PR #51 CI run 93 通过）。
+- [x] A2 `swift build`（PR #51 CI run 93 Debug build 通过）。
+- [x] A3 `python3 scripts/static_checks.py`（PR #51 CI run 93 Architecture checks 通过）。
+- [x] A4 Phase 4 新增 `drag_assist_mode` 持久化字段；`ShelfSettingsCompatibilityTests` 验证默认 nearby、旧 JSON 缺字段兼容和 sensor-only Codable round-trip，无破坏性 migration/version bump。
 - [ ] A5 为可抽离的 drag state transition/payload type priority 添加单元测试。
 
 ## 真机验收
@@ -73,3 +73,5 @@
 - [ ] M14 `storageMode=.copy` 文件成功拖出后按 `⌘Z`，受管文件与 ShelfItem 均恢复且可继续打开/Quick Look。
 - [ ] M15 Finder 下验证 Option/Command 修饰键和最终 operation；path-backed 条目不得导致原文件被 Ops Notch 主动移动。
 - [ ] M16 模拟 drag-out consume 中断后重启，仍被持久化 Shelf 引用的受管文件从 recall stash 自动恢复，不发生数据丢失。
+- [ ] M17 设置 Drag Assist=Sensor only 后，外部拖拽不出现 Nearby Overlay，但顶部 Sensor 仍可接收 Finder/File Promise；切回 Nearby 后恢复默认行为。
+- [ ] M18 VoiceOver 开启时 Nearby Drop Zone 能读出“松开即可放入/Release to add”及提示；File Promise 接收中能读出 resolving 状态。
