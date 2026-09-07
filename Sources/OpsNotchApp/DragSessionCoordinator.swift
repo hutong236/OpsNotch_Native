@@ -110,6 +110,11 @@ final class DragSessionCoordinator {
 
         guard let screen = screenUnderMouse(), let id = displayID(of: screen) else { return }
         currentScreen = screen
+        guard nearbyAssistEnabled else {
+            overlay.hide()
+            state = .trackingExternalDrag(changeCount: dragPasteboard.changeCount, displayID: id)
+            return
+        }
         overlay.show(near: NSEvent.mouseLocation, on: screen, language: model.language)
         state = .targetVisible(displayID: id)
     }
@@ -129,9 +134,13 @@ final class DragSessionCoordinator {
             sessionRecognized = true
             currentScreen = screen
 
-            if shelf.isPanelVisible {
+            if shelf.isPanelVisible || !nearbyAssistEnabled {
                 state = .trackingExternalDrag(changeCount: changeCount, displayID: id)
-                dropLog.info("drag assist recognized; shelf already visible")
+                if shelf.isPanelVisible {
+                    dropLog.info("drag assist recognized; shelf already visible")
+                } else {
+                    dropLog.info("drag assist recognized; sensor-only mode")
+                }
             } else {
                 overlay.show(near: NSEvent.mouseLocation, on: screen, language: model.language)
                 state = .targetVisible(displayID: id)
@@ -144,7 +153,7 @@ final class DragSessionCoordinator {
         let changedDisplay = displayID(of: currentScreen) != id
         currentScreen = screen
 
-        if shelf.isPanelVisible {
+        if shelf.isPanelVisible || !nearbyAssistEnabled {
             if overlay.isVisible { overlay.hide() }
             state = .trackingExternalDrag(changeCount: changeCount, displayID: id)
             return
@@ -279,6 +288,10 @@ final class DragSessionCoordinator {
         baselineChangeCount = dragPasteboard.changeCount
         currentScreen = nil
         state = .idle
+    }
+
+    private var nearbyAssistEnabled: Bool {
+        model.settings.dragAssistMode == .nearby
     }
 
     private func screenUnderMouse() -> NSScreen? {
