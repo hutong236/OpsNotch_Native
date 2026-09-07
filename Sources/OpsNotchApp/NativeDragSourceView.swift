@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import Foundation
 import SwiftUI
 import OpsNotchCore
 
@@ -111,10 +112,15 @@ final class DragSourceNSView: NSView, NSDraggingSource {
     fileprivate func startDrag(with event: NSEvent) -> Bool {
         guard mouseDownEvent != nil, !didStartDrag, !items.isEmpty else { return false }
 
+        // ShelfPanel is non-activating, so the frontmost app remains the app the user summoned the Shelf from.
+        // Capture that context once for the whole drag session. Terminal-like apps should receive path text,
+        // otherwise cmux/Ghostty may materialize a file drop into /tmp/cmux-drop-* instead of preserving the path.
+        let appContext = MainActor.assumeIsolated { AppContextResolver.current() }
+
         var sourceItems: [ShelfItem] = []
         var draggingItems: [NSDraggingItem] = []
         for item in items {
-            guard let draggingItem = makeDraggingItem(item, event: event) else { continue }
+            guard let draggingItem = makeDraggingItem(item, event: event, appContext: appContext) else { continue }
             sourceItems.append(item)
             draggingItems.append(draggingItem)
         }
@@ -156,16 +162,25 @@ final class DragSourceNSView: NSView, NSDraggingSource {
         DragOutLifecycleCoordinator.shared.draggingEnded(items: completedItems, operation: operation)
     }
 
-    private func makeDraggingItem(_ item: ShelfItem, event: NSEvent) -> NSDraggingItem? {
+    private func makeDraggingItem(
+        _ item: ShelfItem,
+        event: NSEvent,
+        appContext: AppContextKind
+    ) -> NSDraggingItem? {
         let writer: NSPasteboardWriting
         let image: NSImage
         switch item.kind {
         case .file, .folder, .application:
             let url = URL(fileURLWithPath: item.content).standardizedFileURL
-            // NSURL 本身在部分目标（尤其 Terminal）可能被协商成临时文件表示。
-            // 显式同时提供 fileURL + legacy filenames + plain absolute path，确保 Terminal 插入真实路径，
-            // Finder 仍按真实 file URL 进行文件复制。
-            writer = FilePathDragWriter(url: url)
+            if appContext == .terminal {
+                // Terminal destinations need the actual path as text. In particular cmux intentionally handles
+                // fileURL drops through a materialization pipeline that can replace the path with /tmp/cmux-drop-*.
+                // Publishing only shell-safe text here bypasses that receiver-side behavior while preserving the
+                // normal fileURL drag contract for Finder and other non-terminal destinations.
+                writer = shellEscapedPath(url.path) as NSString
+            } else {
+                writer = FilePathDragWriter(url: url)
+            }
             image = NSWorkspace.shared.icon(forFile: url.path)
         case .url:
             guard let url = URL(string: item.content) else { return nil }
@@ -184,6 +199,14 @@ final class DragSourceNSView: NSView, NSDraggingSource {
             contents: image
         )
         return drag
+    }
+
+    private func shellEscapedPath(_ path: String) -> String {
+        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_@%+=:,./-"))
+        if path.unicodeScalars.allSatisfy({ safe.contains($0) }) {
+            return path
+        }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
@@ -244,8 +267,8 @@ private final class ShelfRowDragHitCoordinator {
     }
 }
 
-/// Finder understands `.fileURL`; Terminal and older AppKit destinations may prefer a filename/path flavor.
-/// Providing all representations from one writer avoids AppKit synthesizing a transient `/tmp/...` file path.
+/// Finder understands `.fileURL`; older AppKit destinations may also prefer a filename/path flavor.
+/// Terminal contexts intentionally bypass this writer and receive shell-safe path text instead.
 private final class FilePathDragWriter: NSObject, NSPasteboardWriting {
     private static let legacyFilenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
     private let url: URL
