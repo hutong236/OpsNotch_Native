@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model = AppModel(store: store)
         DragOutLifecycleCoordinator.shared.bind(model: model)
         model.cleanupStaleDragOutRecallStorage()
+        DropPayloadResolver.shared.cleanupStaleStaging(rootURL: store.rootURL)
 
         desktopCommands = DesktopCommandIntegration(model: model)
         clipboard = ClipboardManager(model: model)
