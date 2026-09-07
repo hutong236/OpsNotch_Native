@@ -139,6 +139,7 @@ final class NearbyDropView: NSVisualEffectView {
         wantsLayer = true
         layer?.cornerRadius = 16
         layer?.masksToBounds = true
+        configureAccessibility()
 
         let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 23, weight: .semibold)
         iconView.image = NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: nil)?
@@ -187,7 +188,13 @@ final class NearbyDropView: NSVisualEffectView {
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        configureAccessibility()
         registerDropTypes()
+    }
+
+    private func configureAccessibility() {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
     }
 
     private func registerDropTypes() {
@@ -201,8 +208,12 @@ final class NearbyDropView: NSVisualEffectView {
         resolvingPromise = false
         progressIndicator.stopAnimation(nil)
         iconView.isHidden = false
-        titleLabel.stringValue = L10n.text("dropTitle", language)
-        hintLabel.stringValue = L10n.text("dropHint", language)
+        let title = L10n.text("dropTitle", language)
+        let hint = L10n.text("dropHint", language)
+        titleLabel.stringValue = title
+        hintLabel.stringValue = hint
+        setAccessibilityLabel(title)
+        setAccessibilityHelp(hint)
     }
 
     func resetVisualState() {
@@ -236,8 +247,12 @@ final class NearbyDropView: NSVisualEffectView {
         progressIndicator.startAnimation(nil)
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.55).cgColor
-        titleLabel.stringValue = language == .zhCN ? "正在接收文件…" : "Receiving file…"
-        hintLabel.stringValue = language == .zhCN ? "文件准备完成后会自动放入抽屉" : "It will be added to the Shelf when ready."
+        let title = language == .zhCN ? "正在接收文件…" : "Receiving file…"
+        let hint = language == .zhCN ? "文件准备完成后会自动放入抽屉" : "It will be added to the Shelf when ready."
+        titleLabel.stringValue = title
+        hintLabel.stringValue = hint
+        setAccessibilityLabel(title)
+        setAccessibilityHelp(hint)
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
