@@ -79,6 +79,23 @@ struct SettingsView: View {
                         }.frame(width: 190)
                     }
                     Divider()
+                    settingRow(model.language == .zhCN ? "拖放辅助" : "Drag Assist") {
+                        Picker("", selection: dragAssistBinding) {
+                            Text(model.language == .zhCN ? "附近目标" : "Nearby").tag(DragAssistMode.nearby)
+                            Text(model.language == .zhCN ? "仅顶部入口" : "Sensor only").tag(DragAssistMode.sensorOnly)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 190)
+                    }
+                    Text(
+                        model.language == .zhCN
+                            ? "附近目标会在外部拖拽时显示在鼠标旁；仅顶部入口则只使用屏幕顶部 Sensor。"
+                            : "Nearby shows a drop target beside the pointer during external drags. Sensor only keeps the top Sensor as the sole drag-in target."
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 2)
+                    Divider()
                     settingRow(L10n.text("keepShelfOpen", model.language)) {
                         Toggle("", isOn: Binding(
                             get: { model.settings.shelfKeepOpen },
@@ -159,6 +176,7 @@ struct SettingsView: View {
 
     private var languageBinding: Binding<AppLanguage> { Binding(get: { model.settings.language }, set: { value in model.updateSettings { $0.language = value } }) }
     private var displayBinding: Binding<DisplayTarget> { Binding(get: { model.settings.displayTarget }, set: { value in model.updateSettings { $0.displayTarget = value } }) }
+    private var dragAssistBinding: Binding<DragAssistMode> { Binding(get: { model.settings.dragAssistMode }, set: { value in model.updateSettings { $0.dragAssistMode = value } }) }
     private var addModeBinding: Binding<StorageMode> { Binding(get: { model.settings.addMode }, set: { value in model.updateSettings { $0.addMode = value } }) }
     private var ttlBinding: Binding<UInt64> { Binding(get: { model.settings.tempTTLHours }, set: { value in model.updateSettings { $0.tempTTLHours = value } }) }
 }
