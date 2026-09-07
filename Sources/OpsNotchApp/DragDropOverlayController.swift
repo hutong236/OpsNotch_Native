@@ -86,9 +86,11 @@ final class DragDropOverlayController {
     }
 
     private func targetFrame(near cursor: NSPoint, on screen: NSScreen) -> NSRect {
-        let size = NSSize(width: 228, height: 84)
-        let gap: CGFloat = 34
-        let inset: CGFloat = 10
+        // Smoke test 反馈 228x84 命中区和文字都偏小。附近目标应该是“明显、容易放入”的目标，
+        // 而不是另一个需要精确瞄准的小按钮。
+        let size = NSSize(width: 320, height: 118)
+        let gap: CGFloat = 40
+        let inset: CGFloat = 12
         let visible = screen.visibleFrame
 
         var x = cursor.x + gap
@@ -137,28 +139,29 @@ final class NearbyDropView: NSVisualEffectView {
         blendingMode = .behindWindow
         state = .active
         wantsLayer = true
-        layer?.cornerRadius = 16
+        layer?.cornerRadius = 20
         layer?.masksToBounds = true
         configureAccessibility()
 
-        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 23, weight: .semibold)
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 31, weight: .semibold)
         iconView.image = NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfiguration)
         iconView.contentTintColor = .labelColor
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         progressIndicator.style = .spinning
-        progressIndicator.controlSize = .small
+        progressIndicator.controlSize = .regular
         progressIndicator.isDisplayedWhenStopped = false
         progressIndicator.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        hintLabel.font = .systemFont(ofSize: 10)
+        hintLabel.font = .systemFont(ofSize: 12)
         hintLabel.textColor = .secondaryLabelColor
-        hintLabel.lineBreakMode = .byTruncatingTail
+        hintLabel.lineBreakMode = .byWordWrapping
+        hintLabel.maximumNumberOfLines = 2
         hintLabel.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(iconView)
@@ -166,21 +169,22 @@ final class NearbyDropView: NSVisualEffectView {
         addSubview(titleLabel)
         addSubview(hintLabel)
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 30),
-            iconView.heightAnchor.constraint(equalToConstant: 30),
+            iconView.widthAnchor.constraint(equalToConstant: 42),
+            iconView.heightAnchor.constraint(equalToConstant: 42),
 
             progressIndicator.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
             progressIndicator.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -14),
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -20),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 28),
 
             hintLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            hintLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            hintLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 7),
+            hintLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -18),
         ])
 
         registerDropTypes()
@@ -198,9 +202,9 @@ final class NearbyDropView: NSVisualEffectView {
     }
 
     private func registerDropTypes() {
-        // 保留项目静态检查要求的基础注册调用，再扩展 File Promise types。
+        // 保留项目静态检查要求的基础注册调用，再扩展 File Promise / 浏览器图片 / 富文本类型。
         registerForDraggedTypes([.fileURL, .URL, .string])
-        registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.promisePasteboardTypes)
+        registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.extraPasteboardTypes)
     }
 
     func apply(language: AppLanguage) {
@@ -228,15 +232,15 @@ final class NearbyDropView: NSVisualEffectView {
     func setReady(_ newValue: Bool) {
         guard !resolvingPromise, ready != newValue else { return }
         ready = newValue
-        layer?.borderWidth = newValue ? 2 : 1
+        layer?.borderWidth = newValue ? 3 : 1
         layer?.borderColor = (newValue ? NSColor.controlAccentColor : NSColor.separatorColor)
-            .withAlphaComponent(newValue ? 0.85 : 0.45)
+            .withAlphaComponent(newValue ? 0.9 : 0.45)
             .cgColor
 
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.08
-            animator().alphaValue = newValue ? 1.0 : 0.96
+            animator().alphaValue = newValue ? 1.0 : 0.97
         }
     }
 
@@ -245,10 +249,10 @@ final class NearbyDropView: NSVisualEffectView {
         ready = false
         iconView.isHidden = true
         progressIndicator.startAnimation(nil)
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.55).cgColor
+        layer?.borderWidth = 2
+        layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.65).cgColor
         let title = language == .zhCN ? "正在接收文件…" : "Receiving file…"
-        let hint = language == .zhCN ? "文件准备完成后会自动放入抽屉" : "It will be added to the Shelf when ready."
+        let hint = language == .zhCN ? "文件准备完成后会自动放入暂存清单" : "It will be added to the Shelf when ready."
         titleLabel.stringValue = title
         hintLabel.stringValue = hint
         setAccessibilityLabel(title)
@@ -274,7 +278,8 @@ final class NearbyDropView: NSVisualEffectView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         DropPayloadResolver.shared.performDrop(
-            from: sender.draggingPasteboard,
+            from: sender,
+            in: self,
             onPromiseStarted: { [weak self] in
                 guard let self else { return }
                 self.showPromiseResolving()

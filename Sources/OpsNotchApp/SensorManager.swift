@@ -16,6 +16,9 @@ final class SensorManager {
     /// Shelf 当前可见性与所在屏:重建面板时据此初始化指示点,重建后状态自愈。
     private var shelfVisible = false
     private var shelfVisibleDisplayID: CGDirectDisplayID?
+    /// Nearby 已识别到外部拖拽时，顶部 Sensor 仍可作为 drop destination，
+    /// 但普通 hover 不应再展开完整清单与 Nearby 抢占用户注意力。
+    private var externalDragSessionActive = false
     private var observer: NSObjectProtocol?
 
     init(model: AppModel, shelf: ShelfWindowController, clipboard: ClipboardManager) {
@@ -57,6 +60,15 @@ final class SensorManager {
         shelfVisible = visible
         shelfVisibleDisplayID = onDisplayID
         applyIndicatorState()
+    }
+
+    /// DragSessionCoordinator 的事件驱动状态，不做额外轮询。
+    /// active 时只禁止 Sensor 的普通 hover 展开；原生 draggingEntered/performDragOperation 仍保留。
+    func setExternalDragSessionActive(_ active: Bool) {
+        externalDragSessionActive = active
+        for panel in panels.values {
+            (panel.contentView as? SensorView)?.suppressesHoverIntent = active
+        }
     }
 
     private func applyIndicatorState() {
@@ -116,7 +128,7 @@ final class SensorManager {
             // 普通鼠标只记录上下文；真正展开由 SensorView 的 hover intent 延迟确认触发。
         }
         view.onHoverIntent = { [weak self] in
-            guard let self else { return }
+            guard let self, !self.externalDragSessionActive else { return }
             self.lastActiveDisplayID = id
             self.shelf.showExpanded(on: screen)
         }
@@ -131,7 +143,10 @@ final class SensorManager {
             guard let self else { return }
             self.lastActiveDisplayID = id
             self.shelf.cancelScheduledExpand()
-            self.shelf.showDrop(on: screen)
+            // Nearby 模式已经给了明显的大目标时，Sensor 继续可直接 drop，但不再展开另一块 Drop 清单干扰。
+            if !(self.externalDragSessionActive && self.model.settings.dragAssistMode == .nearby) {
+                self.shelf.showDrop(on: screen)
+            }
         }
         view.onDragExited = { [weak self] in
             self?.shelf.cancelScheduledExpand()
@@ -149,7 +164,9 @@ final class SensorManager {
             guard let self else { return }
             self.lastActiveDisplayID = id
             self.shelf.cancelScheduledExpand()
-            self.shelf.showDrop(on: screen)
+            if !(self.externalDragSessionActive && self.model.settings.dragAssistMode == .nearby) {
+                self.shelf.showDrop(on: screen)
+            }
             self.model.showToast(self.model.language == .zhCN ? "正在接收文件…" : "Receiving file…")
         }
         view.onPromisedFiles = { [weak self] urls in
@@ -200,6 +217,7 @@ final class SensorManager {
         view.usesWideIndicator = SensorGeometry.hasCameraHousing(screen)
         view.hoverIntentDelay = SensorGeometry.hoverIntentDelay(for: screen)
         view.hoverActivationSize = SensorGeometry.hoverActivationSize(for: screen)
+        view.suppressesHoverIntent = externalDragSessionActive
     }
 
     private func handle(payload: NativeDropPayload) -> Bool {
@@ -364,6 +382,11 @@ final class SensorView: NSView {
         didSet { updateTrackingAreas() }
     }
     var hoverIntentDelay: TimeInterval = 0.12
+    var suppressesHoverIntent = false {
+        didSet {
+            if suppressesHoverIntent { cancelHoverIntent() }
+        }
+    }
 
     private var tracking: NSTrackingArea?
     private var hoverIntentWorkItem: DispatchWorkItem?
@@ -384,9 +407,9 @@ final class SensorView: NSView {
     }
 
     private func registerDropTypes() {
-        // 保留静态检查要求的基础类型，同时接受 Safari/Photos 等 File Promise。
+        // 保留静态检查要求的基础类型，同时接受 Safari/Photos Promise、浏览器图片与 RTF 文本。
         registerForDraggedTypes([.fileURL, .URL, .string])
-        registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.promisePasteboardTypes)
+        registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.extraPasteboardTypes)
     }
 
     private enum IndicatorStyle {
@@ -456,6 +479,7 @@ final class SensorView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         onMouseEnter?()
+        guard !suppressesHoverIntent else { return }
         scheduleHoverIntent()
     }
 
@@ -465,12 +489,13 @@ final class SensorView: NSView {
     }
 
     private func scheduleHoverIntent() {
+        guard !suppressesHoverIntent else { return }
         cancelHoverIntent()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.hoverIntentWorkItem = nil
-            // 即使取消与执行恰好撞在临界点，也在真正展开前再次验证鼠标仍位于 hover 区域。
-            guard self.mouseIsInsideHoverActivationRect else { return }
+            guard !self.suppressesHoverIntent,
+                  self.mouseIsInsideHoverActivationRect else { return }
             self.onHoverIntent?()
         }
         hoverIntentWorkItem = work
@@ -510,7 +535,8 @@ final class SensorView: NSView {
         cancelHoverIntent()
         let promisedHandler = onPromisedFiles
         return DropPayloadResolver.shared.performDrop(
-            from: sender.draggingPasteboard,
+            from: sender,
+            in: self,
             onPromiseStarted: { [weak self] in
                 guard let self else { return }
                 self.resolvingPromise = true
