@@ -51,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sensors?.handleDrop(payload: payload) ?? false
         }
         dragCoordinator.promisedFilesHandler = promisedFilesHandler
+        dragCoordinator.onExternalDragActivityChange = { [weak sensors] active in
+            sensors?.setExternalDragSessionActive(active)
+        }
 
         // Shelf 可见性 → 各屏 Sensor 指示点 + Drag Assist 目标协调（事件驱动，无轮询）。
         shelf.onVisibilityChange = { [weak self] visible, displayID in
