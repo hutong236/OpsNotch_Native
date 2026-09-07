@@ -27,6 +27,21 @@ final class DropPayloadResolver {
         return types.contains { readable.contains($0.rawValue) }
     }
 
+    /// 上一次进程异常终止时可能留下未清理的 Promise 临时目录。
+    /// Promise 成功入柜后总是复制到 Shelf 管理目录，staging 从不作为 ShelfItem 的长期路径，
+    /// 因此新进程启动且尚无活跃 promise session 时可安全清理整个旧根目录。
+    func cleanupStaleStaging(rootURL: URL) {
+        guard activePromiseQueues.isEmpty else { return }
+        let stagingRoot = stagingRootURL(rootURL: rootURL)
+        guard fileManager.fileExists(atPath: stagingRoot.path) else { return }
+        do {
+            try fileManager.removeItem(at: stagingRoot)
+            dropLog.info("file promise stale staging cleaned")
+        } catch {
+            dropLog.error("file promise stale staging cleanup failed")
+        }
+    }
+
     /// 必须从 NSDraggingDestination.performDragOperation 内调用。
     /// - Immediate payload: 同步调用 handleImmediate 并返回其结果。
     /// - File Promise: 在当前调用栈立即 receivePromisedFiles，异步完成后回主线程调用 handlePromised。
@@ -105,8 +120,11 @@ final class DropPayloadResolver {
     }
 
     private func stagingRootURL() -> URL {
-        ShelfStoreService.defaultRootURL()
-            .appendingPathComponent("drop-staging", isDirectory: true)
+        stagingRootURL(rootURL: ShelfStoreService.defaultRootURL())
+    }
+
+    private func stagingRootURL(rootURL: URL) -> URL {
+        rootURL.appendingPathComponent("drop-staging", isDirectory: true)
     }
 }
 
