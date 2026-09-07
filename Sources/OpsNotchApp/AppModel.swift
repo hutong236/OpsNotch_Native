@@ -359,7 +359,10 @@ final class AppModel: ObservableObject {
     }
 
     func togglePin(_ item: ShelfItem) {
-        do { apply(try store.setPinned(id: item.id, pinned: !item.pinned)) }
+        // 行视图中的 ShelfItem 是值类型快照。重复剪贴板捕获会刷新同一 ID 的条目并触发重排，
+        // 因此 toggle 必须以 AppModel 当前 items 为事实来源，不能使用点击闭包里可能已过期的 pinned 值。
+        guard let current = items.first(where: { $0.id == item.id }) else { return }
+        do { apply(try store.setPinned(id: current.id, pinned: !current.pinned)) }
         catch { showToast(error.localizedDescription) }
     }
 
