@@ -75,7 +75,7 @@ final class DropPayloadResolver {
         }
     }
 
-    /// 必须从 NSDraggingDestination.performDragOperation 内调用。
+    /// 首选入口：必须从 NSDraggingDestination.performDragOperation 内调用。
     /// `NSDraggingInfo.enumerateDraggingItems` 是 Apple 推荐的 item-based File Promise 读取路径；
     /// 同时保留 pasteboard.readObjects 兼容 non-item based promise source。
     func performDrop(
@@ -90,7 +90,42 @@ final class DropPayloadResolver {
         if !promised.isEmpty {
             return beginReceiving(promised, onPromiseStarted: onPromiseStarted, completion: handlePromised)
         }
+        return performNonItemDrop(
+            from: pasteboard,
+            onPromiseStarted: onPromiseStarted,
+            handleImmediate: handleImmediate,
+            handlePromised: handlePromised
+        )
+    }
 
+    /// 兼容旧 ShelfDropContainerView 的 pasteboard 入口。
+    /// Nearby/Sensor 使用上面的 item-based 入口；这里仍优先 promise，再处理 file/image/text。
+    func performDrop(
+        from pasteboard: NSPasteboard,
+        onPromiseStarted: () -> Void,
+        handleImmediate: (NativeDropPayload) -> Bool,
+        handlePromised: @escaping ([URL]) -> Void
+    ) -> Bool {
+        if let promised = pasteboard.readObjects(
+            forClasses: [NSFilePromiseReceiver.self],
+            options: nil
+        ) as? [NSFilePromiseReceiver], !promised.isEmpty {
+            return beginReceiving(promised, onPromiseStarted: onPromiseStarted, completion: handlePromised)
+        }
+        return performNonItemDrop(
+            from: pasteboard,
+            onPromiseStarted: onPromiseStarted,
+            handleImmediate: handleImmediate,
+            handlePromised: handlePromised
+        )
+    }
+
+    private func performNonItemDrop(
+        from pasteboard: NSPasteboard,
+        onPromiseStarted: () -> Void,
+        handleImmediate: (NativeDropPayload) -> Bool,
+        handlePromised: ([URL]) -> Void
+    ) -> Bool {
         // Finder/Mail 等真正文件 URL 必须优先于浏览器缩略图数据。
         if let filePayload = readFilePayload(from: pasteboard) {
             return handleImmediate(filePayload)
