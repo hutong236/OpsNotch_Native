@@ -10,24 +10,24 @@
 - [x] 1.6 新增 AppKit `NearbyDropView`，注册与 Sensor 一致的基础拖放类型并实现 `NSDraggingDestination`。
 - [x] 1.7 Overlay 初始位置基于 `NSEvent.mouseLocation`，按当前 `NSScreen.visibleFrame` clamp，并实现边缘自动翻转。
 - [x] 1.8 拖拽跨显示器时迁移唯一 Overlay；禁止多屏重复出现活动 target。
-- [x] 1.9 通过现有 `ShelfWindowController.onVisibilityChange` 将 Sensor/Shelf 接管状态接入 coordinator；顶部 Sensor 出现时 nearby overlay 自动让位，保持 `SensorManager` 原拖放链路不变。
-- [ ] 1.10 进一步将 `ShelfWindowController` 的 drop/success/hide 调度完全收敛到统一 drag state；Phase 1 当前采用可见性事件协调，避免侵入既有 Shelf 生命周期。
+- [x] 1.9 通过现有 `ShelfWindowController.onVisibilityChange` 将 Sensor/Shelf 接管状态接入 coordinator；顶部 Sensor 出现时 nearby overlay 自动让位。
+- [ ] 1.10 进一步将 `ShelfWindowController` 的 drop/success/hide 调度完全收敛到统一 drag state；当前采用可见性事件协调，避免侵入既有 Shelf 生命周期。
 - [ ] 1.11 拖拽取消、mouseUp、跨屏已回到 idle；显示器热拔插/系统异常终止仍需真机验收后确认。
-- [x] 1.12 保证 Drag Assist 失败/关闭时现有顶部 Sensor 行为完全可用；Phase 1 未修改 Sensor 原接收实现。
+- [x] 1.12 保证 Drag Assist 失败/关闭时现有顶部 Sensor 行为完全可用；Phase 2 仅扩展其 payload resolver，不移除原基础拖放能力。
 - [x] 1.13 Nearby Drop Zone 复用现有中英文 `dropTitle` / `dropHint` 文案，不新增重复字符串。
-- [ ] 1.14 当前日志仅记录 drag assist display 与 payload 类型/数量且不记录正文；session/state 完整结构化日志后续补齐。
+- [ ] 1.14 当前日志仅记录 drag assist display、payload 类型/数量与 promise 成败计数且不记录正文；session/state 完整结构化日志后续补齐。
 
 ## Phase 2 — P0/P1 File Promise 与 Payload Resolver
 
-- [ ] 2.1 新增 `DropPayloadResolver.swift`，Sensor 与 Overlay 统一调用。
-- [ ] 2.2 保留静态检查要求的 `registerForDraggedTypes([.fileURL, .URL, .string])`，并追加 `NSFilePromiseReceiver.readableDraggedTypes`。
-- [ ] 2.3 解析优先级固定为 File Promise → fileURL → http/https URL → string。
-- [ ] 2.4 将当前同步 `NativeDropPayload.read` 拆为轻量可接收判定与真正 drop resolution。
-- [ ] 2.5 创建 session-scoped staging 目录接收 promises。
-- [ ] 2.6 使用 `NSFilePromiseReceiver.receivePromisedFiles` 异步接收并汇总完成结果。
-- [ ] 2.7 Promise 全成功：一次性 ingest；部分成功：只 ingest 成功项；全部失败：不创建 ShelfItem。
-- [ ] 2.8 Promise session 完成/失败/取消后清理不再需要的 staging 资源。
-- [ ] 2.9 大文件 promise 期间显示 `resolvingPromise` 反馈，禁止 UI 卡在 Drop 状态。
+- [x] 2.1 新增 `DropPayloadResolver.swift`；Nearby Drop Zone、顶部 Sensor、展开 Shelf 三个接收点均统一调用。
+- [x] 2.2 保留静态检查要求的 `registerForDraggedTypes([.fileURL, .URL, .string])`，并追加 `NSFilePromiseReceiver.readableDraggedTypes`。
+- [x] 2.3 解析优先级固定为 File Promise → fileURL → http/https URL → string。
+- [ ] 2.4 Resolver 已统一负责类型判定、Promise 优先级与异步 resolution，但 `NativeDropPayload.read` 仍保留为 immediate payload decoder；后续再进一步拆分职责。
+- [x] 2.5 创建 session-scoped `drop-staging/<UUID>` 目录接收 promises。
+- [x] 2.6 使用 `NSFilePromiseReceiver.receivePromisedFiles` + 独立 `OperationQueue` 异步接收并在全部 reader 工作完成后汇总。
+- [x] 2.7 Promise 完成后按成功 URL 批量交给统一 ingest；部分成功只入柜成功项；全部失败不创建 ShelfItem。
+- [ ] 2.8 正常 promise 完成/失败路径已在 ingest 后清理 session staging；应用崩溃、异常终止及极端取消后的遗留 staging 仍需补启动清理/真机验证。
+- [ ] 2.9 Nearby Drop Zone 已提供 `resolvingPromise` spinner，Sensor/Shelf 有接收反馈；超大文件最终复制仍需真机性能验证，暂不标记完成。
 - [ ] 2.10 Safari/Chrome/Photos/File Promise 与 Finder file URL 做真机回归。
 
 ## Phase 3 — P1 Native Drag-out Semantics
@@ -49,10 +49,10 @@
 
 ## 自动化验证
 
-- [x] A1 `swift test`（PR #48 CI run 81 通过）
-- [x] A2 `swift build`（PR #48 CI run 81 Debug build 通过）
-- [x] A3 `python3 scripts/static_checks.py`（PR #48 CI run 81 Architecture checks 通过）
-- [x] A4 Phase 1 未新增 Core/Settings 持久化字段，无 migration 变更需要验证。
+- [x] A1 `swift test`（PR #49 CI run 88 通过）
+- [x] A2 `swift build`（PR #49 CI run 88 Debug build 通过）
+- [x] A3 `python3 scripts/static_checks.py`（PR #49 CI run 88 Architecture checks 通过）
+- [x] A4 Phase 1/2 未新增 Core/Settings 持久化字段，无 migration 变更需要验证。
 - [ ] A5 为可抽离的 drag state transition/payload type priority 添加单元测试。
 
 ## 真机验收
@@ -64,7 +64,7 @@
 - [ ] M5 Safari/Chrome：URL、选中文字、网页图片。
 - [ ] M6 Photos：单图、多图、大图 File Promise。
 - [ ] M7 拖拽开始后取消/未 Drop，UI 自动消失且 Shelf 不新增数据。
-- [ ] M8 Drop 到 Sensor 与 Drop 到 nearby Overlay 都只入柜一次。
+- [ ] M8 Drop 到 Sensor、nearby Overlay 与展开 Shelf 都只入柜一次。
 - [ ] M9 Spaces/full-screen App 下可见且不抢焦点。
 - [ ] M10 Reduce Motion 打开时无明显位移动画问题。
 - [ ] M11 默认升级/首次运行不主动弹 Accessibility/Input Monitoring 权限。
