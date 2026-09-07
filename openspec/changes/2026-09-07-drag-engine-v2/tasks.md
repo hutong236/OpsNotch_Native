@@ -32,11 +32,11 @@
 
 ## Phase 3 — P1 Native Drag-out Semantics
 
-- [ ] 3.1 审核 `NativeDragSourceView` 当前固定 `.copy` 行为，改为允许 AppKit 协商安全的 copy/move operation。
-- [ ] 3.2 实现 `draggingSession(_:endedAt:operation:)`，只在最终 operation 成功时触发 Shelf 后处理。
-- [ ] 3.3 普通临时条目支持“成功拖出后移除”；取消/失败绝不移除。
-- [ ] 3.4 pinned/locked 条目成功拖出后继续保留。
-- [ ] 3.5 增加最近移除项 Recall/Undo 队列，至少支持恢复最后一次 drag-out 移除。
+- [x] 3.1 审核并替换 `NativeDragSourceView` 固定 `.copy`：path-backed 文件/目录/应用保持安全 copy-only，纯文本/URL/action 允许 AppKit 协商 copy/move。
+- [x] 3.2 实现 `draggingSession(_:endedAt:operation:)`，只以 AppKit 最终 operation 触发 Shelf 后处理；内部 drop-back 禁止接收。
+- [x] 3.3 普通临时条目支持“成功拖出后移除”；取消/失败绝不移除。
+- [ ] 3.4 pinned 与 Working Set 条目成功拖出后已保留；项目当前没有独立 `locked` 持久化字段，因此 locked 语义尚未实现。
+- [x] 3.5 增加单步 Recall/Undo：`⌘Z` 恢复最近一次 drag-out 移除；`storageMode=.copy` 受管目录进入 recall stash，可随条目一起恢复；启动时可恢复崩溃中间态并清理真正陈旧 stash。
 - [ ] 3.6 回归 Issue #46：重复复制后 pin/unpin 状态必须正确。
 - [ ] 3.7 验证 Option/Command 修饰键与 Finder 目标下的最终 operation，不自行伪造文件移动。
 
@@ -49,10 +49,10 @@
 
 ## 自动化验证
 
-- [x] A1 `swift test`（PR #49 CI run 88 通过）
-- [x] A2 `swift build`（PR #49 CI run 88 Debug build 通过）
-- [x] A3 `python3 scripts/static_checks.py`（PR #49 CI run 88 Architecture checks 通过）
-- [x] A4 Phase 1/2 未新增 Core/Settings 持久化字段，无 migration 变更需要验证。
+- [x] A1 `swift test`（PR #50 CI run 90 通过）。
+- [x] A2 `swift build`（PR #50 CI run 90 Debug build 通过）。
+- [x] A3 `python3 scripts/static_checks.py`（PR #50 CI run 90 Architecture checks 通过）。
+- [x] A4 Phase 1–3 未新增 Core/Settings 持久化字段；Phase 3 Recall 为 App 会话级临时状态，无 migration 变更需要验证。
 - [ ] A5 为可抽离的 drag state transition/payload type priority 添加单元测试。
 
 ## 真机验收
@@ -69,3 +69,7 @@
 - [ ] M10 Reduce Motion 打开时无明显位移动画问题。
 - [ ] M11 默认升级/首次运行不主动弹 Accessibility/Input Monitoring 权限。
 - [ ] M12 `./script/build_and_run.sh --logs` 检查日志不包含文件完整路径、URL 正文、文字正文。
+- [ ] M13 Finder 成功拖出普通条目后 Shelf 移除；拖拽取消/失败不移除；Pinned/Working Set 条目保持。
+- [ ] M14 `storageMode=.copy` 文件成功拖出后按 `⌘Z`，受管文件与 ShelfItem 均恢复且可继续打开/Quick Look。
+- [ ] M15 Finder 下验证 Option/Command 修饰键和最终 operation；path-backed 条目不得导致原文件被 Ops Notch 主动移动。
+- [ ] M16 模拟 drag-out consume 中断后重启，仍被持久化 Shelf 引用的受管文件从 recall stash 自动恢复，不发生数据丢失。
