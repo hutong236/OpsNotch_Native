@@ -34,12 +34,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
 
-        // Drag Engine V2 Phase 1：外部有效拖拽时主动在鼠标附近提供零权限 Drop Zone。
+        // Promise 与普通 drop 一样通过 SensorManager 汇聚存储语义；Promise 始终复制入受管目录。
+        let promisedFilesHandler: ([URL]) -> Bool = { [weak sensors] urls in
+            sensors?.handlePromisedDrop(urls: urls) ?? false
+        }
+        shelf.promisedFilesHandler = promisedFilesHandler
+
+        // Drag Engine V2：外部有效拖拽时主动在鼠标附近提供零权限 Drop Zone。
         dragOverlay = DragDropOverlayController()
         dragCoordinator = DragSessionCoordinator(model: model, shelf: shelf, overlay: dragOverlay)
         dragCoordinator.dropHandler = { [weak sensors] payload in
             sensors?.handleDrop(payload: payload) ?? false
         }
+        dragCoordinator.promisedFilesHandler = promisedFilesHandler
 
         // Shelf 可见性 → 各屏 Sensor 指示点 + Drag Assist 目标协调（事件驱动，无轮询）。
         shelf.onVisibilityChange = { [weak self] visible, displayID in

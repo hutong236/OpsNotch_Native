@@ -26,6 +26,8 @@ final class ShelfWindowController: NSObject {
     private(set) var presentation: Presentation = .expanded
     /// 抽屉窗口拖放入柜处理器,由 AppDelegate 注入(复用 SensorManager 的入柜逻辑)。
     var dropHandler: ((NativeDropPayload) -> Bool)?
+    /// File Promise 完成后的入柜处理器。Promise 文件必须复制进 Shelf 管理目录，不能长期引用 staging。
+    var promisedFilesHandler: (([URL]) -> Bool)?
     /// Shelf 可见性变化回调(可见?, 所在屏 displayID):供 Sensor 驱动入口指示点,事件驱动、无轮询。
     var onVisibilityChange: ((Bool, CGDirectDisplayID?) -> Void)?
     /// Shelf 当前展示所在屏的 displayID;隐藏时为 nil。
@@ -57,6 +59,8 @@ final class ShelfWindowController: NSObject {
         // contentView 用拖放容器包住 SwiftUI 内容:拖到已展开面板/Drop 提示条上松手也入柜,
         // 落点不再只限刘海 Sensor(NSHostingView 自身不处理拖放,事件上溯到容器)。
         dropContainer.onDropPayload = { [weak self] payload in self?.acceptDrop(payload) ?? false }
+        dropContainer.onPromiseStarted = { [weak self] in self?.promiseReceiveStarted() }
+        dropContainer.onPromisedFiles = { [weak self] urls in self?.acceptPromisedFiles(urls) }
         dropContainer.addSubview(hostingView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -221,17 +225,34 @@ final class ShelfWindowController: NSObject {
     /// 抽屉窗口上的落放入柜:成功后显示同款 ✓ 反馈并延时收起。
     private func acceptDrop(_ payload: NativeDropPayload) -> Bool {
         let accepted = dropHandler?(payload) ?? false
-        if accepted {
-            let screen = currentScreen ?? screenUnderMouse()
-            show(.peek, on: screen)
-            if model.settings.shelfKeepOpen {
-                // 常驻模式：成功反馈展示后重新展开并保持,不调度隐藏。
-                scheduleExpanded(on: screen, delay: 0.85)
-            } else {
-                scheduleHide(delay: 0.85)
-            }
-        }
+        if accepted { showAcceptedDropFeedback() }
         return accepted
+    }
+
+    private func promiseReceiveStarted() {
+        cancelHide()
+        model.showToast(model.language == .zhCN ? "正在接收文件…" : "Receiving file…")
+    }
+
+    private func acceptPromisedFiles(_ urls: [URL]) {
+        let accepted = !urls.isEmpty && (promisedFilesHandler?(urls) ?? false)
+        if accepted {
+            showAcceptedDropFeedback()
+        } else {
+            model.showToast(model.language == .zhCN ? "文件接收失败" : "Could not receive promised file")
+            if !model.settings.shelfKeepOpen { scheduleHide(delay: 0.5) }
+        }
+    }
+
+    private func showAcceptedDropFeedback() {
+        let screen = currentScreen ?? screenUnderMouse()
+        show(.peek, on: screen)
+        if model.settings.shelfKeepOpen {
+            // 常驻模式：成功反馈展示后重新展开并保持,不调度隐藏。
+            scheduleExpanded(on: screen, delay: 0.85)
+        } else {
+            scheduleHide(delay: 0.85)
+        }
     }
 
     private func screenUnderMouse() -> NSScreen {
@@ -388,35 +409,49 @@ final class ShelfPanel: NSPanel {
 }
 
 /// 抽屉窗口的拖放接收容器:SwiftUI 内容(NSHostingView)不处理拖放,
-/// 拖放事件上溯到本容器统一入柜,与 SensorView 共用 NativeDropPayload 管线。
+/// 拖放事件上溯到本容器统一入柜,与 SensorView 共用 DropPayloadResolver 管线。
 final class ShelfDropContainerView: NSView {
     var onDropPayload: ((NativeDropPayload) -> Bool)?
+    var onPromiseStarted: (() -> Void)?
+    var onPromisedFiles: (([URL]) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerDropTypes()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        registerDropTypes()
+    }
+
+    private func registerDropTypes() {
+        // 保留静态检查要求的基础类型，同时接受 Safari/Photos 等 File Promise。
         registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.promisePasteboardTypes)
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
+        DropPayloadResolver.canRead(sender.draggingPasteboard) ? .copy : []
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
+        DropPayloadResolver.canRead(sender.draggingPasteboard) ? .copy : []
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let payload = NativeDropPayload.read(from: sender.draggingPasteboard) else {
-            dropLog.error("shelf drop: no readable payload")
-            return false
-        }
-        dropLog.info("shelf drop \(payload.logSummary, privacy: .public)")
-        return onDropPayload?(payload) ?? false
+        DropPayloadResolver.shared.performDrop(
+            from: sender.draggingPasteboard,
+            onPromiseStarted: { [weak self] in self?.onPromiseStarted?() },
+            handleImmediate: { [weak self] payload in
+                guard let self else { return false }
+                dropLog.info("shelf drop \(payload.logSummary, privacy: .public)")
+                return self.onDropPayload?(payload) ?? false
+            },
+            handlePromised: { [weak self] urls in
+                self?.onPromisedFiles?(urls)
+            }
+        )
     }
 }
 #endif

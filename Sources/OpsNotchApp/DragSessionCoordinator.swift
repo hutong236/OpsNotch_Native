@@ -9,6 +9,7 @@ final class DragSessionCoordinator {
         case trackingExternalDrag(changeCount: Int, displayID: CGDirectDisplayID)
         case targetVisible(displayID: CGDirectDisplayID)
         case receiving(displayID: CGDirectDisplayID)
+        case resolvingPromise(displayID: CGDirectDisplayID)
         case succeeded(displayID: CGDirectDisplayID)
         case cancelling
     }
@@ -27,6 +28,7 @@ final class DragSessionCoordinator {
 
     private(set) var state: State = .idle
     var dropHandler: ((NativeDropPayload) -> Bool)?
+    var promisedFilesHandler: (([URL]) -> Bool)?
 
     init(model: AppModel, shelf: ShelfWindowController, overlay: DragDropOverlayController) {
         self.model = model
@@ -42,6 +44,12 @@ final class DragSessionCoordinator {
         }
         overlay.onDrop = { [weak self] payload in
             self?.performOverlayDrop(payload) ?? false
+        }
+        overlay.onPromiseStarted = { [weak self] in
+            self?.overlayPromiseDidStart()
+        }
+        overlay.onPromisedFiles = { [weak self] urls in
+            self?.performPromisedOverlayDrop(urls)
         }
     }
 
@@ -112,7 +120,7 @@ final class DragSessionCoordinator {
         if !sessionRecognized {
             guard changeCount != baselineChangeCount else { return }
             baselineChangeCount = changeCount
-            guard hasSupportedType(dragPasteboard),
+            guard DropPayloadResolver.canRead(dragPasteboard),
                   let screen = screenUnderMouse(),
                   let id = displayID(of: screen) else { return }
 
@@ -150,14 +158,20 @@ final class DragSessionCoordinator {
     }
 
     private func handleExternalMouseUp() {
-        if case .succeeded = state {
+        switch state {
+        case .succeeded:
             sessionRecognized = false
             currentScreen = nil
             baselineChangeCount = dragPasteboard.changeCount
             overlay.hide()
-            return
+        case .resolvingPromise:
+            // File Promise 已在 performDragOperation 内启动。鼠标松开是正常 drop 结束，
+            // 不能把仍在后台写入的 promise 当作取消。
+            sessionRecognized = false
+            baselineChangeCount = dragPasteboard.changeCount
+        default:
+            cancelSession()
         }
-        cancelSession()
     }
 
     private func overlayDidEnter() {
@@ -173,6 +187,34 @@ final class DragSessionCoordinator {
               let screen = currentScreen ?? screenUnderMouse(),
               let id = displayID(of: screen) else { return }
         state = .targetVisible(displayID: id)
+    }
+
+    private func overlayPromiseDidStart() {
+        guard let screen = currentScreen ?? screenUnderMouse(), let id = displayID(of: screen) else { return }
+        currentScreen = screen
+        sessionRecognized = false
+        baselineChangeCount = dragPasteboard.changeCount
+        state = .resolvingPromise(displayID: id)
+    }
+
+    private func performPromisedOverlayDrop(_ urls: [URL]) {
+        let accepted = !urls.isEmpty && (promisedFilesHandler?(urls) ?? false)
+        guard accepted else {
+            overlay.hide()
+            model.showToast(model.language == .zhCN ? "文件接收失败" : "Could not receive promised file")
+            currentScreen = nil
+            state = .idle
+            return
+        }
+
+        let screen = currentScreen ?? screenUnderMouse() ?? NSScreen.main ?? NSScreen.screens.first
+        if let screen {
+            finishAcceptedDrop(on: screen)
+        } else {
+            overlay.hide()
+            currentScreen = nil
+            state = .idle
+        }
     }
 
     private func performOverlayDrop(_ payload: NativeDropPayload) -> Bool {
@@ -237,11 +279,6 @@ final class DragSessionCoordinator {
         baselineChangeCount = dragPasteboard.changeCount
         currentScreen = nil
         state = .idle
-    }
-
-    private func hasSupportedType(_ pasteboard: NSPasteboard) -> Bool {
-        guard let types = pasteboard.types else { return false }
-        return types.contains(.fileURL) || types.contains(.URL) || types.contains(.string)
     }
 
     private func screenUnderMouse() -> NSScreen? {

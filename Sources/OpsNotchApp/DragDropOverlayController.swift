@@ -8,6 +8,8 @@ final class DragDropOverlayController {
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
     var onDrop: ((NativeDropPayload) -> Bool)?
+    var onPromiseStarted: (() -> Void)?
+    var onPromisedFiles: (([URL]) -> Void)?
 
     private let panel: NearbyDropPanel
     private let dropView: NearbyDropView
@@ -37,6 +39,8 @@ final class DragDropOverlayController {
         dropView.onDragEntered = { [weak self] in self?.onDragEntered?() }
         dropView.onDragExited = { [weak self] in self?.onDragExited?() }
         dropView.onDrop = { [weak self] payload in self?.onDrop?(payload) ?? false }
+        dropView.onPromiseStarted = { [weak self] in self?.onPromiseStarted?() }
+        dropView.onPromisedFiles = { [weak self] urls in self?.onPromisedFiles?(urls) }
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -68,12 +72,13 @@ final class DragDropOverlayController {
     func hide() {
         guard panel.isVisible else {
             visibleDisplayID = nil
+            dropView.resetVisualState()
             return
         }
         panel.orderOut(nil)
         panel.alphaValue = 1
         visibleDisplayID = nil
-        dropView.setReady(false)
+        dropView.resetVisualState()
     }
 
     func setReady(_ ready: Bool) {
@@ -115,11 +120,16 @@ final class NearbyDropView: NSVisualEffectView {
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
     var onDrop: ((NativeDropPayload) -> Bool)?
+    var onPromiseStarted: (() -> Void)?
+    var onPromisedFiles: (([URL]) -> Void)?
 
     private let iconView = NSImageView()
+    private let progressIndicator = NSProgressIndicator()
     private let titleLabel = NSTextField(labelWithString: "")
     private let hintLabel = NSTextField(labelWithString: "")
     private var ready = false
+    private var resolvingPromise = false
+    private var language: AppLanguage = .zhCN
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -136,6 +146,11 @@ final class NearbyDropView: NSVisualEffectView {
         iconView.contentTintColor = .labelColor
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
+        progressIndicator.style = .spinning
+        progressIndicator.controlSize = .small
+        progressIndicator.isDisplayedWhenStopped = false
+        progressIndicator.translatesAutoresizingMaskIntoConstraints = false
+
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -146,6 +161,7 @@ final class NearbyDropView: NSVisualEffectView {
         hintLabel.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(iconView)
+        addSubview(progressIndicator)
         addSubview(titleLabel)
         addSubview(hintLabel)
         NSLayoutConstraint.activate([
@@ -153,6 +169,9 @@ final class NearbyDropView: NSVisualEffectView {
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 30),
             iconView.heightAnchor.constraint(equalToConstant: 30),
+
+            progressIndicator.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
+            progressIndicator.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
 
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -14),
@@ -163,21 +182,40 @@ final class NearbyDropView: NSVisualEffectView {
             hintLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
         ])
 
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerDropTypes()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        registerDropTypes()
+    }
+
+    private func registerDropTypes() {
+        // 保留项目静态检查要求的基础注册调用，再扩展 File Promise types。
         registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.promisePasteboardTypes)
     }
 
     func apply(language: AppLanguage) {
+        self.language = language
+        resolvingPromise = false
+        progressIndicator.stopAnimation(nil)
+        iconView.isHidden = false
         titleLabel.stringValue = L10n.text("dropTitle", language)
         hintLabel.stringValue = L10n.text("dropHint", language)
     }
 
+    func resetVisualState() {
+        resolvingPromise = false
+        progressIndicator.stopAnimation(nil)
+        iconView.isHidden = false
+        ready = false
+        layer?.borderWidth = 0
+        alphaValue = 1
+    }
+
     func setReady(_ newValue: Bool) {
-        guard ready != newValue else { return }
+        guard !resolvingPromise, ready != newValue else { return }
         ready = newValue
         layer?.borderWidth = newValue ? 2 : 1
         layer?.borderColor = (newValue ? NSColor.controlAccentColor : NSColor.separatorColor)
@@ -191,31 +229,53 @@ final class NearbyDropView: NSVisualEffectView {
         }
     }
 
+    private func showPromiseResolving() {
+        resolvingPromise = true
+        ready = false
+        iconView.isHidden = true
+        progressIndicator.startAnimation(nil)
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.55).cgColor
+        titleLabel.stringValue = language == .zhCN ? "正在接收文件…" : "Receiving file…"
+        hintLabel.stringValue = language == .zhCN ? "文件准备完成后会自动放入抽屉" : "It will be added to the Shelf when ready."
+    }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard NativeDropPayload.canRead(sender.draggingPasteboard) else { return [] }
+        guard DropPayloadResolver.canRead(sender.draggingPasteboard) else { return [] }
         setReady(true)
         onDragEntered?()
         return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        NativeDropPayload.canRead(sender.draggingPasteboard) ? .copy : []
+        DropPayloadResolver.canRead(sender.draggingPasteboard) ? .copy : []
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
+        guard !resolvingPromise else { return }
         setReady(false)
         onDragExited?()
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let payload = NativeDropPayload.read(from: sender.draggingPasteboard) else {
-            dropLog.error("nearby overlay drop: no readable payload")
-            return false
-        }
-        dropLog.info("nearby overlay drop \(payload.logSummary, privacy: .public)")
-        let accepted = onDrop?(payload) ?? false
-        setReady(false)
-        return accepted
+        DropPayloadResolver.shared.performDrop(
+            from: sender.draggingPasteboard,
+            onPromiseStarted: { [weak self] in
+                guard let self else { return }
+                self.showPromiseResolving()
+                self.onPromiseStarted?()
+            },
+            handleImmediate: { [weak self] payload in
+                guard let self else { return false }
+                dropLog.info("nearby overlay drop \(payload.logSummary, privacy: .public)")
+                let accepted = self.onDrop?(payload) ?? false
+                self.setReady(false)
+                return accepted
+            },
+            handlePromised: { [weak self] urls in
+                self?.onPromisedFiles?(urls)
+            }
+        )
     }
 }
 #endif
