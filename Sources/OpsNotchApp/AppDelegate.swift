@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shelf: ShelfWindowController!
     private var focusReturn: FocusReturnCoordinator!
     private var sensors: SensorManager!
+    private var dragOverlay: DragDropOverlayController!
+    private var dragCoordinator: DragSessionCoordinator!
     private var settingsWindow: SettingsWindowController!
     private var statusBar: StatusBarController!
     private var hotkey: HotkeyService!
@@ -31,10 +33,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         desktopCommands.shelf = shelf
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
-        // Shelf 可见性 → 各屏 Sensor 指示点(事件驱动,无轮询)。
-        shelf.onVisibilityChange = { [weak sensors] visible, displayID in
-            sensors?.setShelfVisible(visible, onDisplayID: displayID)
+
+        // Drag Engine V2 Phase 1：外部有效拖拽时主动在鼠标附近提供零权限 Drop Zone。
+        dragOverlay = DragDropOverlayController()
+        dragCoordinator = DragSessionCoordinator(model: model, shelf: shelf, overlay: dragOverlay)
+        dragCoordinator.dropHandler = { [weak sensors] payload in
+            sensors?.handleDrop(payload: payload) ?? false
         }
+
+        // Shelf 可见性 → 各屏 Sensor 指示点 + Drag Assist 目标协调（事件驱动，无轮询）。
+        shelf.onVisibilityChange = { [weak self] visible, displayID in
+            guard let self else { return }
+            self.sensors.setShelfVisible(visible, onDisplayID: displayID)
+            self.dragCoordinator.shelfVisibilityDidChange(visible, onDisplayID: displayID)
+        }
+        dragCoordinator.start()
+
         // 剪贴板轮询间隔随面板可见性自适应:可见 100ms,不可见 400ms。
         clipboard.panelVisibleProvider = { [weak shelf] in shelf?.isPanelVisible ?? false }
 
@@ -79,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        dragCoordinator?.stop()
         clipboard?.stopMonitoring()
     }
 
