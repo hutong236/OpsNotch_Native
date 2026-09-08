@@ -31,6 +31,12 @@ final class MenuBarManager: NSObject, ObservableObject {
     private let separatorLength: CGFloat = 12
     private let animationDuration: TimeInterval = 0.16
 
+    private enum PositionValidation {
+        case valid
+        case invalid
+        case unavailable
+    }
+
     init(model: AppModel) {
         self.model = model
         super.init()
@@ -186,7 +192,7 @@ final class MenuBarManager: NSObject, ObservableObject {
 
         let hidden = NSMenuItem(
             title: L10n.text(state == .collapsed ? "menuBarShowHidden" : "menuBarCollapse", model.language),
-            action: #selector(toggleHiddenFromMenu),
+            action: state == .collapsed ? #selector(showHiddenFromMenu) : #selector(collapseFromMenu),
             keyEquivalent: ""
         )
         hidden.target = self
@@ -288,16 +294,20 @@ final class MenuBarManager: NSObject, ObservableObject {
         model.updateSettings { $0.menuBarManagementEnabled.toggle() }
     }
 
-    @objc private func toggleHiddenFromMenu() {
-        toggleHiddenArea()
+    @objc private func collapseFromMenu() {
+        DispatchQueue.main.async { [weak self] in self?.collapse() }
+    }
+
+    @objc private func showHiddenFromMenu() {
+        DispatchQueue.main.async { [weak self] in self?.showHiddenArea() }
     }
 
     @objc private func showAllFromMenu() {
-        showAll()
+        DispatchQueue.main.async { [weak self] in self?.showAll() }
     }
 
     @objc private func showPanelFromMenu() {
-        showHiddenItemsPanel()
+        DispatchQueue.main.async { [weak self] in self?.showHiddenItemsPanel() }
     }
 
     private func setState(
@@ -310,12 +320,20 @@ final class MenuBarManager: NSObject, ObservableObject {
             return
         }
 
-        if newState != .allExpanded && !positionsAreValid() {
-            applyState(.allExpanded, animated: false, scheduleAutoHide: false)
-            if userInitiated {
-                model.showToast(L10n.text("menuBarOrderInvalid", model.language))
+        if newState != .allExpanded {
+            switch positionValidation() {
+            case .invalid:
+                applyState(.allExpanded, animated: false, scheduleAutoHide: false)
+                if userInitiated {
+                    presentOrderInvalidAlert()
+                }
+                return
+            case .valid, .unavailable:
+                // The backing window can be transiently unavailable while an NSMenu
+                // is closing or the menu bar is relaying out. Do not turn that into
+                // a silent no-op; apply the requested state and let layout settle.
+                break
             }
-            return
         }
 
         applyState(newState, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: true)
@@ -412,14 +430,34 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     private func positionsAreValid() -> Bool {
-        guard let controlX = itemX(controlItem), let hiddenX = itemX(hiddenSeparatorItem) else { return false }
+        positionValidation() == .valid
+    }
+
+    private func positionValidation() -> PositionValidation {
+        guard let controlX = itemX(controlItem),
+              let hiddenX = itemX(hiddenSeparatorItem) else {
+            return .unavailable
+        }
+
         let rtl = NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft
         let hiddenValid = rtl ? controlX <= hiddenX : controlX >= hiddenX
-        guard hiddenValid else { return false }
+        guard hiddenValid else { return .invalid }
 
-        guard model.settings.menuBarAlwaysHiddenEnabled else { return true }
-        guard let alwaysX = itemX(alwaysHiddenSeparatorItem) else { return false }
-        return rtl ? hiddenX <= alwaysX : hiddenX >= alwaysX
+        guard model.settings.menuBarAlwaysHiddenEnabled else { return .valid }
+        guard let alwaysX = itemX(alwaysHiddenSeparatorItem) else { return .unavailable }
+        return (rtl ? hiddenX <= alwaysX : hiddenX >= alwaysX) ? .valid : .invalid
+    }
+
+    private func presentOrderInvalidAlert() {
+        NSSound.beep()
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = L10n.text("menuBarOrderInvalid", model.language)
+        alert.informativeText = model.language == .zhCN
+            ? "按住 ⌘ 拖动菜单栏项目，确保顺序为：持续隐藏 ¦ → 普通隐藏 │ → Ops Notch。调整后再次选择“收起”。"
+            : "Hold ⌘ and drag menu bar items so the order is: Always Hidden ¦ → Hidden │ → Ops Notch, then choose Collapse again."
+        alert.addButton(withTitle: model.language == .zhCN ? "知道了" : "OK")
+        alert.runModal()
     }
 
     private func itemX(_ item: NSStatusItem) -> CGFloat? {
