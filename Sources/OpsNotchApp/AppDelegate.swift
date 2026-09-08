@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dragCoordinator: DragSessionCoordinator!
     private var settingsWindow: SettingsWindowController!
     private var statusBar: StatusBarController!
+    private var menuBarManager: MenuBarManager!
     private var hotkey: HotkeyService!
     private var finderReveal: FinderRevealController!
     private var unifiedFinder: UnifiedFinderCoordinator!
@@ -24,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let store = ShelfStoreService(rootURL: ShelfStoreService.defaultRootURL())
         model = AppModel(store: store)
+        menuBarManager = MenuBarManager(model: model)
         DragOutLifecycleCoordinator.shared.bind(model: model)
         model.cleanupStaleDragOutRecallStorage()
         DropPayloadResolver.shared.cleanupStaleStaging(rootURL: store.rootURL)
@@ -88,9 +90,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = SettingsWindowController(
             model: model,
             finderReveal: finderReveal,
-            inputMethodManager: inputMethodManager
+            inputMethodManager: inputMethodManager,
+            menuBarManager: menuBarManager
         )
-        statusBar = StatusBarController(model: model, shelf: shelf, sensors: sensors, settings: settingsWindow)
+        statusBar = StatusBarController(
+            model: model,
+            shelf: shelf,
+            sensors: sensors,
+            settings: settingsWindow,
+            menuBarManager: menuBarManager
+        )
+        menuBarManager.start()
 
         model.settingsDidChange = { [weak self] in
             guard let self else { return }
@@ -98,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.statusBar.rebuildMenu()
             self.hotkey.apply(self.model.settings.hotkey)
             self.finderReveal.syncFromSettings()
+            self.menuBarManager.syncFromSettings()
         }
 
         // 常驻展开（图钉）模式：启动后按显示策略直接展开。
@@ -107,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        menuBarManager?.stop()
         dragCoordinator?.stop()
         clipboard?.stopMonitoring()
     }

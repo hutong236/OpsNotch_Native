@@ -7,28 +7,37 @@ final class StatusBarController: NSObject {
     private let shelf: ShelfWindowController
     private let sensors: SensorManager
     private let settings: SettingsWindowController
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private let menuBarManager: MenuBarManager
 
-    init(model: AppModel, shelf: ShelfWindowController, sensors: SensorManager, settings: SettingsWindowController) {
+    init(
+        model: AppModel,
+        shelf: ShelfWindowController,
+        sensors: SensorManager,
+        settings: SettingsWindowController,
+        menuBarManager: MenuBarManager
+    ) {
         self.model = model
         self.shelf = shelf
         self.sensors = sensors
         self.settings = settings
+        self.menuBarManager = menuBarManager
         super.init()
-        if let button = statusItem.button {
-            let image = NSImage(systemSymbolName: "tray.full", accessibilityDescription: "Ops Notch")
-            image?.isTemplate = true
-            button.image = image
-            button.toolTip = "Ops Notch"
+        menuBarManager.setStatusMenuProvider { [weak self] in
+            self?.makeMenu() ?? NSMenu()
         }
-        rebuildMenu()
     }
 
-    func rebuildMenu() {
+    /// 菜单改为点击时动态构建，语言和菜单栏状态无需缓存；保留入口兼容既有 settingsDidChange 调用。
+    func rebuildMenu() {}
+
+    private func makeMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(item(L10n.text("openShelf", model.language), #selector(openShelf)))
         menu.addItem(item(L10n.text("newText", model.language), #selector(newText)))
         menu.addItem(.separator())
+
+        menuBarManager.appendManagementItems(to: menu)
+
         let versionItem = NSMenuItem(title: "Ops Notch v\(AppVersionService.current)", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
@@ -36,7 +45,7 @@ final class StatusBarController: NSObject {
         menu.addItem(item(L10n.text("settings", model.language) + "…", #selector(openSettings)))
         menu.addItem(.separator())
         menu.addItem(item(L10n.text("quit", model.language), #selector(quit)))
-        statusItem.menu = menu
+        return menu
     }
 
     private func item(_ title: String, _ action: Selector) -> NSMenuItem {

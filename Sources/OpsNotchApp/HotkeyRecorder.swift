@@ -67,8 +67,14 @@ private final class HotkeyCaptureView: NSView {
     }
 }
 
-struct HotkeyRecorderView: View {
-    @ObservedObject var model: AppModel
+/// 可复用的 Carbon 热键录制控件。Quick Shelf 与菜单栏管理共享同一交互，不共享注册 ID。
+struct HotkeyRecorderControl: View {
+    let language: AppLanguage
+    let shortcut: HotkeyShortcut?
+    let conflict: Bool
+    var onPrepare: () -> Void = {}
+    let onSet: (HotkeyShortcut?) -> Void
+
     @State private var recording = false
     @State private var invalidHint = false
 
@@ -76,11 +82,11 @@ struct HotkeyRecorderView: View {
         VStack(alignment: .trailing, spacing: 4) {
             recorder
             if invalidHint {
-                Text(L10n.text("hotkeyInvalid", model.language))
+                Text(L10n.text("hotkeyInvalid", language))
                     .font(.system(size: 10)).foregroundStyle(.red)
             }
-            if model.hotkeyConflict {
-                Text(L10n.text("hotkeyConflict", model.language))
+            if conflict {
+                Text(L10n.text("hotkeyConflict", language))
                     .font(.system(size: 10)).foregroundStyle(.red)
             }
         }
@@ -89,15 +95,15 @@ struct HotkeyRecorderView: View {
     @ViewBuilder private var recorder: some View {
         if recording {
             HotkeyCaptureField(
-                onShortcut: { shortcut in
+                onShortcut: { value in
                     invalidHint = false
                     recording = false
-                    model.setHotkey(shortcut)
+                    onSet(value)
                 },
                 onClear: {
                     invalidHint = false
                     recording = false
-                    model.setHotkey(nil)
+                    onSet(nil)
                 },
                 onInvalid: { invalidHint = true },
                 onCancel: { recording = false; invalidHint = false }
@@ -109,20 +115,20 @@ struct HotkeyRecorderView: View {
                     .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1)
             )
             .overlay(
-                Text(L10n.text("hotkeyRecording", model.language))
+                Text(L10n.text("hotkeyRecording", language))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .allowsHitTesting(false)
             )
         } else {
             Button {
                 invalidHint = false
-                model.hotkeyConflict = false
+                onPrepare()
                 recording = true
             } label: {
                 HStack(spacing: 6) {
                     Text(currentText).font(.system(size: 11))
-                    if model.settings.hotkey != nil {
-                        Text(L10n.text("hotkeyRerecordHint", model.language))
+                    if shortcut != nil {
+                        Text(L10n.text("hotkeyRerecordHint", language))
                             .font(.system(size: 9)).foregroundStyle(.secondary)
                     }
                 }
@@ -136,8 +142,22 @@ struct HotkeyRecorderView: View {
     }
 
     private var currentText: String {
-        if let hotkey = model.settings.hotkey { return HotkeyDisplay.text(hotkey) }
-        return L10n.text("hotkeyNone", model.language)
+        if let shortcut { return HotkeyDisplay.text(shortcut) }
+        return L10n.text("hotkeyNone", language)
+    }
+}
+
+struct HotkeyRecorderView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HotkeyRecorderControl(
+            language: model.language,
+            shortcut: model.settings.hotkey,
+            conflict: model.hotkeyConflict,
+            onPrepare: { model.hotkeyConflict = false },
+            onSet: { model.setHotkey($0) }
+        )
     }
 }
 
