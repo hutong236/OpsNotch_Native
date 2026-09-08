@@ -1,0 +1,106 @@
+name: Ops notch-aware menu overflow v2.7.2
+
+on:
+  push:
+    branches:
+      - feat/notch-aware-menu-overflow-v2.7.2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/notch-aware-menu-overflow-v2.7.2
+          fetch-depth: 0
+
+      - name: Patch notch-aware overflow behavior
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manager = Path('Sources/OpsNotchApp/MenuBarManager.swift')
+          s = manager.read_text()
+          if 'private struct NotchSafeArea' not in s:
+              replacements = [
+                  (
+                      '''    private var rawPanelItems: [String: MenuBarAXScanner.Item] = [:]\n    private var panelController: MenuBarHiddenItemsPanelController!\n''',
+                      '''    private var rawPanelItems: [String: MenuBarAXScanner.Item] = [:]\n    private var panelController: MenuBarHiddenItemsPanelController!\n    private var panelOpenedForNotchOverflow = false\n    private var notchProbeGeneration = 0\n'''
+                  ),
+                  (
+                      '''    private enum PositionValidation {\n        case valid\n        case invalid\n        case unavailable\n    }\n''',
+                      '''    private enum PositionValidation {\n        case valid\n        case invalid\n        case unavailable\n    }\n\n    private struct NotchSafeArea {\n        let minX: CGFloat\n        let maxX: CGFloat\n        let rtl: Bool\n    }\n'''
+                  ),
+                  (
+                      '''    func showHiddenArea() {\n        setState(.hiddenExpanded, userInitiated: true)\n    }\n\n    func showAll() {\n        setState(.allExpanded, userInitiated: true)\n    }\n''',
+                      '''    func showHiddenArea() {\n        showNotchAware(.hiddenExpanded)\n    }\n\n    func showAll() {\n        showNotchAware(.allExpanded)\n    }\n\n    private func showNotchAware(_ target: MenuBarVisibilityState) {\n        guard model.settings.menuBarManagementEnabled,\n              model.settings.menuBarPanelEnabled,\n              let safeArea = notchSafeArea() else {\n            setState(target, userInitiated: true)\n            return\n        }\n\n        switch positionValidation() {\n        case .invalid, .unavailable:\n            setState(target, userInitiated: true)\n            return\n        case .valid:\n            break\n        }\n\n        // Notch overflow protection is an advanced path. Basic menu-bar hiding remains\n        // permission-free; only users who enabled the hidden-items panel enter this path.\n        guard MenuBarAXScanner.ensureTrusted(prompt: false) else {\n            panelOpenedForNotchOverflow = true\n            applyState(.collapsed, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: false)\n            panelController.language = model.language\n            panelController.setPermissionRequired()\n            if let button = controlItem.button {\n                panelController.show(relativeTo: button)\n            }\n            return\n        }\n\n        notchProbeGeneration += 1\n        let generation = notchProbeGeneration\n        applyState(target, animated: false, scheduleAutoHide: false)\n        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak self] in\n            guard let self, generation == self.notchProbeGeneration else { return }\n            self.finishNotchProbe(target: target, safeArea: safeArea)\n        }\n    }\n\n    private func finishNotchProbe(target: MenuBarVisibilityState, safeArea: NotchSafeArea) {\n        guard let hiddenX = itemX(hiddenSeparatorItem) else {\n            applyState(target, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: true)\n            persistVisibleState(target)\n            return\n        }\n\n        let alwaysX = model.settings.menuBarAlwaysHiddenEnabled ? itemX(alwaysHiddenSeparatorItem) : nil\n        let scanned = MenuBarAXScanner.scan(\n            hiddenSeparatorX: hiddenX,\n            alwaysHiddenSeparatorX: alwaysX,\n            rtl: safeArea.rtl\n        )\n        let relevant = scanned.filter { item in\n            target == .allExpanded || item.section == .hidden\n        }\n        let safetyMargin: CGFloat = 6\n        let overflow = relevant.contains { item in\n            if safeArea.rtl {\n                return item.frame.maxX > safeArea.maxX - safetyMargin\n            }\n            return item.frame.minX < safeArea.minX + safetyMargin\n        }\n\n        guard overflow else {\n            panelOpenedForNotchOverflow = false\n            applyState(target, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: true)\n            persistVisibleState(target)\n            return\n        }\n\n        rawPanelItems = Dictionary(uniqueKeysWithValues: relevant.map { ($0.id, $0) })\n        panelController.language = model.language\n        panelController.setItems(relevant.map(\\.presentation))\n        panelOpenedForNotchOverflow = true\n        applyState(.collapsed, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: false)\n        if let button = controlItem.button {\n            panelController.show(relativeTo: button)\n        }\n    }\n\n    private func persistVisibleState(_ target: MenuBarVisibilityState) {\n        guard model.settings.menuBarLastState != target else { return }\n        model.updateSettings(notifyServices: false) { $0.menuBarLastState = target }\n    }\n\n    private func notchSafeArea() -> NotchSafeArea? {\n        guard let screen = controlItem.button?.window?.screen ?? NSScreen.main else { return nil }\n        let rtl = NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft\n        if rtl {\n            guard let area = screen.auxiliaryTopLeftArea, area.width > 0 else { return nil }\n            return NotchSafeArea(minX: area.minX, maxX: area.maxX, rtl: true)\n        }\n        guard let area = screen.auxiliaryTopRightArea, area.width > 0 else { return nil }\n        return NotchSafeArea(minX: area.minX, maxX: area.maxX, rtl: false)\n    }\n'''
+                  ),
+                  (
+                      '''    func showHiddenItemsPanel() {\n        guard model.settings.menuBarManagementEnabled, model.settings.menuBarPanelEnabled,\n              let button = controlItem.button else { return }\n        panelController.show(relativeTo: button)\n        refreshPanelItems(promptForPermission: false)\n    }\n''',
+                      '''    func showHiddenItemsPanel() {\n        guard model.settings.menuBarManagementEnabled, model.settings.menuBarPanelEnabled,\n              let button = controlItem.button else { return }\n        panelOpenedForNotchOverflow = false\n        panelController.show(relativeTo: button)\n        refreshPanelItems(promptForPermission: false)\n    }\n'''
+                  ),
+                  (
+                      '''    private func activatePanelItem(id: String) {\n        guard let item = rawPanelItems[id] else { return }\n        panelController.close()\n        applyState(.allExpanded, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: true)\n        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in\n            guard let self else { return }\n            if !MenuBarAXScanner.activate(item) {\n                self.model.showToast(L10n.text("menuBarPanelActivateFailed", self.model.language))\n            }\n        }\n    }\n''',
+                      '''    private func activatePanelItem(id: String) {\n        guard let item = rawPanelItems[id] else { return }\n        let restoreCollapsed = panelOpenedForNotchOverflow\n        panelOpenedForNotchOverflow = false\n        panelController.close()\n        applyState(.allExpanded, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: !restoreCollapsed)\n        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in\n            guard let self else { return }\n            if !MenuBarAXScanner.activate(item) {\n                self.model.showToast(L10n.text("menuBarPanelActivateFailed", self.model.language))\n            }\n            if restoreCollapsed {\n                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in\n                    guard let self else { return }\n                    self.applyState(.collapsed, animated: self.model.settings.menuBarAnimationEnabled, scheduleAutoHide: false)\n                }\n            }\n        }\n    }\n'''
+                  )
+              ]
+              for old, new in replacements:
+                  if old not in s:
+                      raise SystemExit('MenuBarManager expected block not found; refusing partial patch')
+                  s = s.replace(old, new, 1)
+              manager.write_text(s)
+
+          panel = Path('Sources/OpsNotchApp/MenuBarHiddenItemsPanelController.swift')
+          p = panel.read_text()
+          if 'let frame: CGRect' not in p:
+              old = '''        let title: String\n        let owner: String\n        let section: MenuBarHiddenSection\n'''
+              new = '''        let title: String\n        let owner: String\n        let section: MenuBarHiddenSection\n        let frame: CGRect\n'''
+              if old not in p:
+                  raise SystemExit('Panel Item block not found')
+              p = p.replace(old, new, 1)
+              old = '''                result.append(Item(id: key, element: element, title: title, owner: owner, section: section))\n'''
+              new = '''                result.append(Item(id: key, element: element, title: title, owner: owner, section: section, frame: frame))\n'''
+              if old not in p:
+                  raise SystemExit('Panel item append block not found')
+              p = p.replace(old, new, 1)
+              panel.write_text(p)
+
+          loc = Path('Sources/OpsNotchApp/Localization.swift')
+          l = loc.read_text()
+          if 'menuBarNotchOverflowHint' not in l:
+              zh_old = '''            "menuBarPanelPermissionHint": "基础隐藏功能无需权限；只有打开隐藏图标面板时才会请求辅助功能权限。",\n'''
+              zh_new = zh_old + '''            "menuBarNotchOverflowHint": "刘海屏启用隐藏图标面板后，图标展开若进入刘海安全区，会自动改用面板显示；该保护需要辅助功能权限。",\n'''
+              en_old = '''            "menuBarPanelPermissionHint": "Basic hiding needs no permission; Accessibility is requested only when opening the Hidden Items Panel.",\n'''
+              en_new = en_old + '''            "menuBarNotchOverflowHint": "On notched displays, enabling the Hidden Items Panel automatically redirects overflowing menu items into the panel; this protection needs Accessibility permission.",\n'''
+              if zh_old not in l or en_old not in l:
+                  raise SystemExit('Localization anchor not found')
+              l = l.replace(zh_old, zh_new, 1).replace(en_old, en_new, 1)
+              loc.write_text(l)
+
+          view = Path('Sources/OpsNotchApp/MenuBarSettingsView.swift')
+          v = view.read_text()
+          if 'menuBarNotchOverflowHint' not in v:
+              old = '''            Text(L10n.text("menuBarPanelPermissionHint", model.language))\n                .font(.system(size: 10)).foregroundStyle(.secondary)\n                .frame(maxWidth: .infinity, alignment: .leading)\n'''
+              new = old + '''            Text(L10n.text("menuBarNotchOverflowHint", model.language))\n                .font(.system(size: 10)).foregroundStyle(.secondary)\n                .frame(maxWidth: .infinity, alignment: .leading)\n'''
+              if old not in v:
+                  raise SystemExit('Settings view anchor not found')
+              v = v.replace(old, new, 1)
+              view.write_text(v)
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Sources/OpsNotchApp/MenuBarManager.swift Sources/OpsNotchApp/MenuBarHiddenItemsPanelController.swift Sources/OpsNotchApp/MenuBarSettingsView.swift Sources/OpsNotchApp/Localization.swift
+          git commit -m "feat: add notch-aware menu bar overflow protection"
+          git push origin HEAD:feat/notch-aware-menu-overflow-v2.7.2
