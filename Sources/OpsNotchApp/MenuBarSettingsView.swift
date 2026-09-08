@@ -57,6 +57,9 @@ struct MenuBarSettingsView: View {
             Text(L10n.text("menuBarPanelPermissionHint", model.language))
                 .font(.system(size: 10)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            Text(L10n.text("menuBarNotchOverflowHint", model.language))
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Divider()
             settingRow(L10n.text("menuBarHotkey", model.language)) {

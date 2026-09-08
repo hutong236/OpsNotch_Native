@@ -172,6 +172,7 @@ enum MenuBarAXScanner {
         let title: String
         let owner: String
         let section: MenuBarHiddenSection
+        let frame: CGRect
 
         var presentation: MenuBarHiddenItemPresentation {
             .init(id: id, title: title, owner: owner, section: section)
@@ -228,7 +229,7 @@ enum MenuBarAXScanner {
                 let key = "\(pid):\(Int(frame.minX.rounded())):\(Int(frame.width.rounded()))"
                 guard seen.insert(key).inserted else { continue }
                 let title = bestTitle(for: element, fallback: owner)
-                result.append(Item(id: key, element: element, title: title, owner: owner, section: section))
+                result.append(Item(id: key, element: element, title: title, owner: owner, section: section, frame: frame))
             }
         }
 

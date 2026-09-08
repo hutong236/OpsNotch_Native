@@ -27,6 +27,8 @@ final class MenuBarManager: NSObject, ObservableObject {
     private var lastAppliedHotkey: HotkeyShortcut?
     private var rawPanelItems: [String: MenuBarAXScanner.Item] = [:]
     private var panelController: MenuBarHiddenItemsPanelController!
+    private var panelOpenedForNotchOverflow = false
+    private var notchProbeGeneration = 0
 
     private let separatorLength: CGFloat = 12
     private let animationDuration: TimeInterval = 0.16
@@ -35,6 +37,12 @@ final class MenuBarManager: NSObject, ObservableObject {
         case valid
         case invalid
         case unavailable
+    }
+
+    private struct NotchSafeArea {
+        let minX: CGFloat
+        let maxX: CGFloat
+        let rtl: Bool
     }
 
     init(model: AppModel) {
@@ -145,11 +153,106 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     func showHiddenArea() {
-        setState(.hiddenExpanded, userInitiated: true)
+        showNotchAware(.hiddenExpanded)
     }
 
     func showAll() {
-        setState(.allExpanded, userInitiated: true)
+        showNotchAware(.allExpanded)
+    }
+
+    private func showNotchAware(_ target: MenuBarVisibilityState) {
+        guard model.settings.menuBarManagementEnabled,
+              model.settings.menuBarPanelEnabled,
+              let safeArea = notchSafeArea() else {
+            setState(target, userInitiated: true)
+            return
+        }
+
+        switch positionValidation() {
+        case .invalid, .unavailable:
+            setState(target, userInitiated: true)
+            return
+        case .valid:
+            break
+        }
+
+        // Notch overflow protection is an advanced path. Basic menu-bar hiding remains
+        // permission-free; only users who enabled the hidden-items panel enter this path.
+        guard MenuBarAXScanner.ensureTrusted(prompt: false) else {
+            panelOpenedForNotchOverflow = true
+            applyState(.collapsed, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: false)
+            panelController.language = model.language
+            panelController.setPermissionRequired()
+            if let button = controlItem.button {
+                panelController.show(relativeTo: button)
+            }
+            return
+        }
+
+        notchProbeGeneration += 1
+        let generation = notchProbeGeneration
+        applyState(target, animated: false, scheduleAutoHide: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak self] in
+            guard let self, generation == self.notchProbeGeneration else { return }
+            self.finishNotchProbe(target: target, safeArea: safeArea)
+        }
+    }
+
+    private func finishNotchProbe(target: MenuBarVisibilityState, safeArea: NotchSafeArea) {
+        guard let hiddenX = itemX(hiddenSeparatorItem) else {
+            applyState(target, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: true)
+            persistVisibleState(target)
+            return
+        }
+
+        let alwaysX = model.settings.menuBarAlwaysHiddenEnabled ? itemX(alwaysHiddenSeparatorItem) : nil
+        let scanned = MenuBarAXScanner.scan(
+            hiddenSeparatorX: hiddenX,
+            alwaysHiddenSeparatorX: alwaysX,
+            rtl: safeArea.rtl
+        )
+        let relevant = scanned.filter { item in
+            target == .allExpanded || item.section == .hidden
+        }
+        let safetyMargin: CGFloat = 6
+        let overflow = relevant.contains { item in
+            if safeArea.rtl {
+                return item.frame.maxX > safeArea.maxX - safetyMargin
+            }
+            return item.frame.minX < safeArea.minX + safetyMargin
+        }
+
+        guard overflow else {
+            panelOpenedForNotchOverflow = false
+            applyState(target, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: true)
+            persistVisibleState(target)
+            return
+        }
+
+        rawPanelItems = Dictionary(uniqueKeysWithValues: relevant.map { ($0.id, $0) })
+        panelController.language = model.language
+        panelController.setItems(relevant.map(\.presentation))
+        panelOpenedForNotchOverflow = true
+        applyState(.collapsed, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: false)
+        if let button = controlItem.button {
+            panelController.show(relativeTo: button)
+        }
+    }
+
+    private func persistVisibleState(_ target: MenuBarVisibilityState) {
+        guard model.settings.menuBarLastState != target else { return }
+        model.updateSettings(notifyServices: false) { $0.menuBarLastState = target }
+    }
+
+    private func notchSafeArea() -> NotchSafeArea? {
+        guard let screen = controlItem.button?.window?.screen ?? NSScreen.main else { return nil }
+        let rtl = NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft
+        if rtl {
+            guard let area = screen.auxiliaryTopLeftArea, area.width > 0 else { return nil }
+            return NotchSafeArea(minX: area.minX, maxX: area.maxX, rtl: true)
+        }
+        guard let area = screen.auxiliaryTopRightArea, area.width > 0 else { return nil }
+        return NotchSafeArea(minX: area.minX, maxX: area.maxX, rtl: false)
     }
 
     func toggleHiddenArea() {
@@ -163,6 +266,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     func showHiddenItemsPanel() {
         guard model.settings.menuBarManagementEnabled, model.settings.menuBarPanelEnabled,
               let button = controlItem.button else { return }
+        panelOpenedForNotchOverflow = false
         panelController.show(relativeTo: button)
         refreshPanelItems(promptForPermission: false)
     }
@@ -533,12 +637,20 @@ final class MenuBarManager: NSObject, ObservableObject {
 
     private func activatePanelItem(id: String) {
         guard let item = rawPanelItems[id] else { return }
+        let restoreCollapsed = panelOpenedForNotchOverflow
+        panelOpenedForNotchOverflow = false
         panelController.close()
-        applyState(.allExpanded, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: true)
+        applyState(.allExpanded, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: !restoreCollapsed)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
             guard let self else { return }
             if !MenuBarAXScanner.activate(item) {
                 self.model.showToast(L10n.text("menuBarPanelActivateFailed", self.model.language))
+            }
+            if restoreCollapsed {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
+                    guard let self else { return }
+                    self.applyState(.collapsed, animated: self.model.settings.menuBarAnimationEnabled, scheduleAutoHide: false)
+                }
             }
         }
     }
