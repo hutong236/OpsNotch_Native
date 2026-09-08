@@ -1,0 +1,42 @@
+name: Ops temporary tag v2.7.2
+
+on:
+  push:
+    branches:
+      - feat/notch-aware-menu-overflow-v2.7.2
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create v2.7.2 from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          MAIN_SHA="$(git rev-parse origin/main)"
+          EXPECTED_SHA="0f5afe0d11ada08945595a07526d2d0c393b2e4d"
+          if [[ "$MAIN_SHA" != "$EXPECTED_SHA" ]]; then
+            echo "main moved: expected=$EXPECTED_SHA actual=$MAIN_SHA"
+            exit 1
+          fi
+          if git rev-parse -q --verify refs/tags/v2.7.2 >/dev/null; then
+            echo "v2.7.2 already exists"
+          else
+            git tag v2.7.2 "$MAIN_SHA"
+            git push origin refs/tags/v2.7.2
+          fi
+          sleep 2
+          gh workflow run package-app.yml --ref v2.7.2
