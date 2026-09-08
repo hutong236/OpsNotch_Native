@@ -1,0 +1,75 @@
+name: Ops fix menu collapse v2.7.1
+
+on:
+  push:
+    branches:
+      - fix/menu-bar-collapse-v2.7.1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/menu-bar-collapse-v2.7.1
+          fetch-depth: 0
+
+      - name: Patch menu bar collapse behavior
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('Sources/OpsNotchApp/MenuBarManager.swift')
+          s = p.read_text()
+
+          if 'private enum PositionValidation' in s:
+              print('Patch already applied')
+              raise SystemExit(0)
+
+          replacements = [
+              (
+                  '''    private let separatorLength: CGFloat = 12\n    private let animationDuration: TimeInterval = 0.16\n''',
+                  '''    private let separatorLength: CGFloat = 12\n    private let animationDuration: TimeInterval = 0.16\n\n    private enum PositionValidation {\n        case valid\n        case invalid\n        case unavailable\n    }\n'''
+              ),
+              (
+                  '''        let hidden = NSMenuItem(\n            title: L10n.text(state == .collapsed ? "menuBarShowHidden" : "menuBarCollapse", model.language),\n            action: #selector(toggleHiddenFromMenu),\n            keyEquivalent: ""\n        )\n''',
+                  '''        let hidden = NSMenuItem(\n            title: L10n.text(state == .collapsed ? "menuBarShowHidden" : "menuBarCollapse", model.language),\n            action: state == .collapsed ? #selector(showHiddenFromMenu) : #selector(collapseFromMenu),\n            keyEquivalent: ""\n        )\n'''
+              ),
+              (
+                  '''    @objc private func toggleHiddenFromMenu() {\n        toggleHiddenArea()\n    }\n\n    @objc private func showAllFromMenu() {\n        showAll()\n    }\n\n    @objc private func showPanelFromMenu() {\n        showHiddenItemsPanel()\n    }\n''',
+                  '''    @objc private func collapseFromMenu() {\n        DispatchQueue.main.async { [weak self] in self?.collapse() }\n    }\n\n    @objc private func showHiddenFromMenu() {\n        DispatchQueue.main.async { [weak self] in self?.showHiddenArea() }\n    }\n\n    @objc private func showAllFromMenu() {\n        DispatchQueue.main.async { [weak self] in self?.showAll() }\n    }\n\n    @objc private func showPanelFromMenu() {\n        DispatchQueue.main.async { [weak self] in self?.showHiddenItemsPanel() }\n    }\n'''
+              ),
+              (
+                  '''        if newState != .allExpanded && !positionsAreValid() {\n            applyState(.allExpanded, animated: false, scheduleAutoHide: false)\n            if userInitiated {\n                model.showToast(L10n.text("menuBarOrderInvalid", model.language))\n            }\n            return\n        }\n''',
+                  '''        if newState != .allExpanded {\n            switch positionValidation() {\n            case .invalid:\n                applyState(.allExpanded, animated: false, scheduleAutoHide: false)\n                if userInitiated {\n                    presentOrderInvalidAlert()\n                }\n                return\n            case .valid, .unavailable:\n                // The backing window can be transiently unavailable while an NSMenu\n                // is closing or the menu bar is relaying out. Do not turn that into\n                // a silent no-op; apply the requested state and let layout settle.\n                break\n            }\n        }\n'''
+              ),
+              (
+                  '''    private func positionsAreValid() -> Bool {\n        guard let controlX = itemX(controlItem), let hiddenX = itemX(hiddenSeparatorItem) else { return false }\n        let rtl = NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft\n        let hiddenValid = rtl ? controlX <= hiddenX : controlX >= hiddenX\n        guard hiddenValid else { return false }\n\n        guard model.settings.menuBarAlwaysHiddenEnabled else { return true }\n        guard let alwaysX = itemX(alwaysHiddenSeparatorItem) else { return false }\n        return rtl ? hiddenX <= alwaysX : hiddenX >= alwaysX\n    }\n''',
+                  '''    private func positionsAreValid() -> Bool {\n        positionValidation() == .valid\n    }\n\n    private func positionValidation() -> PositionValidation {\n        guard let controlX = itemX(controlItem),\n              let hiddenX = itemX(hiddenSeparatorItem) else {\n            return .unavailable\n        }\n\n        let rtl = NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft\n        let hiddenValid = rtl ? controlX <= hiddenX : controlX >= hiddenX\n        guard hiddenValid else { return .invalid }\n\n        guard model.settings.menuBarAlwaysHiddenEnabled else { return .valid }\n        guard let alwaysX = itemX(alwaysHiddenSeparatorItem) else { return .unavailable }\n        return (rtl ? hiddenX <= alwaysX : hiddenX >= alwaysX) ? .valid : .invalid\n    }\n\n    private func presentOrderInvalidAlert() {\n        NSSound.beep()\n        let alert = NSAlert()\n        alert.alertStyle = .informational\n        alert.messageText = L10n.text("menuBarOrderInvalid", model.language)\n        alert.informativeText = model.language == .zhCN\n            ? "按住 ⌘ 拖动菜单栏项目，确保顺序为：持续隐藏 ¦ → 普通隐藏 │ → Ops Notch。调整后再次选择“收起”。"\n            : "Hold ⌘ and drag menu bar items so the order is: Always Hidden ¦ → Hidden │ → Ops Notch, then choose Collapse again."\n        alert.addButton(withTitle: model.language == .zhCN ? "知道了" : "OK")\n        alert.runModal()\n    }\n'''
+              )
+          ]
+
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit('Expected source block not found; refusing partial patch')
+              s = s.replace(old, new, 1)
+
+          p.write_text(s)
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet -- Sources/OpsNotchApp/MenuBarManager.swift; then
+            echo "No source changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Sources/OpsNotchApp/MenuBarManager.swift
+          git commit -m "fix: make menu bar collapse responsive"
+          git push origin HEAD:fix/menu-bar-collapse-v2.7.1
