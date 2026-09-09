@@ -8,6 +8,7 @@ final class StatusBarController: NSObject {
     private let sensors: SensorManager
     private let settings: SettingsWindowController
     private let menuBarManager: MenuBarManager
+    private var statusMenu = NSMenu()
 
     init(
         model: AppModel,
@@ -22,13 +23,20 @@ final class StatusBarController: NSObject {
         self.settings = settings
         self.menuBarManager = menuBarManager
         super.init()
+
+        rebuildMenu()
         menuBarManager.setStatusMenuProvider { [weak self] in
-            self?.makeMenu() ?? NSMenu()
+            self?.statusMenu ?? NSMenu()
+        }
+        menuBarManager.setStatusMenuDidChange { [weak self] in
+            self?.rebuildMenu()
         }
     }
 
-    /// 菜单改为点击时动态构建，语言和菜单栏状态无需缓存；保留入口兼容既有 settingsDidChange 调用。
-    func rebuildMenu() {}
+    /// 菜单在设置或菜单栏状态变化时预构建，右键展示路径只负责 popUp，避免可感知等待。
+    func rebuildMenu() {
+        statusMenu = makeMenu()
+    }
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()

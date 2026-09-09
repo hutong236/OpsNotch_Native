@@ -10,6 +10,11 @@ enum MenuBarHiddenSection: String {
     case alwaysHidden
 }
 
+enum MenuBarPanelInteraction {
+    case primary
+    case secondary
+}
+
 struct MenuBarHiddenItemPresentation: Identifiable {
     let id: String
     let title: String
@@ -34,7 +39,7 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
 
     var onRefresh: (() -> Void)?
     var onRequestPermission: (() -> Void)?
-    var onActivate: ((String) -> Void)?
+    var onInteract: ((String, MenuBarPanelInteraction) -> Void)?
 
     private let popover = NSPopover()
 
@@ -130,30 +135,16 @@ private struct MenuBarHiddenItemsPanelView: View {
                     ScrollView {
                         LazyVStack(spacing: 6) {
                             ForEach(controller.items) { item in
-                                Button {
-                                    controller.onActivate?(item.id)
-                                } label: {
-                                    HStack(spacing: 9) {
-                                        Image(systemName: item.section == .alwaysHidden ? "eye.slash.fill" : "eye.slash")
-                                            .frame(width: 16)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                                            Text(item.owner).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-                                        }
-                                        Spacer()
-                                        Text(L10n.text(
-                                            item.section == .alwaysHidden ? "menuBarAlwaysHiddenSection" : "menuBarHiddenSection",
-                                            controller.language
-                                        ))
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(.secondary)
+                                MenuBarHiddenItemRow(
+                                    item: item,
+                                    language: controller.language,
+                                    onPrimary: {
+                                        controller.onInteract?(item.id, .primary)
+                                    },
+                                    onSecondary: {
+                                        controller.onInteract?(item.id, .secondary)
                                     }
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 7)
-                                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
+                                )
                             }
                         }
                     }
@@ -162,6 +153,79 @@ private struct MenuBarHiddenItemsPanelView: View {
         }
         .padding(14)
         .frame(width: 360, height: 340)
+    }
+}
+
+private struct MenuBarHiddenItemRow: View {
+    let item: MenuBarHiddenItemPresentation
+    let language: AppLanguage
+    let onPrimary: () -> Void
+    let onSecondary: () -> Void
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: item.section == .alwaysHidden ? "eye.slash.fill" : "eye.slash")
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                Text(item.owner).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Text(L10n.text(
+                item.section == .alwaysHidden ? "menuBarAlwaysHiddenSection" : "menuBarHiddenSection",
+                language
+            ))
+            .font(.system(size: 9))
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .overlay {
+            MenuBarHiddenItemMouseBridge(onPrimary: onPrimary, onSecondary: onSecondary)
+        }
+    }
+}
+
+/// SwiftUI 的 Button/点击手势无法可靠地区分菜单栏面板中的普通点击与右键。
+/// 用最小 AppKit bridge 保留原生鼠标语义：左键执行主操作，右键直接请求原项目菜单。
+private struct MenuBarHiddenItemMouseBridge: NSViewRepresentable {
+    let onPrimary: () -> Void
+    let onSecondary: () -> Void
+
+    func makeNSView(context: Context) -> MenuBarHiddenItemMouseView {
+        let view = MenuBarHiddenItemMouseView()
+        view.onPrimary = onPrimary
+        view.onSecondary = onSecondary
+        return view
+    }
+
+    func updateNSView(_ nsView: MenuBarHiddenItemMouseView, context: Context) {
+        nsView.onPrimary = onPrimary
+        nsView.onSecondary = onSecondary
+    }
+}
+
+private final class MenuBarHiddenItemMouseView: NSView {
+    var onPrimary: (() -> Void)?
+    var onSecondary: (() -> Void)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onPrimary?()
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        onSecondary?()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 }
 
@@ -240,7 +304,7 @@ enum MenuBarAXScanner {
         }
     }
 
-    static func activate(_ item: Item) -> Bool {
+    static func perform(_ interaction: MenuBarPanelInteraction, on item: Item) -> Bool {
         var rawActions: CFArray?
         let actions: [String]
         if AXUIElementCopyActionNames(item.element, &rawActions) == .success,
@@ -250,11 +314,20 @@ enum MenuBarAXScanner {
             actions = []
         }
 
-        if actions.contains(kAXShowMenuAction as String),
-           AXUIElementPerformAction(item.element, kAXShowMenuAction as CFString) == .success {
-            return true
+        let orderedActions: [String]
+        switch interaction {
+        case .primary:
+            orderedActions = [kAXPressAction as String, kAXShowMenuAction as String]
+        case .secondary:
+            orderedActions = [kAXShowMenuAction as String, kAXPressAction as String]
         }
-        return AXUIElementPerformAction(item.element, kAXPressAction as CFString) == .success
+
+        for action in orderedActions where actions.isEmpty || actions.contains(action) {
+            if AXUIElementPerformAction(item.element, action as CFString) == .success {
+                return true
+            }
+        }
+        return false
     }
 
     private static func menuItems(in element: AXUIElement, maxDepth: Int) -> [AXUIElement] {
