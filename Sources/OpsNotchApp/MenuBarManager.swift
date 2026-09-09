@@ -20,6 +20,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     private let hotkey: HotkeyService = CarbonHotkeyService(id: 2)
 
     private var statusMenuProvider: (() -> NSMenu)?
+    private var statusMenuDidChange: (() -> Void)?
     private var screenObserver: NSObjectProtocol?
     private var autoHideTimer: Timer?
     private var animationTimer: Timer?
@@ -29,9 +30,11 @@ final class MenuBarManager: NSObject, ObservableObject {
     private var panelController: MenuBarHiddenItemsPanelController!
     private var panelOpenedForNotchOverflow = false
     private var notchProbeGeneration = 0
+    private var lastPanelScanAt: Date?
 
     private let separatorLength: CGFloat = 12
     private let animationDuration: TimeInterval = 0.16
+    private let panelCacheLifetime: TimeInterval = 5
 
     private enum PositionValidation {
         case valid
@@ -52,7 +55,9 @@ final class MenuBarManager: NSObject, ObservableObject {
         panelController = MenuBarHiddenItemsPanelController(language: model.language)
         panelController.onRefresh = { [weak self] in self?.refreshPanelItems(promptForPermission: false) }
         panelController.onRequestPermission = { [weak self] in self?.refreshPanelItems(promptForPermission: true) }
-        panelController.onActivate = { [weak self] id in self?.activatePanelItem(id: id) }
+        panelController.onInteract = { [weak self] id, interaction in
+            self?.interactWithPanelItem(id: id, interaction: interaction)
+        }
     }
 
     func start() {
@@ -90,6 +95,10 @@ final class MenuBarManager: NSObject, ObservableObject {
 
     func setStatusMenuProvider(_ provider: @escaping () -> NSMenu) {
         statusMenuProvider = provider
+    }
+
+    func setStatusMenuDidChange(_ handler: @escaping () -> Void) {
+        statusMenuDidChange = handler
     }
 
     func syncFromSettings(initial: Bool = false) {
@@ -230,6 +239,7 @@ final class MenuBarManager: NSObject, ObservableObject {
         }
 
         rawPanelItems = Dictionary(uniqueKeysWithValues: relevant.map { ($0.id, $0) })
+        lastPanelScanAt = Date()
         panelController.language = model.language
         panelController.setItems(relevant.map(\.presentation))
         panelOpenedForNotchOverflow = true
@@ -268,6 +278,12 @@ final class MenuBarManager: NSObject, ObservableObject {
               let button = controlItem.button else { return }
         panelOpenedForNotchOverflow = false
         panelController.show(relativeTo: button)
+
+        if !rawPanelItems.isEmpty,
+           let lastPanelScanAt,
+           Date().timeIntervalSince(lastPanelScanAt) < panelCacheLifetime {
+            return
+        }
         refreshPanelItems(promptForPermission: false)
     }
 
@@ -378,7 +394,7 @@ final class MenuBarManager: NSObject, ObservableObject {
             showContextMenu(from: sender)
         } else if event.modifierFlags.contains(.option) {
             showAll()
-        } else if event.modifierFlags.contains(.control), model.settings.menuBarPanelEnabled {
+        } else if model.settings.menuBarPanelEnabled {
             showHiddenItemsPanel()
         } else {
             toggleHiddenArea()
@@ -453,6 +469,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     ) {
         autoHideTimer?.invalidate()
         autoHideTimer = nil
+        let stateChanged = state != newState
         state = newState
 
         let wide = collapsedLength()
@@ -471,6 +488,10 @@ final class MenuBarManager: NSObject, ObservableObject {
         }
         setSeparatorLengths(hidden: hiddenTarget, always: alwaysTarget, animated: animated)
         updateControlAppearance()
+
+        if stateChanged {
+            statusMenuDidChange?()
+        }
 
         if scheduleAutoHide, newState != .collapsed {
             scheduleAutoHideIfNeeded()
@@ -603,11 +624,13 @@ final class MenuBarManager: NSObject, ObservableObject {
         panelController.language = model.language
         guard MenuBarAXScanner.ensureTrusted(prompt: promptForPermission) else {
             rawPanelItems.removeAll()
+            lastPanelScanAt = nil
             panelController.setPermissionRequired()
             return
         }
         guard positionsAreValid() else {
             rawPanelItems.removeAll()
+            lastPanelScanAt = nil
             panelController.setUnavailable(L10n.text("menuBarOrderInvalid", model.language))
             return
         }
@@ -630,28 +653,17 @@ final class MenuBarManager: NSObject, ObservableObject {
                 rtl: NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft
             )
             self.rawPanelItems = Dictionary(uniqueKeysWithValues: scanned.map { ($0.id, $0) })
+            self.lastPanelScanAt = Date()
             self.panelController.setItems(scanned.map(\.presentation))
             self.applyState(previous, animated: false, scheduleAutoHide: true)
         }
     }
 
-    private func activatePanelItem(id: String) {
+    private func interactWithPanelItem(id: String, interaction: MenuBarPanelInteraction) {
         guard let item = rawPanelItems[id] else { return }
-        let restoreCollapsed = panelOpenedForNotchOverflow
         panelOpenedForNotchOverflow = false
-        panelController.close()
-        applyState(.allExpanded, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: !restoreCollapsed)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            guard let self else { return }
-            if !MenuBarAXScanner.activate(item) {
-                self.model.showToast(L10n.text("menuBarPanelActivateFailed", self.model.language))
-            }
-            if restoreCollapsed {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
-                    guard let self else { return }
-                    self.applyState(.collapsed, animated: self.model.settings.menuBarAnimationEnabled, scheduleAutoHide: false)
-                }
-            }
+        if !MenuBarAXScanner.perform(interaction, on: item) {
+            model.showToast(L10n.text("menuBarPanelActivateFailed", model.language))
         }
     }
 }
