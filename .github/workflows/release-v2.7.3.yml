@@ -1,0 +1,53 @@
+name: Publish v2.7.3 release
+
+on:
+  push:
+    branches:
+      - chore/release-v2.7.3
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v2.7.3
+          fetch-depth: 0
+
+      - name: Core tests
+        run: swift test
+
+      - name: Static checks
+        run: python3 scripts/static_checks.py
+
+      - name: Package app
+        run: APP_VERSION=2.7.3 scripts/build_app.sh
+
+      - name: Verify packaged version
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLIST="build/Ops Notch.app/Contents/Info.plist"
+          ACTUAL_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+          ACTUAL_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+          [[ "$ACTUAL_VERSION" == "2.7.3" ]]
+          [[ "$ACTUAL_BUILD" == "273" ]]
+          codesign --verify --deep --strict "build/Ops Notch.app"
+
+      - name: Zip app
+        run: ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" "OpsNotch-v2.7.3-macOS.zip"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v2.7.3 --yes 2>/dev/null || true
+          gh release create v2.7.3 \
+            --title "Ops Notch v2.7.3" \
+            --notes "Apple Silicon (arm64) 构建。下载 zip 解压后,首次打开请右键 App -> 打开(Ad-hoc 签名未公证)。" \
+            --generate-notes \
+            "OpsNotch-v2.7.3-macOS.zip"
