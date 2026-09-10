@@ -1,0 +1,71 @@
+name: Publish v2.7.6 release
+
+on:
+  push:
+    branches:
+      - chore/release-v2.7.6
+    paths:
+      - '.github/workflows/release-v2.7.6.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: chore/release-v2.7.6
+          fetch-depth: 0
+
+      - name: Create v2.7.6 tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin refs/tags/v2.7.6 >/dev/null 2>&1; then
+            echo "v2.7.6 already exists"
+          else
+            git tag -a v2.7.6 ab37a72ee70661aaf79578e679ffecb7dbe2c199 -m "Ops Notch v2.7.6"
+            git push origin refs/tags/v2.7.6
+          fi
+
+      - name: Checkout release source
+        run: git checkout v2.7.6
+
+      - name: Core tests
+        run: swift test
+
+      - name: Static checks
+        run: python3 scripts/static_checks.py
+
+      - name: Package app
+        run: APP_VERSION=2.7.6 scripts/build_app.sh
+
+      - name: Verify packaged version
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLIST="build/Ops Notch.app/Contents/Info.plist"
+          ACTUAL_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+          ACTUAL_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+          [[ "$ACTUAL_VERSION" == "2.7.6" ]]
+          [[ "$ACTUAL_BUILD" == "276" ]]
+          codesign --verify --deep --strict "build/Ops Notch.app"
+
+      - name: Zip app
+        run: ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" "OpsNotch-v2.7.6-macOS.zip"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v2.7.6 --yes 2>/dev/null || true
+          gh release create v2.7.6 \
+            --title "Ops Notch v2.7.6" \
+            --notes "Apple Silicon (arm64) 构建。修复系统菜单栏隐藏区的 ‹ / │ 展开入口在 collapsed/自动收起后消失的问题：改为单一可变宽 Host StatusItem，并将固定 16pt 的 ‹ / │ 子按钮锚定在 Ops Notch 一侧。Ops Notch 左键仍只打开隐藏图标面板。下载 zip 解压后，首次打开请右键 App -> 打开（Ad-hoc 签名未公证）。" \
+            --generate-notes \
+            "OpsNotch-v2.7.6-macOS.zip"
