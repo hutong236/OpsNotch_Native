@@ -276,11 +276,11 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     func toggleHiddenArea() {
-        if state == .collapsed {
-            showHiddenArea()
-        } else {
-            collapse()
-        }
+        // `‹ / │` is a pure real-menu-bar control. In particular, do not call showHiddenArea()
+        // here: that API is notch-aware and is allowed to redirect overflow into the proxy panel.
+        // The persistent toggle must never open or otherwise mutate the hidden-items panel.
+        let target: MenuBarVisibilityState = state == .collapsed ? .hiddenExpanded : .collapsed
+        setState(target, userInitiated: true)
     }
 
     func showHiddenItemsPanel() {
@@ -438,8 +438,8 @@ final class MenuBarManager: NSObject, ObservableObject {
         if !model.settings.menuBarManagementEnabled {
             showContextMenu(from: sender)
         } else if model.settings.menuBarPanelEnabled {
-            // Left-clicking the Ops Notch icon is now a pure panel action. It must never expand
-            // the underlying system menu-bar area as a side effect.
+            // Left-clicking the Ops Notch icon is a pure panel action. It must never expand
+            // or collapse the underlying system menu-bar area as a side effect.
             showHiddenItemsPanel()
         } else {
             showContextMenu(from: sender)
@@ -595,17 +595,17 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     private func updateControlAppearance() {
-        guard let button = controlItem.button else { return }
-        let symbol: String
-        if !model.settings.menuBarManagementEnabled {
-            symbol = "tray.full"
-        } else {
-            symbol = state == .collapsed ? "tray.full" : "tray.full.fill"
+        // Ops Notch is the hidden-items-panel entry and must not visually mirror real menu-bar
+        // expansion state. Keep its identity stable even while `‹ / │` changes between states.
+        if let button = controlItem.button {
+            let image = NSImage(systemSymbolName: "tray.full", accessibilityDescription: "Ops Notch")
+            image?.isTemplate = true
+            button.image = image
+            button.toolTip = model.settings.menuBarPanelEnabled
+                ? "Ops Notch · " + L10n.text("menuBarHiddenPanel", model.language)
+                : "Ops Notch"
         }
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Ops Notch")
-        image?.isTemplate = true
-        button.image = image
-        button.toolTip = L10n.text(stateKey, model.language)
+
         // The toggle is a fixed child view pinned to the host's visible edge. The host itself can
         // grow thousands of points toward the hidden side without moving this button away.
         hiddenToggleButton?.title = state == .collapsed ? "‹" : "│"
