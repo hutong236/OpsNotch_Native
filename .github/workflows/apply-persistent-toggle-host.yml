@@ -1,0 +1,39 @@
+name: Apply persistent toggle host refactor
+
+on:
+  push:
+    branches:
+      - fix/persistent-toggle-host
+    paths:
+      - '.github/workflows/apply-persistent-toggle-host.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-refactor:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/persistent-toggle-host
+          fetch-depth: 0
+
+      - name: Apply source changes
+        run: python3 scripts/apply_persistent_toggle_host.py
+
+      - name: Verify
+        run: |
+          swift test
+          swift build
+          python3 scripts/static_checks.py
+
+      - name: Commit source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Sources/OpsNotchApp/MenuBarManager.swift
+          git commit -m "fix: keep hidden menu bar toggle pinned in host"
+          git push origin HEAD:fix/persistent-toggle-host
