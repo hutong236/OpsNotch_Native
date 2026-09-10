@@ -1,0 +1,39 @@
+name: Apply progressive hidden panel scan fix
+
+on:
+  push:
+    branches:
+      - fix/hidden-panel-progressive-scan
+    paths:
+      - '.github/workflows/apply-hidden-panel-progressive-scan.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/hidden-panel-progressive-scan
+          fetch-depth: 0
+
+      - name: Apply source changes
+        run: python3 scripts/apply_hidden_panel_progressive_scan.py
+
+      - name: Verify
+        run: |
+          swift test
+          swift build
+          python3 scripts/static_checks.py
+
+      - name: Commit source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Sources/OpsNotchApp/MenuBarManager.swift Sources/OpsNotchApp/MenuBarHiddenItemsPanelController.swift
+          git commit -m "fix: progressively load hidden menu items"
+          git push origin HEAD:fix/hidden-panel-progressive-scan
