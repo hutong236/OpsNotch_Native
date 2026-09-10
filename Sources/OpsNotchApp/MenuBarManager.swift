@@ -366,6 +366,9 @@ final class MenuBarManager: NSObject, ObservableObject {
             button.toolTip = "Ops Notch"
         }
         configureSeparator(hiddenSeparatorItem, title: "│", tooltipKey: "menuBarHiddenSeparatorHint")
+        // The separator is the dedicated control for revealing/collapsing the real system menu-bar area.
+        // Keep the Ops Notch control itself dedicated to the hidden-items proxy panel.
+        hiddenSeparatorItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         configureSeparator(alwaysHiddenSeparatorItem, title: "¦", tooltipKey: "menuBarAlwaysSeparatorHint")
         updateControlAppearance()
 
@@ -394,17 +397,24 @@ final class MenuBarManager: NSObject, ObservableObject {
 
         if !model.settings.menuBarManagementEnabled {
             showContextMenu(from: sender)
-        } else if event.modifierFlags.contains(.option) {
-            showAll()
         } else if model.settings.menuBarPanelEnabled {
+            // Left-clicking the Ops Notch icon is now a pure panel action. It must never expand
+            // the underlying system menu-bar area as a side effect.
             showHiddenItemsPanel()
         } else {
-            toggleHiddenArea()
+            showContextMenu(from: sender)
         }
     }
 
     @objc private func separatorPressed(_ sender: NSStatusBarButton) {
-        showContextMenu(from: sender)
+        guard let event = NSApp.currentEvent else { return }
+        if event.type == .leftMouseUp, sender === hiddenSeparatorItem.button {
+            toggleHiddenArea()
+            return
+        }
+        if event.type == .rightMouseUp {
+            showContextMenu(from: sender)
+        }
     }
 
     private func showContextMenu(from button: NSStatusBarButton) {
@@ -547,6 +557,9 @@ final class MenuBarManager: NSObject, ObservableObject {
         image?.isTemplate = true
         button.image = image
         button.toolTip = L10n.text(stateKey, model.language)
+        // A chevron communicates “reveal” while collapsed; the divider communicates “collapse”
+        // once the hidden area is visible. Both states remain the same dedicated left-click target.
+        hiddenSeparatorItem.button?.title = state == .collapsed ? "‹" : "│"
         hiddenSeparatorItem.button?.toolTip = L10n.text("menuBarHiddenSeparatorHint", model.language)
         alwaysHiddenSeparatorItem.button?.toolTip = L10n.text("menuBarAlwaysSeparatorHint", model.language)
     }
@@ -644,17 +657,19 @@ final class MenuBarManager: NSObject, ObservableObject {
         stagedPanelItems.removeAll(keepingCapacity: true)
         let hadCachedItems = !rawPanelItems.isEmpty
         panelController.beginRefresh(preserveItems: hadCachedItems)
-        let previous = state
-        applyState(.allExpanded, animated: false, scheduleAutoHide: false)
+        let scanLayoutState = state
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            guard let self, generation == self.panelScanGeneration else { return }
+        // AX can inspect menu-extra elements while their status items are displaced by our spacer.
+        // Never expand the real system menu bar just to populate the proxy panel.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  generation == self.panelScanGeneration,
+                  scanLayoutState == self.state else { return }
             let hiddenX = self.itemX(self.hiddenSeparatorItem)
             let alwaysX = self.model.settings.menuBarAlwaysHiddenEnabled ? self.itemX(self.alwaysHiddenSeparatorItem) : nil
             guard let hiddenX else {
                 self.panelScanGeneration += 1
                 self.panelController.setUnavailable(L10n.text("menuBarPanelUnavailable", self.model.language))
-                self.applyState(previous, animated: false, scheduleAutoHide: true)
                 return
             }
 
@@ -682,7 +697,6 @@ final class MenuBarManager: NSObject, ObservableObject {
                     self.panelScanGeneration += 1
                     let visible = MenuBarAXScanner.sortedItems(Array(self.rawPanelItems.values))
                     self.panelController.setItems(visible.map(\.presentation), refreshing: false)
-                    self.applyState(previous, animated: false, scheduleAutoHide: true)
                 }
             )
 
@@ -706,7 +720,6 @@ final class MenuBarManager: NSObject, ObservableObject {
                     self.lastPanelScanAt = nil
                     self.panelController.setUnavailable(L10n.text("menuBarPanelUnavailable", self.model.language))
                 }
-                self.applyState(previous, animated: false, scheduleAutoHide: true)
             }
         }
     }
