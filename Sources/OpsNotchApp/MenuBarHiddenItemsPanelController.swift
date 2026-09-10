@@ -36,6 +36,7 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
     @Published var language: AppLanguage
     @Published private(set) var items: [MenuBarHiddenItemPresentation] = []
     @Published private(set) var phase: Phase = .loading
+    @Published private(set) var isRefreshing = false
 
     var onRefresh: (() -> Void)?
     var onRequestPermission: (() -> Void)?
@@ -52,10 +53,7 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
     }
 
     var isVisible: Bool { popover.isShown }
-    var isLoading: Bool {
-        if case .loading = phase { return true }
-        return false
-    }
+    var isLoading: Bool { isRefreshing }
 
     func show(relativeTo button: NSStatusBarButton) {
         if !popover.isShown {
@@ -67,22 +65,39 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
         popover.performClose(nil)
     }
 
+    func beginRefresh(preserveItems: Bool) {
+        isRefreshing = true
+        if !preserveItems || items.isEmpty {
+            phase = .loading
+        }
+    }
+
+    func finishRefresh() {
+        isRefreshing = false
+        if case .loading = phase {
+            phase = .ready
+        }
+    }
+
     func setLoading() {
-        phase = .loading
+        beginRefresh(preserveItems: false)
     }
 
     func setPermissionRequired() {
         items = []
+        isRefreshing = false
         phase = .permissionRequired
     }
 
     func setUnavailable(_ message: String) {
         items = []
+        isRefreshing = false
         phase = .unavailable(message)
     }
 
-    func setItems(_ items: [MenuBarHiddenItemPresentation]) {
+    func setItems(_ items: [MenuBarHiddenItemPresentation], refreshing: Bool = false) {
         self.items = items
+        isRefreshing = refreshing
         phase = .ready
     }
 }
@@ -102,10 +117,14 @@ private struct MenuBarHiddenItemsPanelView: View {
                 Button {
                     controller.onRefresh?()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    if controller.isRefreshing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
                 .buttonStyle(.borderless)
-                .disabled(controller.isLoading)
+                .disabled(controller.isRefreshing)
             }
 
             Divider()
@@ -251,14 +270,19 @@ enum MenuBarAXScanner {
     private struct RunningApplication: Sendable {
         let pid: pid_t
         let owner: String
+        let priority: Int
     }
 
-    private static let scanQueue = DispatchQueue(
-        label: "lab.hutong.opsnotch.menu-bar-ax-scan",
-        qos: .userInitiated
+    // Each application is scanned independently. A wedged third-party AX endpoint can therefore
+    // consume one worker but can no longer block every later refresh behind a serial queue.
+    private static let applicationScanQueue = DispatchQueue(
+        label: "lab.hutong.opsnotch.menu-bar-ax-app-scan",
+        qos: .userInitiated,
+        attributes: .concurrent
     )
-    private static let applicationMessagingTimeout: Float = 0.12
+    private static let applicationMessagingTimeout: Float = 0.18
     private static let scanBudget: TimeInterval = 1.8
+    private static let perApplicationBudget: TimeInterval = 0.70
 
     @discardableResult
     static func ensureTrusted(prompt: Bool) -> Bool {
@@ -266,116 +290,172 @@ enum MenuBarAXScanner {
         return AXIsProcessTrustedWithOptions([key: prompt] as CFDictionary)
     }
 
+    /// Synchronous scan retained for the notch-overflow probe. It is globally budgeted so this
+    /// legacy path also cannot spend unbounded time walking menu extras.
     static func scan(hiddenSeparatorX: CGFloat, alwaysHiddenSeparatorX: CGFloat?, rtl: Bool) -> [Item] {
-        scan(
-            applications: runningApplicationsSnapshot(),
-            hiddenSeparatorX: hiddenSeparatorX,
-            alwaysHiddenSeparatorX: alwaysHiddenSeparatorX,
-            rtl: rtl
-        )
+        let applications = runningApplicationsSnapshot()
+        let deadline = Date().addingTimeInterval(scanBudget)
+        var result: [Item] = []
+
+        for app in applications {
+            guard Date() < deadline else { break }
+            let appDeadline = min(deadline, Date().addingTimeInterval(perApplicationBudget))
+            result.append(contentsOf: scan(
+                application: app,
+                hiddenSeparatorX: hiddenSeparatorX,
+                alwaysHiddenSeparatorX: alwaysHiddenSeparatorX,
+                rtl: rtl,
+                deadline: appDeadline
+            ))
+        }
+        return sortedItems(result)
     }
 
-    static func scanAsync(
+    /// Progressive scan used by the hidden-items panel. Each app gets its own concurrent task and
+    /// successful batches are delivered immediately on the main queue instead of waiting for the
+    /// slowest process. The manager owns the overall UI timeout and generation invalidation.
+    static func scanProgressively(
         hiddenSeparatorX: CGFloat,
         alwaysHiddenSeparatorX: CGFloat?,
         rtl: Bool,
-        completion: @escaping ([Item]) -> Void
+        onBatch: @escaping ([Item]) -> Void,
+        completion: @escaping () -> Void
     ) {
         let applications = runningApplicationsSnapshot()
-        scanQueue.async {
-            let items = scan(
-                applications: applications,
-                hiddenSeparatorX: hiddenSeparatorX,
-                alwaysHiddenSeparatorX: alwaysHiddenSeparatorX,
-                rtl: rtl
-            )
-            DispatchQueue.main.async {
-                completion(items)
+        guard !applications.isEmpty else {
+            DispatchQueue.main.async(execute: completion)
+            return
+        }
+
+        let group = DispatchGroup()
+        for app in applications {
+            group.enter()
+            applicationScanQueue.async {
+                let deadline = Date().addingTimeInterval(perApplicationBudget)
+                let items = scan(
+                    application: app,
+                    hiddenSeparatorX: hiddenSeparatorX,
+                    alwaysHiddenSeparatorX: alwaysHiddenSeparatorX,
+                    rtl: rtl,
+                    deadline: deadline
+                )
+                if !items.isEmpty {
+                    let batch = sortedItems(items)
+                    DispatchQueue.main.async {
+                        onBatch(batch)
+                    }
+                }
+                group.leave()
             }
+        }
+        group.notify(queue: .main, execute: completion)
+    }
+
+    static func sortedItems(_ items: [Item]) -> [Item] {
+        items.sorted { lhs, rhs in
+            if lhs.section != rhs.section { return lhs.section == .hidden }
+            if lhs.owner != rhs.owner {
+                return lhs.owner.localizedCaseInsensitiveCompare(rhs.owner) == .orderedAscending
+            }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
     }
 
     private static func runningApplicationsSnapshot() -> [RunningApplication] {
         let ownPID = ProcessInfo.processInfo.processIdentifier
-        return NSWorkspace.shared.runningApplications.compactMap { app in
+        let applications = NSWorkspace.shared.runningApplications.compactMap { app -> RunningApplication? in
             let pid = app.processIdentifier
             guard pid > 0, pid != ownPID else { return nil }
+
+            let priority: Int
+            switch app.activationPolicy {
+            case .accessory:
+                priority = 0
+            case .regular:
+                priority = 1
+            default:
+                // Prohibited/background-only processes cannot own an interactive status item and
+                // were a major source of unnecessary AX calls in the previous scanner.
+                return nil
+            }
+
             return RunningApplication(
                 pid: pid,
-                owner: app.localizedName ?? app.bundleIdentifier ?? "App"
+                owner: app.localizedName ?? app.bundleIdentifier ?? "App",
+                priority: priority
             )
+        }
+
+        return applications.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
+            return lhs.owner.localizedCaseInsensitiveCompare(rhs.owner) == .orderedAscending
         }
     }
 
     private static func scan(
-        applications: [RunningApplication],
+        application app: RunningApplication,
         hiddenSeparatorX: CGFloat,
         alwaysHiddenSeparatorX: CGFloat?,
-        rtl: Bool
+        rtl: Bool,
+        deadline: Date
     ) -> [Item] {
+        guard Date() < deadline else { return [] }
+        let appElement = AXUIElementCreateApplication(app.pid)
+        configureTimeout(on: appElement)
+
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement,
+            kAXExtrasMenuBarAttribute as CFString,
+            &value
+        ) == .success, let raw = value else { return [] }
+
+        let menuBar = raw as! AXUIElement
+        configureTimeout(on: menuBar)
         var result: [Item] = []
         var seen = Set<String>()
-        let deadline = Date().addingTimeInterval(scanBudget)
 
-        for app in applications {
+        for element in menuItems(in: menuBar, maxDepth: 3, deadline: deadline) {
             guard Date() < deadline else { break }
-            let appElement = AXUIElementCreateApplication(app.pid)
-            _ = AXUIElementSetMessagingTimeout(appElement, applicationMessagingTimeout)
-
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(
-                appElement,
-                kAXExtrasMenuBarAttribute as CFString,
-                &value
-            ) == .success, let raw = value else { continue }
-
-            let menuBar = raw as! AXUIElement
-            for element in menuItems(in: menuBar, maxDepth: 3, deadline: deadline) {
-                guard Date() < deadline else { break }
-                guard let frame = frame(of: element), !frame.isEmpty else { continue }
-                let centerX = frame.midX
-                let section: MenuBarHiddenSection?
-                if rtl {
-                    if let alwaysHiddenSeparatorX, centerX > alwaysHiddenSeparatorX {
-                        section = .alwaysHidden
-                    } else if centerX > hiddenSeparatorX {
-                        section = .hidden
-                    } else {
-                        section = nil
-                    }
+            configureTimeout(on: element)
+            guard let frame = frame(of: element), !frame.isEmpty else { continue }
+            let centerX = frame.midX
+            let section: MenuBarHiddenSection?
+            if rtl {
+                if let alwaysHiddenSeparatorX, centerX > alwaysHiddenSeparatorX {
+                    section = .alwaysHidden
+                } else if centerX > hiddenSeparatorX {
+                    section = .hidden
                 } else {
-                    if let alwaysHiddenSeparatorX, centerX < alwaysHiddenSeparatorX {
-                        section = .alwaysHidden
-                    } else if centerX < hiddenSeparatorX {
-                        section = .hidden
-                    } else {
-                        section = nil
-                    }
+                    section = nil
                 }
-                guard let section else { continue }
-
-                let key = "\(app.pid):\(Int(frame.minX.rounded())):\(Int(frame.width.rounded()))"
-                guard seen.insert(key).inserted else { continue }
-                let title = bestTitle(for: element, fallback: app.owner)
-                result.append(Item(
-                    id: key,
-                    element: element,
-                    title: title,
-                    owner: app.owner,
-                    section: section,
-                    frame: frame
-                ))
+            } else {
+                if let alwaysHiddenSeparatorX, centerX < alwaysHiddenSeparatorX {
+                    section = .alwaysHidden
+                } else if centerX < hiddenSeparatorX {
+                    section = .hidden
+                } else {
+                    section = nil
+                }
             }
-        }
+            guard let section else { continue }
 
-        return result.sorted { lhs, rhs in
-            if lhs.section != rhs.section { return lhs.section == .hidden }
-            if lhs.owner != rhs.owner { return lhs.owner.localizedCaseInsensitiveCompare(rhs.owner) == .orderedAscending }
-            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            let key = "\(app.pid):\(Int(frame.minX.rounded())):\(Int(frame.width.rounded()))"
+            guard seen.insert(key).inserted else { continue }
+            result.append(Item(
+                id: key,
+                element: element,
+                title: bestTitle(for: element, fallback: app.owner),
+                owner: app.owner,
+                section: section,
+                frame: frame
+            ))
         }
+        return result
     }
 
     static func perform(_ interaction: MenuBarPanelInteraction, on item: Item) -> Bool {
+        configureTimeout(on: item.element)
         var rawActions: CFArray?
         let actions: [String]
         if AXUIElementCopyActionNames(item.element, &rawActions) == .success,
@@ -401,12 +481,17 @@ enum MenuBarAXScanner {
         return false
     }
 
+    private static func configureTimeout(on element: AXUIElement) {
+        _ = AXUIElementSetMessagingTimeout(element, applicationMessagingTimeout)
+    }
+
     private static func menuItems(
         in element: AXUIElement,
         maxDepth: Int,
         deadline: Date
     ) -> [AXUIElement] {
         guard maxDepth >= 0, Date() < deadline else { return [] }
+        configureTimeout(on: element)
         var childrenValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue) == .success,
               let children = childrenValue as? [AXUIElement] else { return [] }
@@ -414,6 +499,7 @@ enum MenuBarAXScanner {
         var result: [AXUIElement] = []
         for child in children {
             guard Date() < deadline else { break }
+            configureTimeout(on: child)
             let role = stringValue(kAXRoleAttribute, from: child)
             let subrole = stringValue(kAXSubroleAttribute, from: child)
             if role == kAXMenuBarItemRole as String || subrole == "AXMenuExtra" {
@@ -440,12 +526,14 @@ enum MenuBarAXScanner {
     }
 
     private static func stringValue(_ attribute: String, from element: AXUIElement) -> String? {
+        configureTimeout(on: element)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
         return value as? String
     }
 
     private static func frame(of element: AXUIElement) -> CGRect? {
+        configureTimeout(on: element)
         var positionValue: CFTypeRef?
         var sizeValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,

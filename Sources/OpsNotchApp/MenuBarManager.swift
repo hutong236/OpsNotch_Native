@@ -27,6 +27,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     private var managementWasEnabled = false
     private var lastAppliedHotkey: HotkeyShortcut?
     private var rawPanelItems: [String: MenuBarAXScanner.Item] = [:]
+    private var stagedPanelItems: [String: MenuBarAXScanner.Item] = [:]
     private var panelController: MenuBarHiddenItemsPanelController!
     private var panelOpenedForNotchOverflow = false
     private var notchProbeGeneration = 0
@@ -35,7 +36,7 @@ final class MenuBarManager: NSObject, ObservableObject {
 
     private let separatorLength: CGFloat = 12
     private let animationDuration: TimeInterval = 0.16
-    private let panelCacheLifetime: TimeInterval = 5
+    private let panelCacheLifetime: TimeInterval = 30
 
     private enum PositionValidation {
         case valid
@@ -626,21 +627,26 @@ final class MenuBarManager: NSObject, ObservableObject {
         let generation = panelScanGeneration
         panelController.language = model.language
         guard MenuBarAXScanner.ensureTrusted(prompt: promptForPermission) else {
+            stagedPanelItems.removeAll()
             rawPanelItems.removeAll()
             lastPanelScanAt = nil
             panelController.setPermissionRequired()
             return
         }
         guard positionsAreValid() else {
+            stagedPanelItems.removeAll()
             rawPanelItems.removeAll()
             lastPanelScanAt = nil
             panelController.setUnavailable(L10n.text("menuBarOrderInvalid", model.language))
             return
         }
 
-        panelController.setLoading()
+        stagedPanelItems.removeAll(keepingCapacity: true)
+        let hadCachedItems = !rawPanelItems.isEmpty
+        panelController.beginRefresh(preserveItems: hadCachedItems)
         let previous = state
         applyState(.allExpanded, animated: false, scheduleAutoHide: false)
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             guard let self, generation == self.panelScanGeneration else { return }
             let hiddenX = self.itemX(self.hiddenSeparatorItem)
@@ -652,25 +658,54 @@ final class MenuBarManager: NSObject, ObservableObject {
                 return
             }
 
-            MenuBarAXScanner.scanAsync(
+            MenuBarAXScanner.scanProgressively(
                 hiddenSeparatorX: hiddenX,
                 alwaysHiddenSeparatorX: alwaysX,
-                rtl: NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft
-            ) { [weak self] scanned in
-                guard let self, generation == self.panelScanGeneration else { return }
-                self.panelScanGeneration += 1
-                self.rawPanelItems = Dictionary(uniqueKeysWithValues: scanned.map { ($0.id, $0) })
-                self.lastPanelScanAt = Date()
-                self.panelController.setItems(scanned.map(\.presentation))
-                self.applyState(previous, animated: false, scheduleAutoHide: true)
-            }
+                rtl: NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft,
+                onBatch: { [weak self] batch in
+                    guard let self, generation == self.panelScanGeneration else { return }
+                    for item in batch {
+                        self.stagedPanelItems[item.id] = item
+                        self.rawPanelItems[item.id] = item
+                    }
+                    let visible = MenuBarAXScanner.sortedItems(Array(self.rawPanelItems.values))
+                    self.lastPanelScanAt = Date()
+                    self.panelController.setItems(visible.map(\.presentation), refreshing: true)
+                },
+                completion: { [weak self] in
+                    guard let self, generation == self.panelScanGeneration else { return }
+                    let fresh = MenuBarAXScanner.sortedItems(Array(self.stagedPanelItems.values))
+                    if !fresh.isEmpty || !hadCachedItems {
+                        self.rawPanelItems = Dictionary(uniqueKeysWithValues: fresh.map { ($0.id, $0) })
+                    }
+                    self.lastPanelScanAt = Date()
+                    self.panelScanGeneration += 1
+                    let visible = MenuBarAXScanner.sortedItems(Array(self.rawPanelItems.values))
+                    self.panelController.setItems(visible.map(\.presentation), refreshing: false)
+                    self.applyState(previous, animated: false, scheduleAutoHide: true)
+                }
+            )
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            // AX calls cannot be cancelled reliably. The UI therefore owns the overall deadline:
+            // after two seconds we stop waiting, preserve any partial/cached items, and invalidate
+            // this generation so late results cannot overwrite a newer refresh.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                 guard let self, generation == self.panelScanGeneration else { return }
                 self.panelScanGeneration += 1
-                self.rawPanelItems.removeAll()
-                self.lastPanelScanAt = nil
-                self.panelController.setUnavailable(L10n.text("menuBarPanelUnavailable", self.model.language))
+                let partial = MenuBarAXScanner.sortedItems(Array(self.stagedPanelItems.values))
+                if !partial.isEmpty {
+                    for item in partial {
+                        self.rawPanelItems[item.id] = item
+                    }
+                    self.lastPanelScanAt = Date()
+                    let visible = MenuBarAXScanner.sortedItems(Array(self.rawPanelItems.values))
+                    self.panelController.setItems(visible.map(\.presentation), refreshing: false)
+                } else if !self.rawPanelItems.isEmpty {
+                    self.panelController.finishRefresh()
+                } else {
+                    self.lastPanelScanAt = nil
+                    self.panelController.setUnavailable(L10n.text("menuBarPanelUnavailable", self.model.language))
+                }
                 self.applyState(previous, animated: false, scheduleAutoHide: true)
             }
         }
