@@ -1,0 +1,24 @@
+name: Dispatch v2.7.8 package once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/dispatch-v2.7.8-package-once.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch package workflow for v2.7.8
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.8
+          echo "Dispatched package-app.yml for v2.7.8"
