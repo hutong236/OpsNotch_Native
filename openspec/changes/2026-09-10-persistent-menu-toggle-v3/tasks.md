@@ -7,5 +7,5 @@
 - [x] Preserve preferred positions around `isVisible` changes.
 - [x] Keep Ops Notch panel interaction and real menu-bar toggle interaction fully decoupled.
 - [x] Move AX/notch boundary calculations and animations to the spacer item.
-- [ ] Run PR CI (`swift test`, `swift build`, `scripts/static_checks.py`).
+- [x] Run PR CI (`swift test`, `swift build`, `scripts/static_checks.py`).
 - [ ] Complete macOS manual acceptance: launch-collapsed, repeated toggle, auto-hide, notch display, external display, disable/re-enable management.
