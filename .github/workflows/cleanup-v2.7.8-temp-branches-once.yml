@@ -1,0 +1,29 @@
+name: Cleanup v2.7.8 temp branches once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/cleanup-v2.7.8-temp-branches-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Remove temporary release branches
+        shell: bash
+        run: |
+          for branch in \
+            'release/v2.7.8' \
+            'noop-ignore' \
+            'release-v2.7.8-temp' \
+            'release-v2.7.8-workflow'; do
+            git push origin --delete "$branch" 2>/dev/null || true
+          done
