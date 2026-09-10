@@ -31,6 +31,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     private var panelOpenedForNotchOverflow = false
     private var notchProbeGeneration = 0
     private var lastPanelScanAt: Date?
+    private var panelScanGeneration = 0
 
     private let separatorLength: CGFloat = 12
     private let animationDuration: TimeInterval = 0.16
@@ -621,6 +622,8 @@ final class MenuBarManager: NSObject, ObservableObject {
     // MARK: - Optional hidden-item panel
 
     private func refreshPanelItems(promptForPermission: Bool) {
+        panelScanGeneration += 1
+        let generation = panelScanGeneration
         panelController.language = model.language
         guard MenuBarAXScanner.ensureTrusted(prompt: promptForPermission) else {
             rawPanelItems.removeAll()
@@ -639,23 +642,37 @@ final class MenuBarManager: NSObject, ObservableObject {
         let previous = state
         applyState(.allExpanded, animated: false, scheduleAutoHide: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            guard let self else { return }
+            guard let self, generation == self.panelScanGeneration else { return }
             let hiddenX = self.itemX(self.hiddenSeparatorItem)
             let alwaysX = self.model.settings.menuBarAlwaysHiddenEnabled ? self.itemX(self.alwaysHiddenSeparatorItem) : nil
             guard let hiddenX else {
+                self.panelScanGeneration += 1
                 self.panelController.setUnavailable(L10n.text("menuBarPanelUnavailable", self.model.language))
                 self.applyState(previous, animated: false, scheduleAutoHide: true)
                 return
             }
-            let scanned = MenuBarAXScanner.scan(
+
+            MenuBarAXScanner.scanAsync(
                 hiddenSeparatorX: hiddenX,
                 alwaysHiddenSeparatorX: alwaysX,
                 rtl: NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft
-            )
-            self.rawPanelItems = Dictionary(uniqueKeysWithValues: scanned.map { ($0.id, $0) })
-            self.lastPanelScanAt = Date()
-            self.panelController.setItems(scanned.map(\.presentation))
-            self.applyState(previous, animated: false, scheduleAutoHide: true)
+            ) { [weak self] scanned in
+                guard let self, generation == self.panelScanGeneration else { return }
+                self.panelScanGeneration += 1
+                self.rawPanelItems = Dictionary(uniqueKeysWithValues: scanned.map { ($0.id, $0) })
+                self.lastPanelScanAt = Date()
+                self.panelController.setItems(scanned.map(\.presentation))
+                self.applyState(previous, animated: false, scheduleAutoHide: true)
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                guard let self, generation == self.panelScanGeneration else { return }
+                self.panelScanGeneration += 1
+                self.rawPanelItems.removeAll()
+                self.lastPanelScanAt = nil
+                self.panelController.setUnavailable(L10n.text("menuBarPanelUnavailable", self.model.language))
+                self.applyState(previous, animated: false, scheduleAutoHide: true)
+            }
         }
     }
 

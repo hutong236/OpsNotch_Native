@@ -52,6 +52,10 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
     }
 
     var isVisible: Bool { popover.isShown }
+    var isLoading: Bool {
+        if case .loading = phase { return true }
+        return false
+    }
 
     func show(relativeTo button: NSStatusBarButton) {
         if !popover.isShown {
@@ -101,6 +105,7 @@ private struct MenuBarHiddenItemsPanelView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
+                .disabled(controller.isLoading)
             }
 
             Divider()
@@ -230,7 +235,7 @@ private final class MenuBarHiddenItemMouseView: NSView {
 }
 
 enum MenuBarAXScanner {
-    struct Item {
+    struct Item: @unchecked Sendable {
         let id: String
         let element: AXUIElement
         let title: String
@@ -243,6 +248,18 @@ enum MenuBarAXScanner {
         }
     }
 
+    private struct RunningApplication: Sendable {
+        let pid: pid_t
+        let owner: String
+    }
+
+    private static let scanQueue = DispatchQueue(
+        label: "lab.hutong.opsnotch.menu-bar-ax-scan",
+        qos: .userInitiated
+    )
+    private static let applicationMessagingTimeout: Float = 0.12
+    private static let scanBudget: TimeInterval = 1.8
+
     @discardableResult
     static func ensureTrusted(prompt: Bool) -> Bool {
         let key = "AXTrustedCheckOptionPrompt" as CFString
@@ -250,15 +267,61 @@ enum MenuBarAXScanner {
     }
 
     static func scan(hiddenSeparatorX: CGFloat, alwaysHiddenSeparatorX: CGFloat?, rtl: Bool) -> [Item] {
+        scan(
+            applications: runningApplicationsSnapshot(),
+            hiddenSeparatorX: hiddenSeparatorX,
+            alwaysHiddenSeparatorX: alwaysHiddenSeparatorX,
+            rtl: rtl
+        )
+    }
+
+    static func scanAsync(
+        hiddenSeparatorX: CGFloat,
+        alwaysHiddenSeparatorX: CGFloat?,
+        rtl: Bool,
+        completion: @escaping ([Item]) -> Void
+    ) {
+        let applications = runningApplicationsSnapshot()
+        scanQueue.async {
+            let items = scan(
+                applications: applications,
+                hiddenSeparatorX: hiddenSeparatorX,
+                alwaysHiddenSeparatorX: alwaysHiddenSeparatorX,
+                rtl: rtl
+            )
+            DispatchQueue.main.async {
+                completion(items)
+            }
+        }
+    }
+
+    private static func runningApplicationsSnapshot() -> [RunningApplication] {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        return NSWorkspace.shared.runningApplications.compactMap { app in
+            let pid = app.processIdentifier
+            guard pid > 0, pid != ownPID else { return nil }
+            return RunningApplication(
+                pid: pid,
+                owner: app.localizedName ?? app.bundleIdentifier ?? "App"
+            )
+        }
+    }
+
+    private static func scan(
+        applications: [RunningApplication],
+        hiddenSeparatorX: CGFloat,
+        alwaysHiddenSeparatorX: CGFloat?,
+        rtl: Bool
+    ) -> [Item] {
         var result: [Item] = []
         var seen = Set<String>()
-        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let deadline = Date().addingTimeInterval(scanBudget)
 
-        for app in NSWorkspace.shared.runningApplications {
-            let pid = app.processIdentifier
-            guard pid > 0, pid != ownPID else { continue }
-            let owner = app.localizedName ?? app.bundleIdentifier ?? "App"
-            let appElement = AXUIElementCreateApplication(pid)
+        for app in applications {
+            guard Date() < deadline else { break }
+            let appElement = AXUIElementCreateApplication(app.pid)
+            _ = AXUIElementSetMessagingTimeout(appElement, applicationMessagingTimeout)
+
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(
                 appElement,
@@ -267,7 +330,8 @@ enum MenuBarAXScanner {
             ) == .success, let raw = value else { continue }
 
             let menuBar = raw as! AXUIElement
-            for element in menuItems(in: menuBar, maxDepth: 3) {
+            for element in menuItems(in: menuBar, maxDepth: 3, deadline: deadline) {
+                guard Date() < deadline else { break }
                 guard let frame = frame(of: element), !frame.isEmpty else { continue }
                 let centerX = frame.midX
                 let section: MenuBarHiddenSection?
@@ -290,10 +354,17 @@ enum MenuBarAXScanner {
                 }
                 guard let section else { continue }
 
-                let key = "\(pid):\(Int(frame.minX.rounded())):\(Int(frame.width.rounded()))"
+                let key = "\(app.pid):\(Int(frame.minX.rounded())):\(Int(frame.width.rounded()))"
                 guard seen.insert(key).inserted else { continue }
-                let title = bestTitle(for: element, fallback: owner)
-                result.append(Item(id: key, element: element, title: title, owner: owner, section: section, frame: frame))
+                let title = bestTitle(for: element, fallback: app.owner)
+                result.append(Item(
+                    id: key,
+                    element: element,
+                    title: title,
+                    owner: app.owner,
+                    section: section,
+                    frame: frame
+                ))
             }
         }
 
@@ -330,20 +401,29 @@ enum MenuBarAXScanner {
         return false
     }
 
-    private static func menuItems(in element: AXUIElement, maxDepth: Int) -> [AXUIElement] {
-        guard maxDepth >= 0 else { return [] }
+    private static func menuItems(
+        in element: AXUIElement,
+        maxDepth: Int,
+        deadline: Date
+    ) -> [AXUIElement] {
+        guard maxDepth >= 0, Date() < deadline else { return [] }
         var childrenValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue) == .success,
               let children = childrenValue as? [AXUIElement] else { return [] }
 
         var result: [AXUIElement] = []
         for child in children {
+            guard Date() < deadline else { break }
             let role = stringValue(kAXRoleAttribute, from: child)
             let subrole = stringValue(kAXSubroleAttribute, from: child)
             if role == kAXMenuBarItemRole as String || subrole == "AXMenuExtra" {
                 result.append(child)
             } else if maxDepth > 0 {
-                result.append(contentsOf: menuItems(in: child, maxDepth: maxDepth - 1))
+                result.append(contentsOf: menuItems(
+                    in: child,
+                    maxDepth: maxDepth - 1,
+                    deadline: deadline
+                ))
             }
         }
         return result
