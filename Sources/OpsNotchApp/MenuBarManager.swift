@@ -602,7 +602,7 @@ final class MenuBarManager: NSObject, ObservableObject {
             image?.isTemplate = true
             button.image = image
             button.toolTip = model.settings.menuBarPanelEnabled
-                ? "Ops Notch · \(L10n.text(\"menuBarHiddenPanel\", model.language))"
+                ? "Ops Notch · " + L10n.text("menuBarHiddenPanel", model.language)
                 : "Ops Notch"
         }
 
