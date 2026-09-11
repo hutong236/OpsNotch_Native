@@ -1,4 +1,4 @@
-name: Create v2.7.10 tag
+name: Repair v2.7.10 tag
 
 on:
   push:
@@ -9,38 +9,24 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
-  release:
+  repair:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
           fetch-depth: 0
 
-      - name: Show release commit
-        shell: bash
-        run: |
-          echo "Release main HEAD: $(git rev-parse HEAD)"
-
-      - name: Create and push v2.7.10
+      - name: Repoint v2.7.10 to functional release commit
         shell: bash
         run: |
           TAG='v2.7.10'
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag already exists: $TAG"
-            exit 1
-          fi
+          TARGET='271e65f9cb1254fa9901153b41e67a7fbc30b753'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "$TAG" HEAD -m "Ops Notch $TAG"
+          git push origin ":refs/tags/$TAG" || true
+          git tag -d "$TAG" 2>/dev/null || true
+          git tag -a "$TAG" "$TARGET" -m "Ops Notch $TAG"
           git push origin "$TAG"
-
-      - name: Dispatch macOS package workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.10
+          echo "Repaired $TAG -> $TARGET"
