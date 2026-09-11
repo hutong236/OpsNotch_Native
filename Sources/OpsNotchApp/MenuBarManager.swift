@@ -241,7 +241,12 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     func showAll() {
-        showNotchAware(.allExpanded)
+        // Showing the always-hidden section is also the recovery path for items that were
+        // Command-dragged there. Keep it on the real system menu bar long enough for the user
+        // to drag an item back; never replace this explicit action with the proxy panel.
+        panelOpenedForNotchOverflow = false
+        panelController.close()
+        setState(.allExpanded, userInitiated: true, scheduleAutoHide: false)
     }
 
     private func showNotchAware(_ target: MenuBarVisibilityState) {
@@ -546,8 +551,14 @@ final class MenuBarManager: NSObject, ObservableObject {
     private func setState(
         _ newState: MenuBarVisibilityState,
         userInitiated: Bool,
-        persist: Bool = true
+        persist: Bool = true,
+        scheduleAutoHide: Bool = true
     ) {
+        // A direct state request always wins over a delayed notch-overflow probe that may still
+        // be queued from an earlier expand action. This prevents stale probe results from
+        // reopening the proxy panel or collapsing the user's newly selected state.
+        notchProbeGeneration += 1
+
         guard model.settings.menuBarManagementEnabled else {
             applyState(.allExpanded, animated: false, scheduleAutoHide: false)
             return
@@ -569,7 +580,11 @@ final class MenuBarManager: NSObject, ObservableObject {
             }
         }
 
-        applyState(newState, animated: model.settings.menuBarAnimationEnabled, scheduleAutoHide: true)
+        applyState(
+            newState,
+            animated: model.settings.menuBarAnimationEnabled,
+            scheduleAutoHide: scheduleAutoHide
+        )
         if persist, model.settings.menuBarLastState != newState {
             model.updateSettings(notifyServices: false) { $0.menuBarLastState = newState }
         }
