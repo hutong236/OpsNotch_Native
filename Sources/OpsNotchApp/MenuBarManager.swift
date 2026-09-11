@@ -567,7 +567,11 @@ final class MenuBarManager: NSObject, ObservableObject {
         if newState != .allExpanded {
             switch positionValidation() {
             case .invalid:
-                applyState(.allExpanded, animated: false, scheduleAutoHide: false)
+                // Never fail open by revealing hidden items. Position reads can be transiently
+                // invalid while AppKit relays out status items, settings are synchronized, or an
+                // auto-hide callback fires. Preserve the current hiding geometry. Only an explicit
+                // user action surfaces the ordering problem so background work cannot make icons
+                // appear by itself.
                 if userInitiated {
                     presentOrderInvalidAlert()
                 }
