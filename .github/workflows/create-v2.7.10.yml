@@ -1,0 +1,50 @@
+name: Create v2.7.10 tag
+
+on:
+  push:
+    branches:
+      - chore/release-v2.7.10
+    paths:
+      - '.github/workflows/create-v2.7.10.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify release commit
+        shell: bash
+        run: |
+          EXPECTED='271e65f9cb1254fa9901153b41e67a7fbc30b753'
+          ACTUAL="$(git rev-parse HEAD)"
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Create and push v2.7.10
+        shell: bash
+        run: |
+          TAG='v2.7.10'
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG"
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" 271e65f9cb1254fa9901153b41e67a7fbc30b753 -m "Ops Notch $TAG"
+          git push origin "$TAG"
+
+      - name: Dispatch macOS package workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.10
