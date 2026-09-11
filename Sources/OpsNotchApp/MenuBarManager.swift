@@ -67,7 +67,7 @@ final class MenuBarManager: NSObject, ObservableObject {
             fallback: 1
         )
     )
-    private let hiddenSpacerItem = MenuBarManager.makeStatusItem(
+    private var hiddenSpacerItem = MenuBarManager.makeStatusItem(
         withLength: 1,
         autosaveName: MenuBarManager.hiddenSpacerAutosaveName,
         defaultPreferredPosition: MenuBarManager.nextPreferredPosition(
@@ -582,6 +582,9 @@ final class MenuBarManager: NSObject, ObservableObject {
     ) {
         autoHideTimer?.invalidate()
         autoHideTimer = nil
+        // The spacer is internal. If the user Command-dragged the fixed toggle, macOS moves
+        // only that visible status item. Reattach the spacer before applying hiding geometry.
+        repairHiddenSpacerPositionIfNeeded()
         let stateChanged = state != newState
         state = newState
 
@@ -675,6 +678,42 @@ final class MenuBarManager: NSObject, ObservableObject {
         return max(500, min(widest * 2, 10_000))
     }
 
+    /// The fixed toggle is user-draggable, but the 1pt spacer is deliberately invisible.
+    /// Keep the spacer immediately on the hidden side of the toggle by following the toggle's
+    /// autosaved preferred position. Recreating only the spacer makes AppKit reload that position.
+    private func repairHiddenSpacerPositionIfNeeded() {
+        guard model.settings.menuBarManagementEnabled,
+              let togglePosition = MenuBarManager.preferredPosition(
+                  for: MenuBarManager.hiddenToggleAutosaveName
+              ) else {
+            return
+        }
+
+        let desiredPosition = togglePosition + 1
+        let currentPosition = MenuBarManager.preferredPosition(
+            for: MenuBarManager.hiddenSpacerAutosaveName
+        )
+        guard currentPosition == nil
+                || abs((currentPosition ?? desiredPosition) - desiredPosition) > 0.001 else {
+            return
+        }
+
+        animationTimer?.invalidate()
+        animationTimer = nil
+        NSStatusBar.system.removeStatusItem(hiddenSpacerItem)
+        MenuBarManager.setPreferredPosition(
+            desiredPosition,
+            for: MenuBarManager.hiddenSpacerAutosaveName
+        )
+        hiddenSpacerItem = MenuBarManager.makeStatusItem(
+            withLength: hiddenSpacerRestingLength,
+            autosaveName: MenuBarManager.hiddenSpacerAutosaveName,
+            defaultPreferredPosition: desiredPosition
+        )
+        configureHiddenSpacer()
+        hiddenSpacerItem.isVisible = true
+    }
+
     /// `NSStatusItem.isVisible = false` removes its preferred-position default on macOS. Cache and
     /// restore that value so disabling/re-enabling management cannot scramble our fixed controls.
     private func setStatusItemVisiblePreservingPosition(_ item: NSStatusItem, visible: Bool) {
@@ -694,21 +733,18 @@ final class MenuBarManager: NSObject, ObservableObject {
     private func positionValidation() -> PositionValidation {
         let rtl = NSApplication.shared.userInterfaceLayoutDirection == .rightToLeft
         guard let controlX = orderAnchorX(controlItem, rtl: rtl),
-              let toggleX = orderAnchorX(hiddenToggleItem, rtl: rtl),
-              let spacerX = orderAnchorX(hiddenSpacerItem, rtl: rtl) else {
+              let toggleX = orderAnchorX(hiddenToggleItem, rtl: rtl) else {
             return .unavailable
         }
 
-        // Expected visual order on LTR menu bars:
-        // Always Hidden ¦ → hidden spacer → persistent ‹/│ toggle → Ops Notch.
-        // The fixed toggle must stay on the visible side of the variable-width spacer.
+        // Validate only controls the user can actually Command-drag. The hidden spacer is an
+        // internal implementation detail and self-heals from the fixed toggle's saved position.
         let toggleValid = rtl ? controlX <= toggleX : controlX >= toggleX
-        let spacerValid = rtl ? toggleX <= spacerX : toggleX >= spacerX
-        guard toggleValid, spacerValid else { return .invalid }
+        guard toggleValid else { return .invalid }
 
         guard model.settings.menuBarAlwaysHiddenEnabled else { return .valid }
         guard let alwaysX = orderAnchorX(alwaysHiddenSeparatorItem, rtl: rtl) else { return .unavailable }
-        return (rtl ? spacerX <= alwaysX : spacerX >= alwaysX) ? .valid : .invalid
+        return (rtl ? toggleX <= alwaysX : toggleX >= alwaysX) ? .valid : .invalid
     }
 
     private func presentOrderInvalidAlert() {
@@ -717,8 +753,8 @@ final class MenuBarManager: NSObject, ObservableObject {
         alert.alertStyle = .informational
         alert.messageText = L10n.text("menuBarOrderInvalid", model.language)
         alert.informativeText = model.language == .zhCN
-            ? "按住 ⌘ 拖动可见菜单栏项目，确保顺序为：持续隐藏 ¦ → 隐藏图标 → ‹/│ → Ops Notch。‹/│ 已与内部隐藏 Spacer 分离，Spacer 默认固定在它的隐藏侧。调整后再次选择“收起”。"
-            : "Hold ⌘ and arrange the visible controls as: Always Hidden ¦ → hidden items → ‹/│ → Ops Notch. The fixed toggle is independent from its internal spacer. Then choose Collapse again."
+            ? "按住 ⌘ 只需调整可见菜单栏项目，确保顺序为：持续隐藏 ¦ → 隐藏图标 → ‹/│ → Ops Notch。内部 Spacer 会自动跟随 ‹/│，无需手动处理。调整后再次选择“收起”。"
+            : "Hold ⌘ and arrange only the visible controls as: Always Hidden ¦ → hidden items → ‹/│ → Ops Notch. The internal spacer follows ‹/│ automatically. Then choose Collapse again."
         alert.addButton(withTitle: model.language == .zhCN ? "知道了" : "OK")
         alert.runModal()
     }
@@ -778,6 +814,7 @@ final class MenuBarManager: NSObject, ObservableObject {
             panelController.setPermissionRequired()
             return
         }
+        repairHiddenSpacerPositionIfNeeded()
         guard positionsAreValid() else {
             stagedPanelItems.removeAll()
             rawPanelItems.removeAll()
