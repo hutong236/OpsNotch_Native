@@ -1,0 +1,42 @@
+name: Split v2.7.10 and v2.7.11
+
+on:
+  push:
+    branches:
+      - chore/repair-v2.7.10-v2.7.11-split
+    paths:
+      - '.github/workflows/repair-v2.7.10-v2.7.11.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Repair v2.7.10 and create v2.7.11
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          retag() {
+            local tag="$1"
+            local target="$2"
+            git push origin ":refs/tags/$tag" || true
+            git tag -d "$tag" 2>/dev/null || true
+            git tag -a "$tag" "$target" -m "Ops Notch $tag"
+            git push origin "$tag"
+            echo "$tag -> $target"
+          }
+
+          # PR #83: disable ordinary pointer hover on top Sensor
+          retag 'v2.7.10' '26c411ada96b93baea22ad8c4f685a5202301e24'
+
+          # PR #84: auto-repair hidden spacer after persistent toggle drag
+          retag 'v2.7.11' '271e65f9cb1254fa9901153b41e67a7fbc30b753'
