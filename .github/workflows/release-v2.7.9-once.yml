@@ -1,0 +1,40 @@
+name: Release v2.7.9 once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-v2.7.9-once.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create v2.7.9 tag and dispatch release package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="v2.7.9"
+          TARGET="271e65f9cb1254fa9901153b41e67a7fbc30b753"
+
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" "$TARGET" -m "Ops Notch $TAG"
+            git push origin "$TAG"
+          else
+            echo "Tag already exists: $TAG"
+          fi
+
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          echo "Dispatched package-app.yml for $TAG"
