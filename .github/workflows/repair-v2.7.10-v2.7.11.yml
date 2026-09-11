@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   split:
@@ -18,7 +19,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Repair v2.7.10 and create v2.7.11
+      - name: Repair version ownership and rebuild releases
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -35,8 +38,12 @@ jobs:
             echo "$tag -> $target"
           }
 
-          # PR #83: disable ordinary pointer hover on top Sensor
+          # v2.7.10 belongs to PR #83: disable ordinary pointer hover on top Sensor.
           retag 'v2.7.10' '26c411ada96b93baea22ad8c4f685a5202301e24'
 
-          # PR #84: auto-repair hidden spacer after persistent toggle drag
+          # v2.7.11 belongs to PR #84: auto-repair hidden spacer after persistent toggle drag.
           retag 'v2.7.11' '271e65f9cb1254fa9901153b41e67a7fbc30b753'
+
+          # GITHUB_TOKEN tag pushes do not start another workflow automatically, so dispatch explicitly.
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.10
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.11
