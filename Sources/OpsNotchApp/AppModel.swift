@@ -9,17 +9,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
     @Published private(set) var settings = ShelfSettings()
     @Published private(set) var appContext: AppContextKind = .generic
-    @Published private(set) var localFileResults: [LocalFileCandidate] = []
     @Published var query = "" {
         didSet {
-            scheduleLocalFileSearch()
             resetQuickHighlight()
         }
     }
     /// 类型筛选(全部/文件/文本/URL/应用),与搜索词叠加;仅会话内有效,不落盘。
     @Published var kindFilter: ShelfKindFilter = .all {
         didSet {
-            scheduleLocalFileSearch()
             resetQuickHighlight()
         }
     }
@@ -29,7 +26,7 @@ final class AppModel: ObservableObject {
     @Published var shelfHovered = false
     /// 键盘流焦点请求令牌:ShelfWindowController 置为新 UUID 时,ShelfView 的搜索框应自动聚焦。
     @Published var focusRequestToken: UUID?
-    /// Finder / Working Set / Shelf / Local Search 共用的一套键盘高亮 ID。
+    /// Finder / Working Set / Shelf 共用的一套键盘高亮 ID。
     @Published var highlightedQuickEntryID: String?
 
     let store: ShelfStoreService
@@ -44,7 +41,6 @@ final class AppModel: ObservableObject {
 
     private var toastWorkItem: DispatchWorkItem?
     private var lastSelectionID: UUID?
-    private var localSearchTask: Task<Void, Never>?
 
     init(store: ShelfStoreService) {
         self.store = store
@@ -116,27 +112,8 @@ final class AppModel: ObservableObject {
         return entries
     }
 
-    var visibleLocalEntries: [QuickShelfEntry] {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              kindFilter == .all || kindFilter == .file else { return [] }
-
-        let shelfPaths = Set(items.compactMap { item -> String? in
-            guard [.file, .folder, .application].contains(item.kind) else { return nil }
-            return standardizedPath(item.content)
-        })
-        let finderPaths = Set(visibleFinderEntries.compactMap { $0.finderPath }.map(standardizedPath))
-
-        return localFileResults.compactMap { candidate in
-            let standardized = standardizedPath(candidate.path)
-            guard !shelfPaths.contains(standardized), !finderPaths.contains(standardized) else { return nil }
-            return .local(
-                id: QuickShelfEntry.localID(path: standardized),
-                title: candidate.title,
-                path: standardized,
-                isDirectory: candidate.isDirectory
-            )
-        }
-    }
+    /// 本机文件系统搜索已移除；保留空集合用于兼容现有 Quick Shelf 视图结构。
+    var visibleLocalEntries: [QuickShelfEntry] { [] }
 
     var visibleDesktopEntries: [QuickShelfEntry] {
         guard kindFilter == .all,
@@ -173,7 +150,6 @@ final class AppModel: ObservableObject {
         visibleDesktopEntries
             + visibleFinderEntries
             + visibleItems.map(QuickShelfEntry.shelf)
-            + visibleLocalEntries
     }
 
     func quickEntryID(for item: ShelfItem) -> String {
@@ -190,7 +166,6 @@ final class AppModel: ObservableObject {
             appContext = next
             resetQuickHighlight()
         }
-        scheduleLocalFileSearch()
     }
 
     func moveHighlight(_ delta: Int) {
@@ -204,7 +179,7 @@ final class AppModel: ObservableObject {
         highlightedQuickEntryID = visible[next].id
     }
 
-    /// Enter：Finder/Local Folder 打开目录；Shelf/Local File 维持正确 pasteboard 语义。
+    /// Enter：Finder 打开目录；Shelf 维持正确 pasteboard 语义。
     func confirmHighlight(using clipboard: ClipboardManager) {
         guard let entry = highlightedQuickEntry else { return }
         switch entry {
@@ -292,7 +267,6 @@ final class AppModel: ObservableObject {
                !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
                 resetQuickHighlight()
             }
-            scheduleLocalFileSearch()
         } catch {
             showToast(error.localizedDescription)
         }
@@ -311,7 +285,6 @@ final class AppModel: ObservableObject {
                 resetQuickHighlight()
             }
             if notifyServices { settingsDidChange?() }
-            scheduleLocalFileSearch()
         } catch { showToast(error.localizedDescription) }
     }
 
@@ -523,43 +496,6 @@ final class AppModel: ObservableObject {
         NSString(string: rawPath).expandingTildeInPath
     }
 
-    private func standardizedPath(_ rawPath: String) -> String {
-        NSString(string: NSString(string: rawPath).expandingTildeInPath).standardizingPath
-    }
-
-    private func scheduleLocalFileSearch() {
-        localSearchTask?.cancel()
-        localFileResults = []
-
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              kindFilter == .all || kindFilter == .file else { return }
-
-        let recent = LocalFileSearchService.recentDocumentPaths()
-        let shelfPaths = items.compactMap { item -> String? in
-            [.file, .folder, .application].contains(item.kind) ? item.content : nil
-        }
-        let finderPaths = [settings.finderDefaultPath] + settings.finderQuickPaths.map(\.path)
-        let expectedQuery = trimmed
-
-        localSearchTask = Task { [weak self] in
-            let results = await LocalFileSearchService.search(
-                query: expectedQuery,
-                recentDocumentPaths: recent,
-                shelfPaths: shelfPaths,
-                finderPaths: finderPaths,
-                limit: 20
-            )
-            guard !Task.isCancelled, let self else { return }
-            guard self.query.trimmingCharacters(in: .whitespacesAndNewlines) == expectedQuery,
-                  self.kindFilter == .all || self.kindFilter == .file else { return }
-            self.localFileResults = results
-            if self.highlightedQuickEntryID == nil {
-                self.resetQuickHighlight()
-            }
-        }
-    }
-
     /// 模块内可见(而非 private),供同模块扩展(剪贴板/拖入捕获)直接应用 store 返回值。
     func apply(_ storeValue: ShelfStore) {
         let knownIDs = Set(items.map(\.id))
@@ -575,7 +511,6 @@ final class AppModel: ObservableObject {
             || !visibleQuickEntries.contains(where: { $0.id == highlightedQuickEntryID }) {
             resetQuickHighlight()
         }
-        scheduleLocalFileSearch()
     }
 }
 
