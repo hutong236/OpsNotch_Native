@@ -208,6 +208,7 @@ private struct MenuBarHiddenItemRow: View {
         .contentShape(Rectangle())
         .overlay {
             MenuBarHiddenItemMouseBridge(onPrimary: onPrimary, onSecondary: onSecondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -229,21 +230,52 @@ private struct MenuBarHiddenItemMouseBridge: NSViewRepresentable {
         nsView.onPrimary = onPrimary
         nsView.onSecondary = onSecondary
     }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: MenuBarHiddenItemMouseView,
+        context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else { return nil }
+        return CGSize(width: width, height: height)
+    }
 }
 
 private final class MenuBarHiddenItemMouseView: NSView {
     var onPrimary: (() -> Void)?
     var onSecondary: (() -> Void)?
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        installClickRecognizers()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installClickRecognizers()
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
 
-    override func mouseUp(with event: NSEvent) {
+    private func installClickRecognizers() {
+        let primary = NSClickGestureRecognizer(target: self, action: #selector(handlePrimaryClick(_:)))
+        primary.buttonMask = 1 << 0
+        addGestureRecognizer(primary)
+
+        let secondary = NSClickGestureRecognizer(target: self, action: #selector(handleSecondaryClick(_:)))
+        secondary.buttonMask = 1 << 1
+        addGestureRecognizer(secondary)
+    }
+
+    @objc private func handlePrimaryClick(_ recognizer: NSClickGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
         onPrimary?()
     }
 
-    override func rightMouseUp(with event: NSEvent) {
+    @objc private func handleSecondaryClick(_ recognizer: NSClickGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
         onSecondary?()
     }
 
