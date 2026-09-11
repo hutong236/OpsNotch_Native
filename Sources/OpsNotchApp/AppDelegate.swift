@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var unifiedFinder: UnifiedFinderCoordinator!
     private var inputMethodManager: InputMethodManager!
     private var desktopCommands: DesktopCommandIntegration!
+    private var terminationReplyPending = false
+    private var terminationRestorePrepared = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -117,7 +119,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationReplyPending else { return .terminateLater }
+        terminationReplyPending = true
+        restoreMenuBarBeforeTermination()
+
+        // 先让 AppKit 完成菜单栏重新布局，再真正结束进程，避免隐藏 Spacer 随进程一起
+        // 消失时第三方图标没有机会在当前 runloop 恢复到可见区域。
+        DispatchQueue.main.async {
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        // 正常退出通常已经在 applicationShouldTerminate 中恢复；这里作为注销/关机等
+        // 终止路径的幂等兜底，确保 OpsNotch 不把第三方菜单栏图标留在不可见状态。
+        restoreMenuBarBeforeTermination()
         menuBarManager?.stop()
         dragCoordinator?.stop()
         clipboard?.stopMonitoring()
@@ -125,6 +143,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    private func restoreMenuBarBeforeTermination() {
+        guard !terminationRestorePrepared else { return }
+        terminationRestorePrepared = true
+        guard let model, let menuBarManager else { return }
+
+        // showAll() 会同时释放普通隐藏区与持续隐藏区的 Spacer，并关闭隐藏图标代理面板。
+        // 退出恢复只用于当前运行期；恢复完成后写回原来的 lastState，避免改变下次启动偏好。
+        let savedLastState = model.settings.menuBarLastState
+        menuBarManager.showAll()
+        if model.settings.menuBarLastState != savedLastState {
+            model.updateSettings(notifyServices: false) { settings in
+                settings.menuBarLastState = savedLastState
+            }
+        }
     }
 }
 #endif
