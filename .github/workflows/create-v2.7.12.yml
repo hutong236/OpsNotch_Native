@@ -1,0 +1,41 @@
+name: Create v2.7.12 tag
+
+on:
+  push:
+    branches:
+      - chore/release-v2.7.12
+    paths:
+      - '.github/workflows/create-v2.7.12.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create and push v2.7.12
+        shell: bash
+        run: |
+          TAG='v2.7.12'
+          TARGET='c754767f22fc93cd8a6e4e8f3ae932e2ce0b5a86'
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG"
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" "$TARGET" -m "Ops Notch $TAG"
+          git push origin "$TAG"
+
+      - name: Dispatch macOS package workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.12
