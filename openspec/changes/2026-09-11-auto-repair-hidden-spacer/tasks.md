@@ -4,5 +4,5 @@
 - [x] Auto-align spacer preferred position to the current fixed toggle before managed visibility changes.
 - [x] Remove invisible spacer from user-facing order validation.
 - [x] Update order guidance text to mention only visible controls.
-- [ ] Run Swift tests, build, and static checks.
+- [x] Run Swift tests, build, and static checks.
 - [ ] Verify macOS manually after merge.
