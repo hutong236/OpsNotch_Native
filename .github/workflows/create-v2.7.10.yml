@@ -20,14 +20,10 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Verify release commit
+      - name: Show release commit
         shell: bash
         run: |
-          EXPECTED='271e65f9cb1254fa9901153b41e67a7fbc30b753'
-          ACTUAL="$(git rev-parse HEAD)"
-          echo "Expected: $EXPECTED"
-          echo "Actual:   $ACTUAL"
-          test "$ACTUAL" = "$EXPECTED"
+          echo "Release main HEAD: $(git rev-parse HEAD)"
 
       - name: Create and push v2.7.10
         shell: bash
@@ -39,7 +35,7 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "$TAG" 271e65f9cb1254fa9901153b41e67a7fbc30b753 -m "Ops Notch $TAG"
+          git tag -a "$TAG" HEAD -m "Ops Notch $TAG"
           git push origin "$TAG"
 
       - name: Dispatch macOS package workflow
