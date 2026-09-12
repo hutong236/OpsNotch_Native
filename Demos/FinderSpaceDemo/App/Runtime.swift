@@ -185,8 +185,11 @@ final class DemoRuntime {
         for name in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
             var value: CFTypeRef?
             let error = AXUIElementCopyAttributeValue(app, name as CFString, &value)
-            let id: CGWindowID? = value.flatMap {
-                CFGetTypeID($0) == AXUIElementGetTypeID() ? try? identifier(unsafeBitCast($0, to: AXUIElement.self)) : nil
+            let id: CGWindowID?
+            if let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
+                id = try? identifier(unsafeBitCast(value, to: AXUIElement.self))
+            } else {
+                id = nil
             }
             log.write("FINDER_\(name) error=\(error.rawValue) window=\(id.map(String.init) ?? "none")")
         }

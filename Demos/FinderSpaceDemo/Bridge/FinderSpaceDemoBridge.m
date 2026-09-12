@@ -34,19 +34,19 @@ int FinderDemoRequestMove(uint32_t window_id, uint64_t space_id, int64_t *raw_re
     PerformMove perform = (PerformMove)FinderDemoMoveAddress();
     if (strcmp(FinderDemoBridgeStatus(), "available") != 0) return 1;
     @autoreleasepool {
-        id operation = nil;
         @try {
             Class cls = objc_getClass("SLSBridgedMoveWindowsToManagedSpaceOperation");
             NSArray *windows = @[@((int32_t)window_id)];
-            operation = [[cls alloc] initWithWindows:windows spaceID:space_id];
+            // SwiftPM compiles Objective-C with ARC. Hold the initialized
+            // object through the C call and let ARC release it afterwards.
+            __attribute__((objc_precise_lifetime)) id operation =
+                [[cls alloc] initWithWindows:windows spaceID:space_id];
             if (!operation) return 2;
             int64_t result = perform(operation);
             if (raw_result) *raw_result = result;
         } @catch (NSException *exception) {
             // Do not include Finder titles or paths in diagnostics.
             return 3;
-        } @finally {
-            [operation release];
         }
     }
     return 0;
