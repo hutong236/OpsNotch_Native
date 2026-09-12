@@ -63,9 +63,21 @@ jobs:
           codesign --verify --deep --strict "build/Ops Notch.app"
           ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" build/OpsNotch-PR-macOS.zip
 
+      - name: Verify extracted app archive
+        run: |
+          unzip -t build/OpsNotch-PR-macOS.zip
+          ARCHIVE_CHECK_ROOT="$(mktemp -d "$RUNNER_TEMP/opsnotch-archive.XXXXXX")"
+          trap 'rm -rf "$ARCHIVE_CHECK_ROOT"' EXIT
+          ditto -x -k build/OpsNotch-PR-macOS.zip "$ARCHIVE_CHECK_ROOT"
+          test -x "$ARCHIVE_CHECK_ROOT/Ops Notch.app/Contents/MacOS/OpsNotch"
+          codesign --verify --deep --strict "$ARCHIVE_CHECK_ROOT/Ops Notch.app"
+          diff -r "build/Ops Notch.app" "$ARCHIVE_CHECK_ROOT/Ops Notch.app"
+          shasum -a 256 build/OpsNotch-PR-macOS.zip
+
       - name: Upload app for manual acceptance
         uses: actions/upload-artifact@v7
         with:
-          name: OpsNotch-PR-macOS
           path: build/OpsNotch-PR-macOS.zip
+          # The app is already zipped with permissions and signatures preserved.
+          archive: false
           if-no-files-found: error
