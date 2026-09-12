@@ -94,6 +94,7 @@ private final class DesktopWindowMover {
     private typealias AXWindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
 
     private let handle: UnsafeMutableRawPointer?
+    private let processHandle: UnsafeMutableRawPointer?
     private let mainConnection: MainConnectionFunction?
     private let moveWindows: MoveWindowsFunction?
     private let axWindowID: AXWindowIDFunction?
@@ -101,6 +102,7 @@ private final class DesktopWindowMover {
     init() {
         let path = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
         handle = dlopen(path, RTLD_LAZY)
+        processHandle = dlopen(nil, RTLD_LAZY)
 
         if let handle,
            let symbol = dlsym(handle, "CGSMainConnectionID") ?? dlsym(handle, "SLSMainConnectionID") {
@@ -117,10 +119,20 @@ private final class DesktopWindowMover {
             moveWindows = nil
         }
 
-        if let symbol = dlsym(RTLD_DEFAULT, "_AXUIElementGetWindow") {
+        if let processHandle,
+           let symbol = dlsym(processHandle, "_AXUIElementGetWindow") {
             axWindowID = unsafeBitCast(symbol, to: AXWindowIDFunction.self)
         } else {
             axWindowID = nil
+        }
+    }
+
+    deinit {
+        if let processHandle {
+            dlclose(processHandle)
+        }
+        if let handle {
+            dlclose(handle)
         }
     }
 
@@ -190,7 +202,7 @@ private final class DesktopWindowMover {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
             window,
-            kAXFullScreenAttribute as CFString,
+            "AXFullScreen" as CFString,
             &value
         ) == .success else {
             return false
