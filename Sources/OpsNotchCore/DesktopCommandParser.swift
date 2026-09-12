@@ -32,3 +32,16 @@ public enum DesktopCommandParser {
         return .switchTo(index: index)
     }
 }
+
+public enum DesktopTargetSelectionAction: Equatable, Sendable {
+    case switchDesktop
+    case moveWindow
+    case moveWindowAndFollow
+}
+
+public enum DesktopTargetSelectionResolver {
+    public static func resolve(optionPressed: Bool, shiftPressed: Bool) -> DesktopTargetSelectionAction {
+        guard optionPressed else { return .switchDesktop }
+        return shiftPressed ? .moveWindowAndFollow : .moveWindow
+    }
+}

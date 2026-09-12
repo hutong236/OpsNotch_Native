@@ -39,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Quick Shelf 会临时成为 key window；集中管理原应用焦点的记录与归还。
         focusReturn = FocusReturnCoordinator()
         desktopCommands.shelf = shelf
+        shelf.onWillBeginKeyboardSession = { [weak desktopCommands] in desktopCommands?.captureSourceWindow() }
+        shelf.onEndKeyboardSession = { [weak desktopCommands] in desktopCommands?.endKeyboardSession() }
+        desktopCommands.beforeDesktopAction = { [weak focusReturn] in focusReturn?.discardSession() }
         sensors = SensorManager(model: model, shelf: shelf, clipboard: clipboard)
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
 

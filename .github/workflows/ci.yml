@@ -45,3 +45,39 @@ jobs:
 
       - name: Architecture checks
         run: python3 scripts/static_checks.py
+
+      - name: Invoke production window move bridge (own window, same Space)
+        run: |
+          clang -fobjc-arc \
+            -I Sources/OpsNotchPrivateInterop/include \
+            Sources/OpsNotchPrivateInterop/MachOSymbolResolver.c \
+            Sources/OpsNotchPrivateInterop/DesktopWindowMoveBridge.m \
+            scripts/verify_desktop_window_move.m \
+            -framework AppKit \
+            -o "$RUNNER_TEMP/verify-window-move"
+          "$RUNNER_TEMP/verify-window-move"
+
+      - name: Package app for manual acceptance
+        run: |
+          scripts/build_app.sh
+          codesign --verify --deep --strict "build/Ops Notch.app"
+          ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" build/OpsNotch-PR-macOS.zip
+
+      - name: Verify extracted app archive
+        run: |
+          unzip -t build/OpsNotch-PR-macOS.zip
+          ARCHIVE_CHECK_ROOT="$(mktemp -d "$RUNNER_TEMP/opsnotch-archive.XXXXXX")"
+          trap 'rm -rf "$ARCHIVE_CHECK_ROOT"' EXIT
+          ditto -x -k build/OpsNotch-PR-macOS.zip "$ARCHIVE_CHECK_ROOT"
+          test -x "$ARCHIVE_CHECK_ROOT/Ops Notch.app/Contents/MacOS/OpsNotch"
+          codesign --verify --deep --strict "$ARCHIVE_CHECK_ROOT/Ops Notch.app"
+          diff -r "build/Ops Notch.app" "$ARCHIVE_CHECK_ROOT/Ops Notch.app"
+          shasum -a 256 build/OpsNotch-PR-macOS.zip
+
+      - name: Upload app for manual acceptance
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/OpsNotch-PR-macOS.zip
+          # The app is already zipped with permissions and signatures preserved.
+          archive: false
+          if-no-files-found: error

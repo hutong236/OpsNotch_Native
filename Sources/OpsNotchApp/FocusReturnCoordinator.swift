@@ -54,6 +54,12 @@ final class FocusReturnCoordinator {
         }
     }
 
+    /// A desktop command owns focus from now on. Do not activate the source
+    /// app from the delayed Shelf resign-key callback after it has moved away.
+    func discardSession() {
+        previousApplication = nil
+    }
+
     private func captureFrontmostApplication(for panel: ShelfPanel) {
         guard panel.isVisible,
               let application = NSWorkspace.shared.frontmostApplication,

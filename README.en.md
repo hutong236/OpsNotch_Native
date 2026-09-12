@@ -33,9 +33,14 @@ Automated release artifacts currently target Apple Silicon (arm64). Intel Mac us
 - Pinned and Recent sections, search, type filters, multi-selection, and retention cleanup.
 - Keyboard retrieval flow with arrows, Enter, Space, Escape, and Command+1 through Command+5.
 - One event-driven sensor per display, including hot-plug and display-layout changes.
+- Type `d` to switch desktops or move the original active window to a normal desktop on the same or another display, optionally following it.
 - Quick Look, Reveal in Finder, launch at login, runtime Chinese/English switching, and an optional global summon hotkey.
 - Safe actions limited to absolute local paths and HTTP/HTTPS URLs. No shell or arbitrary command execution.
 - Native Swift, AppKit, SwiftUI, and Swift Package Manager only; no local web server.
+
+## Move windows between displays and desktops
+
+To move a window, activate it, summon Shelf, enter `d`, and choose **Move current window to…** or **Move current window and follow to…**. The menu identifies the source app and destination display. Option and Option-Shift on the desktop rows remain available; ordinary selection only switches desktops. Grant Accessibility to Ops Notch. Cross-display tests require extended displays with **Displays have separate Spaces**, ordinary non-minimized windows on one Space, and a destination display currently showing a normal desktop. Window size is preserved unless it must shrink to fit the destination. Check the actual window location after partial failures before retrying. See [VERIFY_ON_MAC.md](VERIFY_ON_MAC.md) for real-app acceptance checks.
 
 ## Build from source
 

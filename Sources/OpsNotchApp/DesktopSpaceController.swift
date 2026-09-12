@@ -60,7 +60,11 @@ final class DesktopSpaceController {
         return .success(descriptors(from: displays))
     }
 
-    func switchToDesktop(_ index: Int) async -> DesktopSpaceSwitchResult {
+    func switchToDesktop(
+        _ index: Int,
+        expectedTarget: DesktopSpaceDescriptor? = nil,
+        restoreWindowFocus: Bool = true
+    ) async -> DesktopSpaceSwitchResult {
         guard await ensureAccessibilityPermission() else {
             return .failure(.accessibilityRequired)
         }
@@ -70,7 +74,12 @@ final class DesktopSpaceController {
         }
 
         let currentDescriptors = descriptors(from: displays)
-        guard let target = currentDescriptors.first(where: { $0.index == index }) else {
+        guard let target = currentDescriptors.first(where: {
+            if let expectedTarget {
+                return $0.spaceID == expectedTarget.spaceID && $0.displayIdentifier == expectedTarget.displayIdentifier
+            }
+            return $0.index == index
+        }) else {
             return .failure(.desktopNotFound(index))
         }
 
@@ -116,7 +125,9 @@ final class DesktopSpaceController {
         }
 
         CGWarpMouseCursorPosition(finalPointer)
-        focusBestWindow(on: targetDisplayID, forSpaceID: target.spaceID)
+        if restoreWindowFocus {
+            focusBestWindow(on: targetDisplayID, forSpaceID: target.spaceID)
+        }
         return .success(target)
     }
 
@@ -196,7 +207,9 @@ final class DesktopSpaceController {
     private func switchUsingHIDFallback(to originalTarget: DesktopSpaceDescriptor) async -> Bool {
         guard let displays = skyLight.managedDisplays() else { return false }
         let refreshed = descriptors(from: displays)
-        guard let target = refreshed.first(where: { $0.spaceID == originalTarget.spaceID }) else {
+        guard let target = refreshed.first(where: {
+            $0.spaceID == originalTarget.spaceID && $0.displayIdentifier == originalTarget.displayIdentifier
+        }) else {
             return false
         }
         if target.isCurrent { return true }

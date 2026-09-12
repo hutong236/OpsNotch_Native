@@ -226,17 +226,26 @@ Ops Notch 不应创建任何 1420 监听端口。
 15. 连续复制 20 段不同文字、复制 Finder 文件、从 Working Set/Recent 二次取回文件各执行多轮：Clipboard Catch 仍完整记录外部复制，Ops Notch 自身复制不回灌，文件始终保持 file URL pasteboard 语义。
 16. 双显示器分别在 Finder / Terminal / Browser 前台呼出 Smart Quick Shelf：面板仍出现在预期屏幕，当前 App 上下文排序正确，多屏 Sensor / Finder 打开能力无回归。
 
-## 21. 桌面窗口移动（macOS 26.6.2）
+## 21. 桌面与跨显示器窗口移动（macOS 26.6.2）
 
-前置条件：使用普通桌面 Space（非 Full Screen / Split View），并在“系统设置 → 隐私与安全性 → 辅助功能”中允许 Ops Notch。
+前置条件：允许 **Ops Notch** 的辅助功能权限。窗口应非全屏、非最小化，应用不分配到所有桌面。跨屏指定独立桌面需要扩展显示并开启“显示器具有单独的空间”；目标显示器当前也需显示普通桌面。授权后重新激活源窗口，再呼出 Shelf。
 
-1. 在桌面 1 打开 Sublime Text，确保其普通窗口处于前台。
-2. 使用全局快捷键呼出 Quick Shelf，输入 `d` 并按 `Enter` 打开桌面列表。
-3. 按住 `⌥` 选择桌面 2：Sublime Text 窗口必须移动到桌面 2，用户仍停留在桌面 1。
-4. 将窗口移回桌面 1，再重复步骤 2；按住 `⌥⇧` 选择桌面 2：窗口、用户焦点和鼠标必须一起到达桌面 2。
-5. 分别使用 Sublime Text、Finder 和 Safari 重复测试，确认每次只移动当前活动窗口。
-6. 选择窗口当前所在桌面：操作应安全完成，不得重复移动、闪退或错误切换。
-7. 尝试选择 Full Screen Space：操作必须被拒绝并显示可理解提示。
-8. 运行 `./script/build_and_run.sh --telemetry`，成功操作必须出现 `desktop-window` 分类的 `verified move`；如果 WindowServer 未确认目标 Space，必须显示移动失败，日志出现 `move verification timed out`，不得继续跟随切换。
+用户已反馈 #98 FinderSpaceDemo 0.2 测试成功。以下清单用于正式工具的独立回归；该反馈不等于下列所有 App、动作与布局均已验收。
 
-GitHub CI 必须在 `macos-26` Runner 上通过 `scripts/verify_desktop_space_compatibility.swift`，确认 26.x 所需 SkyLight/AX 符号与 Objective-C 初始化方法仍存在。CI 只能验证运行时接口兼容性；上述真实窗口跨 Space 行为仍以真机验收为准。
+1. 在显示器 A 的桌面 1 激活 Sublime Text 窗口；呼出 Shelf，输入 `d` 回车。顶部“操作窗口来自”必须是 Sublime Text。
+2. 普通选择另一个桌面：仅切换桌面，Sublime 窗口仍留在源桌面。
+3. 重新激活源窗口呼出工具，从“移动当前窗口到…”中选择同屏另一个普通桌面：只移动该窗口。
+4. 从“移动当前窗口并跟随到…”选择目标：窗口、键盘输入焦点和鼠标一起到达目标；不必再点击窗口才能输入。
+5. 按住 ⌥ 再点击目标桌面行，或按住 ⌥ 后用 ↑↓ 选中目标并按 Enter：结果与步骤 3 一致；按住 ⌥⇧ 重复操作，结果与步骤 4 一致。底部提示应明确写出“选择桌面行”，只有 ⇧ 时仍是普通切换。
+6. 跨屏分别测试 A → B 当前桌面（带 ✓）、A → B 非当前桌面（不带 ✓），随后 B → A。检查窗口完整出现在指定屏/桌面；只移到 B 当前桌面不算指定非当前桌面移动成功。
+7. 使用不同缩放比例及左侧/上方排列的显示器测试。窗口通常保持点尺寸；目标屏过小时按需缩小，不被放在屏幕外或菜单栏/Dock 下方。
+8. Finder、Sublime Text、Safari 分别打开两个窗口，激活其中一个后重复，确认每次只移动呼出工具前的窗口，菜单显示正确源应用。
+9. 在菜单中选定目标前重排桌面：必须仍按原目标 Space ID 移动；目标删除/移到其他屏后明确失败，不能按旧序号移动其他桌面。
+10. 操作期间拔除/重排显示器：停止操作并提示布局变化。发生部分移动后检查实际位置，重新激活窗口即可再次操作。
+11. 尝试全屏、Split View、最小化、多 Space 窗口或关闭已捕获窗口：明确拒绝，不退回到移动其他窗口。
+12. 移到本来所在的普通桌面：安全完成；多 Space 窗口即使包含目标 ID 也不能当作成功。
+13. 快速重复桌面命令：不得并发移动/抢鼠标；出现失败提示后可重新激活窗口重试。
+14. `./script/build_and_run.sh --telemetry` 的 `desktop-window` 日志应包含同一 `captured source window`、`move before` 和 `verified move`。跨屏有 `cross display plan`、`display staged`；目标恰好是该屏当前桌面时可能通过 AX 放置直接完成，不调用私有 Space API。失败保留最终 Space/位置，未确认成功时不继续跟随。
+15. 普通剪贴板搜索取回与 Esc 收起继续归还原应用焦点；桌面移动后不得被旧 Shelf 回调激活回原桌面。
+
+CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_desktop_space_compatibility.c` 符号探针、`scripts/verify_desktop_window_move.m` 生产桥接的自有窗口同 Space 调用、正式 App 编译和签名打包。日志明确输出 `CROSS_SPACE_NOT_TESTED; CROSS_DISPLAY_NOT_TESTED; EXTERNAL_APP_NOT_TESTED`；外部 App 的上述操作仍需真机验收。

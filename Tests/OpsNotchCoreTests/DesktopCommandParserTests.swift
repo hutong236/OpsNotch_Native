@@ -28,4 +28,23 @@ final class DesktopCommandParserTests: XCTestCase {
         XCTAssertNil(DesktopCommandParser.parse("desktop app"))
         XCTAssertNil(DesktopCommandParser.parse("my d 1"))
     }
+
+    func testDesktopTargetSelectionUsesLiveModifierIntent() {
+        XCTAssertEqual(
+            DesktopTargetSelectionResolver.resolve(optionPressed: false, shiftPressed: false),
+            .switchDesktop
+        )
+        XCTAssertEqual(
+            DesktopTargetSelectionResolver.resolve(optionPressed: false, shiftPressed: true),
+            .switchDesktop
+        )
+        XCTAssertEqual(
+            DesktopTargetSelectionResolver.resolve(optionPressed: true, shiftPressed: false),
+            .moveWindow
+        )
+        XCTAssertEqual(
+            DesktopTargetSelectionResolver.resolve(optionPressed: true, shiftPressed: true),
+            .moveWindowAndFollow
+        )
+    }
 }

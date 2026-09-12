@@ -18,7 +18,8 @@ let package = Package(
         .target(
             name: "OpsNotchPrivateInterop",
             path: "Sources/OpsNotchPrivateInterop",
-            publicHeadersPath: "include"
+            publicHeadersPath: "include",
+            linkerSettings: [.linkedFramework("Foundation")]
         ),
         .executableTarget(
             name: "OpsNotchApp",

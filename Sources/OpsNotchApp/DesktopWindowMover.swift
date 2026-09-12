@@ -3,30 +3,25 @@ import AppKit
 import ApplicationServices
 import Darwin
 import Foundation
+import OpsNotchCore
 import OpsNotchPrivateInterop
 import OSLog
 
-private let desktopWindowLog = Logger(
-    subsystem: "lab.hutong.opsnotch",
-    category: "desktop-window"
-)
+let desktopWindowLog = Logger(subsystem: "lab.hutong.opsnotch", category: "desktop-window")
 
 @MainActor
 struct DesktopCapturedWindow {
     let application: NSRunningApplication
     let element: AXUIElement
+    let id: CGWindowID
 }
 
 enum DesktopWindowMoveError: Error, Equatable {
-    case accessibilityRequired
-    case topologyUnavailable
-    case desktopNotFound(Int)
-    case fullscreenUnsupported
-    case activeWindowUnavailable
-    case windowIdentifierUnavailable
-    case moveAPIUnavailable
-    case moveFailed(Int)
-    case followSwitchFailed(Int)
+    case accessibilityRequired, topologyUnavailable, fullscreenUnsupported
+    case activeWindowUnavailable, windowIdentifierUnavailable, moveAPIUnavailable
+    case singleSpaceRequired, separateSpacesRequired, displayLayoutChanged
+    case targetDisplayFullscreen, displayPlacementFailed, focusFailed
+    case desktopNotFound(Int), moveFailed(Int), followSwitchFailed(Int)
 }
 
 enum DesktopWindowMoveResult {
@@ -37,357 +32,229 @@ enum DesktopWindowMoveResult {
 @MainActor
 extension DesktopSpaceController {
     func captureCurrentWindowForMove() -> DesktopCapturedWindow? {
-        DesktopWindowMover().captureFrontmostWindow()
+        DesktopWindowMover.shared.captureFrontmostWindow()
     }
 
     func moveCurrentWindow(
-        toDesktop index: Int,
+        toDesktop target: DesktopSpaceDescriptor,
         follow: Bool,
-        capturedWindow: DesktopCapturedWindow? = nil
+        capturedWindow: DesktopCapturedWindow?
     ) async -> DesktopWindowMoveResult {
-        guard await DesktopWindowMover.ensureAccessibilityPermission() else {
-            return .failure(.accessibilityRequired)
-        }
-
-        let target: DesktopSpaceDescriptor
-        switch desktops() {
-        case .failure(let error):
-            switch error {
-            case .accessibilityRequired:
-                return .failure(.accessibilityRequired)
-            case .topologyUnavailable:
-                return .failure(.topologyUnavailable)
-            case .desktopNotFound(let index):
-                return .failure(.desktopNotFound(index))
-            case .switchFailed(let index):
-                return .failure(.followSwitchFailed(index))
-            }
-        case .success(let descriptors):
-            guard let descriptor = descriptors.first(where: { $0.index == index }) else {
-                return .failure(.desktopNotFound(index))
-            }
-            target = descriptor
-        }
-
-        guard !target.isFullscreen else {
-            return .failure(.fullscreenUnsupported)
-        }
-
-        let mover = DesktopWindowMover()
-        guard let window = capturedWindow ?? mover.captureFrontmostWindow() else {
-            return .failure(.activeWindowUnavailable)
-        }
-        guard let windowID = mover.windowID(for: window.element) else {
-            return .failure(.windowIdentifierUnavailable)
-        }
-        guard mover.isAvailable else {
-            return .failure(.moveAPIUnavailable)
-        }
-        guard await mover.move(windowID: windowID, toSpaceID: target.spaceID) else {
-            return .failure(.moveFailed(index))
-        }
-
-        guard follow else {
-            return .success(target)
-        }
-
-        let switchResult = await switchToDesktop(index)
-        switch switchResult {
-        case .failure:
-            return .failure(.followSwitchFailed(index))
-        case .success:
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            mover.restoreFocus(to: window)
-            return .success(target)
+        guard await DesktopWindowMover.ensureAccessibilityPermission() else { return .failure(.accessibilityRequired) }
+        // Never resolve a different frontmost window after the Shelf has taken focus.
+        guard let window = capturedWindow else { return .failure(.activeWindowUnavailable) }
+        let mover = DesktopWindowMover.shared
+        do {
+            try await mover.move(window: window, target: target, controller: self)
+            let destination = try mover.liveTarget(target, controller: self)
+            guard follow else { return .success(destination) }
+            let result = await switchToDesktop(destination.index, expectedTarget: destination, restoreWindowFocus: false)
+            guard case .success = result else { return .failure(.followSwitchFailed(destination.index)) }
+            // Activate only the moved window. The generic desktop focus picker
+            // can otherwise select another window/app and switch Spaces again.
+            try await mover.focus(window, on: destination, controller: self)
+            return .success(destination)
+        } catch {
+            let finalSpaces = try? mover.spaceIDs(for: window.id)
+            let finalFrame = try? mover.windowFrame(window.element)
+            desktopWindowLog.error("move failed window=\(window.id, privacy: .public) target=\(target.spaceID, privacy: .public) spaces=\(String(describing: finalSpaces), privacy: .public) frame=\(String(describing: finalFrame), privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return .failure(error as? DesktopWindowMoveError ?? .moveFailed(target.index))
         }
     }
 }
 
 @MainActor
-private final class DesktopWindowMover {
-    private typealias ConnectionID = UInt32
-    private typealias MainConnectionFunction = @convention(c) () -> ConnectionID
-    private typealias MoveWindowsFunction = @convention(c) (ConnectionID, CFArray, UInt64) -> Void
-    private typealias PerformBridgedMoveFunction = @convention(c) (UnsafeMutableRawPointer) -> Int64
-    private typealias CopySpacesForWindowsFunction = @convention(c) (
-        ConnectionID,
-        Int32,
-        CFArray
-    ) -> Unmanaged<CFArray>?
-    private typealias AXWindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+final class DesktopWindowMover {
+    static let shared = DesktopWindowMover()
+    private typealias Connection = @convention(c) () -> UInt32
+    private typealias LegacyMove = @convention(c) (UInt32, CFArray, UInt64) -> Void
+    private typealias ReadSpaces = @convention(c) (UInt32, Int32, CFArray) -> Unmanaged<CFArray>?
+    private typealias WindowID = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+    private let image: UnsafeMutableRawPointer?
+    private let process: UnsafeMutableRawPointer?
+    private let connection: Connection?
+    private let legacyMove: LegacyMove?
+    private let readSpaces: ReadSpaces?
+    private let axID: WindowID?
 
-    private typealias ObjCGetClassFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
-    private typealias SelRegisterNameFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
-    private typealias ObjCMsgSendAllocFunction = @convention(c) (
-        UnsafeMutableRawPointer,
-        UnsafeMutableRawPointer
-    ) -> UnsafeMutableRawPointer?
-    private typealias ObjCMsgSendInitMoveFunction = @convention(c) (
-        UnsafeMutableRawPointer,
-        UnsafeMutableRawPointer,
-        CFArray,
-        UInt64
-    ) -> UnsafeMutableRawPointer?
-    private typealias ObjCMsgSendReleaseFunction = @convention(c) (
-        UnsafeMutableRawPointer,
-        UnsafeMutableRawPointer
-    ) -> Void
-
-    private let handle: UnsafeMutableRawPointer?
-    private let processHandle: UnsafeMutableRawPointer?
-    private let mainConnection: MainConnectionFunction?
-    private let moveWindows: MoveWindowsFunction?
-    private let performBridgedMove: PerformBridgedMoveFunction?
-    private let copySpacesForWindows: CopySpacesForWindowsFunction?
-    private let axWindowID: AXWindowIDFunction?
-
-    init() {
-        let path = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
-        handle = dlopen(path, RTLD_LAZY)
-        processHandle = dlopen(nil, RTLD_LAZY)
-
-        if let handle,
-           let symbol = dlsym(handle, "CGSMainConnectionID") ?? dlsym(handle, "SLSMainConnectionID") {
-            mainConnection = unsafeBitCast(symbol, to: MainConnectionFunction.self)
-        } else {
-            mainConnection = nil
+    private init() {
+        image = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+        process = dlopen(nil, RTLD_LAZY)
+        func symbol(_ names: [String], in handle: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
+            guard let handle else { return nil }
+            return names.lazy.compactMap { dlsym(handle, $0) }.first
         }
-
-        if let handle,
-           let symbol = dlsym(handle, "SLSMoveWindowsToManagedSpace")
-                ?? dlsym(handle, "CGSMoveWindowsToManagedSpace") {
-            moveWindows = unsafeBitCast(symbol, to: MoveWindowsFunction.self)
-        } else {
-            moveWindows = nil
-        }
-
-        let bridgedMoveSymbol = handle.flatMap {
-            dlsym($0, "SLSPerformAsynchronousBridgedWindowManagementOperation")
-        } ?? opsnotch_find_macho_symbol(
-            "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight",
-            "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperationP47SLSAsynchronousBridgedWindowManagementOperation"
-        )
-
-        if let symbol = bridgedMoveSymbol {
-            performBridgedMove = unsafeBitCast(symbol, to: PerformBridgedMoveFunction.self)
-        } else {
-            performBridgedMove = nil
-        }
-
-        if let handle,
-           let symbol = dlsym(handle, "SLSCopySpacesForWindows")
-                ?? dlsym(handle, "CGSCopySpacesForWindows") {
-            copySpacesForWindows = unsafeBitCast(symbol, to: CopySpacesForWindowsFunction.self)
-        } else {
-            copySpacesForWindows = nil
-        }
-
-        if let processHandle,
-           let symbol = dlsym(processHandle, "_AXUIElementGetWindow") {
-            axWindowID = unsafeBitCast(symbol, to: AXWindowIDFunction.self)
-        } else {
-            axWindowID = nil
-        }
+        connection = symbol(["SLSMainConnectionID", "CGSMainConnectionID"], in: image).map { unsafeBitCast($0, to: Connection.self) }
+        legacyMove = symbol(["SLSMoveWindowsToManagedSpace", "CGSMoveWindowsToManagedSpace"], in: image).map { unsafeBitCast($0, to: LegacyMove.self) }
+        readSpaces = symbol(["SLSCopySpacesForWindows", "CGSCopySpacesForWindows"], in: image).map { unsafeBitCast($0, to: ReadSpaces.self) }
+        axID = symbol(["_AXUIElementGetWindow"], in: process).map { unsafeBitCast($0, to: WindowID.self) }
     }
 
     deinit {
-        if let processHandle {
-            dlclose(processHandle)
-        }
-        if let handle {
-            dlclose(handle)
-        }
+        if let process { dlclose(process) }
+        if let image { dlclose(image) }
     }
 
-    var isAvailable: Bool {
-        mainConnection != nil
-            && copySpacesForWindows != nil
-            && (performBridgedMove != nil || moveWindows != nil)
+    func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
 
     func captureFrontmostWindow() -> DesktopCapturedWindow? {
-        guard let application = NSWorkspace.shared.frontmostApplication,
-              application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
-            return nil
-        }
-
-        let appElement = AXUIElementCreateApplication(application.processIdentifier)
-        var value: CFTypeRef?
-        var result = AXUIElementCopyAttributeValue(
-            appElement,
-            kAXFocusedWindowAttribute as CFString,
-            &value
-        )
-
-        if result != .success || value == nil {
-            result = AXUIElementCopyAttributeValue(
-                appElement,
-                kAXMainWindowAttribute as CFString,
-                &value
-            )
-        }
-
-        guard result == .success,
-              let value,
-              CFGetTypeID(value) == AXUIElementGetTypeID() else {
-            return nil
-        }
-
-        let window = unsafeBitCast(value, to: AXUIElement.self)
-        if isFullscreen(window) {
-            return nil
-        }
-
-        return DesktopCapturedWindow(application: application, element: window)
+        guard AXIsProcessTrusted(), let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        // This capture runs before makeKey; do not let an unresponsive app hold
+        // up every Quick Shelf invocation for seconds.
+        AXUIElementSetMessagingTimeout(appElement, 0.25)
+        guard let value = attribute(appElement, kAXFocusedWindowAttribute) ?? attribute(appElement, kAXMainWindowAttribute),
+              CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        let element = unsafeBitCast(value, to: AXUIElement.self)
+        guard let id = windowID(for: element) else { return nil }
+        desktopWindowLog.info("captured source pid=\(app.processIdentifier, privacy: .public) window=\(id, privacy: .public)")
+        return DesktopCapturedWindow(application: app, element: element, id: id)
     }
 
     func windowID(for element: AXUIElement) -> CGWindowID? {
-        guard let axWindowID else { return nil }
-        var windowID = CGWindowID(0)
-        guard axWindowID(element, &windowID) == .success,
-              windowID != 0 else {
-            return nil
-        }
-        return windowID
+        guard let axID else { return nil }
+        var id: CGWindowID = 0
+        return axID(element, &id) == .success && id != 0 ? id : nil
     }
 
-    func move(windowID: CGWindowID, toSpaceID spaceID: UInt64) async -> Bool {
-        let windowIDs = [NSNumber(value: Int32(bitPattern: windowID))] as CFArray
-        let sourceSpaces = spaceIDs(for: windowID) ?? []
-
-        if sourceSpaces.contains(spaceID) {
-            desktopWindowLog.info(
-                "window already belongs to target window=\(windowID, privacy: .public) space=\(spaceID, privacy: .public)"
-            )
-            return true
+    func validateWindow(_ window: DesktopCapturedWindow) throws {
+        guard !window.application.isTerminated, windowID(for: window.element) == window.id else {
+            throw DesktopWindowMoveError.activeWindowUnavailable
         }
+        guard attribute(window.element, "AXFullScreen") as? Bool != true else { throw DesktopWindowMoveError.fullscreenUnsupported }
+        guard attribute(window.element, kAXSubroleAttribute) as? String == kAXStandardWindowSubrole,
+              attribute(window.element, kAXMinimizedAttribute) as? Bool != true else { throw DesktopWindowMoveError.activeWindowUnavailable }
+    }
 
-        if let performBridgedMove,
-           let operationResult = moveUsingBridgedOperation(
-               windowIDs: windowIDs,
-               spaceID: spaceID,
-               perform: performBridgedMove
-           ) {
-            desktopWindowLog.info(
-                "requested bridged move window=\(windowID, privacy: .public) target=\(spaceID, privacy: .public) result=\(operationResult, privacy: .public)"
-            )
+    func topology(_ controller: DesktopSpaceController) throws -> [DesktopSpaceDescriptor] {
+        guard case .success(let descriptors) = controller.desktops() else { throw DesktopWindowMoveError.topologyUnavailable }
+        return descriptors
+    }
+
+    func liveTarget(_ target: DesktopSpaceDescriptor, controller: DesktopSpaceController) throws -> DesktopSpaceDescriptor {
+        guard let live = try topology(controller).first(where: { $0.spaceID == target.spaceID }),
+              live.displayIdentifier == target.displayIdentifier else { throw DesktopWindowMoveError.desktopNotFound(target.index) }
+        guard live.type == 0 else { throw DesktopWindowMoveError.fullscreenUnsupported }
+        return live
+    }
+
+    func move(window: DesktopCapturedWindow, target: DesktopSpaceDescriptor, controller: DesktopSpaceController) async throws {
+        try validateWindow(window)
+        AXUIElementSetMessagingTimeout(window.element, 1)
+        let destination = try liveTarget(target, controller: controller)
+        let before = try spaceIDs(for: window.id)
+        guard before.count == 1, let source = try topology(controller).first(where: { before.contains($0.spaceID) }), source.type == 0 else {
+            throw DesktopWindowMoveError.singleSpaceRequired
+        }
+        if before == [destination.spaceID] { return }
+        desktopWindowLog.info("move before window=\(window.id, privacy: .public) spaces=\(String(describing: before), privacy: .public) target=\(destination.spaceID, privacy: .public)")
+
+        let activated = window.application.activate(options: [.activateIgnoringOtherApps])
+        let raised = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+        desktopWindowLog.debug("activate window=\(window.id, privacy: .public) activated=\(activated) raise=\(raised.rawValue)")
+        try await Task.sleep(nanoseconds: 500_000_000)
+        try validateWindow(window)
+        _ = try liveTarget(destination, controller: controller)
+        guard try spaceIDs(for: window.id) == before else { throw DesktopWindowMoveError.singleSpaceRequired }
+
+        let transfer = try displayTransfer(window: window, source: source, destination: destination)
+        if let transfer {
+            try await stageOnDisplay(window: window, transfer: transfer, controller: controller)
+            _ = try validateTransfer(transfer, controller: controller)
+        }
+        if try spaceIDs(for: window.id) != [destination.spaceID] {
+            try requestMove(windowID: window.id, spaceID: destination.spaceID)
         } else {
-            guard let mainConnection, let moveWindows else { return false }
-            moveWindows(mainConnection(), windowIDs, spaceID)
-            desktopWindowLog.info(
-                "requested legacy move window=\(windowID, privacy: .public) target=\(spaceID, privacy: .public)"
-            )
+            desktopWindowLog.info("display placement reached target window=\(window.id, privacy: .public) target=\(destination.spaceID, privacy: .public)")
         }
+        try await verify(window: window, target: destination, transfer: transfer, controller: controller)
+    }
 
-        // Tahoe 26.4+ performs the bridged operation asynchronously. Do not
-        // report success until WindowServer confirms the target Space owns the
-        // requested window; this prevents the silent no-op seen on macOS 26.
-        for _ in 0..<30 {
-            if spaceIDs(for: windowID)?.contains(spaceID) == true {
-                desktopWindowLog.info(
-                    "verified move window=\(windowID, privacy: .public) target=\(spaceID, privacy: .public)"
-                )
-                return true
+    private func requestMove(windowID: CGWindowID, spaceID: UInt64) throws {
+        var rawResult: Int64 = 0
+        let result = opsnotch_request_window_move(windowID, spaceID, &rawResult)
+        if result == 0 {
+            desktopWindowLog.info("requested Objective-C move window=\(windowID, privacy: .public) target=\(spaceID, privacy: .public) raw_result=\(rawResult, privacy: .public)")
+        } else if result == 1, let connection, let legacyMove {
+            // Preserve the classic path when the bridged entry is absent.
+            // A failed initializer/exception must not silently switch APIs.
+            legacyMove(connection(), [NSNumber(value: Int32(bitPattern: windowID))] as CFArray, spaceID)
+            desktopWindowLog.info("requested legacy move window=\(windowID, privacy: .public) target=\(spaceID, privacy: .public)")
+        } else {
+            desktopWindowLog.error("window move bridge failed code=\(result, privacy: .public)")
+            throw DesktopWindowMoveError.moveAPIUnavailable
+        }
+    }
+
+    func spaceIDs(for windowID: CGWindowID) throws -> Set<UInt64> {
+        guard let connection, let readSpaces,
+              let raw = readSpaces(connection(), 7, [NSNumber(value: Int32(bitPattern: windowID))] as CFArray)?.takeRetainedValue() else {
+            throw DesktopWindowMoveError.topologyUnavailable
+        }
+        return Set((raw as NSArray).compactMap { ($0 as? NSNumber)?.uint64Value })
+    }
+
+    private func verify(window: DesktopCapturedWindow, target: DesktopSpaceDescriptor, transfer: DesktopDisplayTransfer?, controller: DesktopSpaceController) async throws {
+        var confirmation = WindowMoveConfirmation(targetSpaceID: target.spaceID)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            try validateWindow(window)
+            _ = try liveTarget(target, controller: controller)
+            var fits = true
+            if let transfer {
+                _ = try validateTransfer(transfer, controller: controller)
+                fits = WindowDisplayGeometry.contains(try windowFrame(window.element), in: transfer.destination.visibleFrame)
             }
-            if Task.isCancelled { return false }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            if confirmation.observe(spaceIDs: try spaceIDs(for: window.id), isOnTargetDisplay: fits) {
+                desktopWindowLog.info("verified move window=\(window.id, privacy: .public) target=\(target.spaceID, privacy: .public) display=\(target.displayIdentifier, privacy: .public) cross_display=\(transfer != nil)")
+                return
+            }
         }
-
-        let version = ProcessInfo.processInfo.operatingSystemVersionString
-        desktopWindowLog.error(
-            "move verification timed out window=\(windowID, privacy: .public) source=\(String(describing: sourceSpaces), privacy: .public) target=\(spaceID, privacy: .public) os=\(version, privacy: .public)"
-        )
-        return false
+        desktopWindowLog.error("move verification timed out window=\(window.id, privacy: .public) target=\(target.spaceID, privacy: .public)")
+        throw DesktopWindowMoveError.moveFailed(target.index)
     }
 
-    func restoreFocus(to window: DesktopCapturedWindow) {
-        guard !window.application.isTerminated else { return }
+    func focus(_ window: DesktopCapturedWindow, on target: DesktopSpaceDescriptor, controller: DesktopSpaceController) async throws {
+        try validateWindow(window)
+        guard try spaceIDs(for: window.id) == [target.spaceID] else { throw DesktopWindowMoveError.focusFailed }
         _ = window.application.activate(options: [.activateIgnoringOtherApps])
+        let appElement = AXUIElementCreateApplication(window.application.processIdentifier)
+        AXUIElementSetMessagingTimeout(appElement, 1)
+        _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window.element)
         _ = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
-    }
-
-    private func moveUsingBridgedOperation(
-        windowIDs: CFArray,
-        spaceID: UInt64,
-        perform: PerformBridgedMoveFunction
-    ) -> Int64? {
-        guard let processHandle,
-              let getClassSymbol = dlsym(processHandle, "objc_getClass"),
-              let selectorSymbol = dlsym(processHandle, "sel_registerName"),
-              let messageSymbol = dlsym(processHandle, "objc_msgSend") else {
-            return nil
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            try validateWindow(window)
+            let destination = try liveTarget(target, controller: controller)
+            guard destination.isCurrent, try spaceIDs(for: window.id) == [target.spaceID] else { throw DesktopWindowMoveError.focusFailed }
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == window.application.processIdentifier,
+               let focused = attribute(appElement, kAXFocusedWindowAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
+               windowID(for: unsafeBitCast(focused, to: AXUIElement.self)) == window.id,
+               let display = displays().first(where: { $0.identifier == target.displayIdentifier }) {
+                let visible = try windowFrame(window.element).intersection(display.visibleFrame)
+                guard WindowDisplayGeometry.isUsable(visible) else { throw DesktopWindowMoveError.focusFailed }
+                CGWarpMouseCursorPosition(CGPoint(x: visible.midX, y: visible.midY))
+                return
+            }
         }
-
-        let getClass = unsafeBitCast(getClassSymbol, to: ObjCGetClassFunction.self)
-        let registerSelector = unsafeBitCast(selectorSymbol, to: SelRegisterNameFunction.self)
-        let sendAlloc = unsafeBitCast(messageSymbol, to: ObjCMsgSendAllocFunction.self)
-        let sendInit = unsafeBitCast(messageSymbol, to: ObjCMsgSendInitMoveFunction.self)
-        let sendRelease = unsafeBitCast(messageSymbol, to: ObjCMsgSendReleaseFunction.self)
-
-        guard let operationClass = "SLSBridgedMoveWindowsToManagedSpaceOperation".withCString({
-            getClass($0)
-        }),
-        let allocSelector = "alloc".withCString({ registerSelector($0) }),
-        let initSelector = "initWithWindows:spaceID:".withCString({ registerSelector($0) }),
-        let releaseSelector = "release".withCString({ registerSelector($0) }),
-        let allocated = sendAlloc(operationClass, allocSelector),
-        let operation = sendInit(allocated, initSelector, windowIDs, spaceID) else {
-            return nil
-        }
-
-        let result = perform(operation)
-        sendRelease(operation, releaseSelector)
-        return result
-    }
-
-    private func spaceIDs(for windowID: CGWindowID) -> Set<UInt64>? {
-        guard let mainConnection,
-              let copySpacesForWindows else {
-            return nil
-        }
-
-        let windowIDs = [NSNumber(value: Int32(bitPattern: windowID))] as CFArray
-        // 0x7 is kCGSAllSpacesMask: user, other, and current Spaces.
-        guard let rawSpaces = copySpacesForWindows(
-            mainConnection(),
-            0x7,
-            windowIDs
-        )?.takeRetainedValue() else {
-            return nil
-        }
-
-        return Set((rawSpaces as NSArray).compactMap {
-            ($0 as? NSNumber)?.uint64Value
-        })
-    }
-
-    private func isFullscreen(_ window: AXUIElement) -> Bool {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            window,
-            "AXFullScreen" as CFString,
-            &value
-        ) == .success else {
-            return false
-        }
-        return (value as? Bool) == true
+        throw DesktopWindowMoveError.focusFailed
     }
 
     static func ensureAccessibilityPermission() async -> Bool {
         if AXIsProcessTrusted() { return true }
-
-        let options = [
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
-        ] as CFDictionary
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-
-        for _ in 0..<180 {
-            if AXIsProcessTrusted() { return true }
-            if Task.isCancelled { return false }
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-
-        return AXIsProcessTrusted()
+        // Permission cannot retroactively capture the pre-Shelf window. Let the
+        // user enable it and summon again with the intended window active.
+        return false
     }
 }
 #endif

@@ -30,6 +30,9 @@ final class ShelfWindowController: NSObject {
     var promisedFilesHandler: (([URL]) -> Bool)?
     /// Shelf 可见性变化回调(可见?, 所在屏 displayID):供 Sensor 驱动入口指示点,事件驱动、无轮询。
     var onVisibilityChange: ((Bool, CGDirectDisplayID?) -> Void)?
+    /// Capture the external window synchronously, before the panel takes keyboard focus.
+    var onWillBeginKeyboardSession: (() -> Void)?
+    var onEndKeyboardSession: (() -> Void)?
     /// Shelf 当前展示所在屏的 displayID;隐藏时为 nil。
     private(set) var visibleDisplayID: CGDirectDisplayID?
 
@@ -173,6 +176,7 @@ final class ShelfWindowController: NSObject {
         cancelHide()
         cancelScheduledExpand()
         model.focusRequestToken = nil
+        onEndKeyboardSession?()
         guard panel.isVisible else { return }
 
         // Drop/Success 像抽屉一样向刘海方向收回；完整 Shelf 保持立即关闭，
@@ -292,6 +296,10 @@ final class ShelfWindowController: NSObject {
         cancelScheduledExpand()
         let wasVisible = panel.isVisible
         let previousState = presentation
+
+        if state == .expanded && (!wasVisible || previousState != .expanded) {
+            onWillBeginKeyboardSession?()
+        }
 
         presentation = state
         currentScreen = screen
