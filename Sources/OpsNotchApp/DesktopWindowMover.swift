@@ -75,6 +75,7 @@ extension DesktopSpaceController {
         case .failure:
             return .failure(.followSwitchFailed(index))
         case .success:
+            try? await Task.sleep(nanoseconds: 150_000_000)
             mover.restoreFocus(to: window)
             return .success(target)
         }
@@ -90,13 +91,32 @@ private final class DesktopWindowMover {
 
     private typealias ConnectionID = UInt32
     private typealias MainConnectionFunction = @convention(c) () -> ConnectionID
-    private typealias MoveWindowsFunction = @convention(c) (ConnectionID, CFArray, UInt64) -> Int32
+    private typealias MoveWindowsFunction = @convention(c) (ConnectionID, CFArray, UInt64) -> Void
+    private typealias PerformBridgedMoveFunction = @convention(c) (UnsafeMutableRawPointer) -> Int64
     private typealias AXWindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+
+    private typealias ObjCGetClassFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
+    private typealias SelRegisterNameFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
+    private typealias ObjCMsgSendAllocFunction = @convention(c) (
+        UnsafeMutableRawPointer,
+        UnsafeMutableRawPointer
+    ) -> UnsafeMutableRawPointer?
+    private typealias ObjCMsgSendInitMoveFunction = @convention(c) (
+        UnsafeMutableRawPointer,
+        UnsafeMutableRawPointer,
+        CFArray,
+        UInt64
+    ) -> UnsafeMutableRawPointer?
+    private typealias ObjCMsgSendReleaseFunction = @convention(c) (
+        UnsafeMutableRawPointer,
+        UnsafeMutableRawPointer
+    ) -> Void
 
     private let handle: UnsafeMutableRawPointer?
     private let processHandle: UnsafeMutableRawPointer?
     private let mainConnection: MainConnectionFunction?
     private let moveWindows: MoveWindowsFunction?
+    private let performBridgedMove: PerformBridgedMoveFunction?
     private let axWindowID: AXWindowIDFunction?
 
     init() {
@@ -119,6 +139,13 @@ private final class DesktopWindowMover {
             moveWindows = nil
         }
 
+        if let handle,
+           let symbol = dlsym(handle, "SLSPerformAsynchronousBridgedWindowManagementOperation") {
+            performBridgedMove = unsafeBitCast(symbol, to: PerformBridgedMoveFunction.self)
+        } else {
+            performBridgedMove = nil
+        }
+
         if let processHandle,
            let symbol = dlsym(processHandle, "_AXUIElementGetWindow") {
             axWindowID = unsafeBitCast(symbol, to: AXWindowIDFunction.self)
@@ -137,7 +164,7 @@ private final class DesktopWindowMover {
     }
 
     var isAvailable: Bool {
-        mainConnection != nil && moveWindows != nil
+        performBridgedMove != nil || (mainConnection != nil && moveWindows != nil)
     }
 
     func captureFrontmostWindow() -> CapturedWindow? {
@@ -187,15 +214,60 @@ private final class DesktopWindowMover {
     }
 
     func move(windowID: CGWindowID, toSpaceID spaceID: UInt64) -> Bool {
+        let windowIDs = [NSNumber(value: Int32(bitPattern: windowID))] as CFArray
+
+        if let performBridgedMove,
+           moveUsingBridgedOperation(
+               windowIDs: windowIDs,
+               spaceID: spaceID,
+               perform: performBridgedMove
+           ) {
+            return true
+        }
+
         guard let mainConnection, let moveWindows else { return false }
-        let windowIDs = [NSNumber(value: windowID)] as CFArray
-        return moveWindows(mainConnection(), windowIDs, spaceID) == 0
+        moveWindows(mainConnection(), windowIDs, spaceID)
+        return true
     }
 
     func restoreFocus(to window: CapturedWindow) {
         guard !window.application.isTerminated else { return }
         _ = window.application.activate(options: [.activateIgnoringOtherApps])
         _ = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+    }
+
+    private func moveUsingBridgedOperation(
+        windowIDs: CFArray,
+        spaceID: UInt64,
+        perform: PerformBridgedMoveFunction
+    ) -> Bool {
+        guard let processHandle,
+              let getClassSymbol = dlsym(processHandle, "objc_getClass"),
+              let selectorSymbol = dlsym(processHandle, "sel_registerName"),
+              let messageSymbol = dlsym(processHandle, "objc_msgSend") else {
+            return false
+        }
+
+        let getClass = unsafeBitCast(getClassSymbol, to: ObjCGetClassFunction.self)
+        let registerSelector = unsafeBitCast(selectorSymbol, to: SelRegisterNameFunction.self)
+        let sendAlloc = unsafeBitCast(messageSymbol, to: ObjCMsgSendAllocFunction.self)
+        let sendInit = unsafeBitCast(messageSymbol, to: ObjCMsgSendInitMoveFunction.self)
+        let sendRelease = unsafeBitCast(messageSymbol, to: ObjCMsgSendReleaseFunction.self)
+
+        guard let operationClass = "SLSBridgedMoveWindowsToManagedSpaceOperation".withCString({
+            getClass($0)
+        }),
+        let allocSelector = "alloc".withCString({ registerSelector($0) }),
+        let initSelector = "initWithWindows:spaceID:".withCString({ registerSelector($0) }),
+        let releaseSelector = "release".withCString({ registerSelector($0) }),
+        let allocated = sendAlloc(operationClass, allocSelector),
+        let operation = sendInit(allocated, initSelector, windowIDs, spaceID) else {
+            return false
+        }
+
+        _ = perform(operation)
+        sendRelease(operation, releaseSelector)
+        return true
     }
 
     private func isFullscreen(_ window: AXUIElement) -> Bool {
