@@ -8,7 +8,8 @@ let package = Package(
     ],
     products: [
         .library(name: "OpsNotchCore", targets: ["OpsNotchCore"]),
-        .executable(name: "OpsNotch", targets: ["OpsNotchApp"])
+        .executable(name: "OpsNotch", targets: ["OpsNotchApp"]),
+        .executable(name: "FinderSpaceDemo", targets: ["FinderSpaceDemo"])
     ],
     targets: [
         .target(
@@ -24,6 +25,18 @@ let package = Package(
             name: "OpsNotchApp",
             dependencies: ["OpsNotchCore", "OpsNotchPrivateInterop"],
             path: "Sources/OpsNotchApp"
+        ),
+        .target(
+            name: "FinderSpaceDemoBridge",
+            dependencies: ["OpsNotchPrivateInterop"],
+            path: "Demos/FinderSpaceDemo/Bridge",
+            publicHeadersPath: "include",
+            linkerSettings: [.linkedFramework("Foundation")]
+        ),
+        .executableTarget(
+            name: "FinderSpaceDemo",
+            dependencies: ["FinderSpaceDemoBridge"],
+            path: "Demos/FinderSpaceDemo/App"
         ),
         .testTarget(
             name: "OpsNotchCoreTests",
