@@ -3,6 +3,19 @@ import AppKit
 import ApplicationServices
 import Darwin
 import Foundation
+import OpsNotchPrivateInterop
+import OSLog
+
+private let desktopWindowLog = Logger(
+    subsystem: "lab.hutong.opsnotch",
+    category: "desktop-window"
+)
+
+@MainActor
+struct DesktopCapturedWindow {
+    let application: NSRunningApplication
+    let element: AXUIElement
+}
 
 enum DesktopWindowMoveError: Error, Equatable {
     case accessibilityRequired
@@ -23,7 +36,15 @@ enum DesktopWindowMoveResult {
 
 @MainActor
 extension DesktopSpaceController {
-    func moveCurrentWindow(toDesktop index: Int, follow: Bool) async -> DesktopWindowMoveResult {
+    func captureCurrentWindowForMove() -> DesktopCapturedWindow? {
+        DesktopWindowMover().captureFrontmostWindow()
+    }
+
+    func moveCurrentWindow(
+        toDesktop index: Int,
+        follow: Bool,
+        capturedWindow: DesktopCapturedWindow? = nil
+    ) async -> DesktopWindowMoveResult {
         guard await DesktopWindowMover.ensureAccessibilityPermission() else {
             return .failure(.accessibilityRequired)
         }
@@ -53,7 +74,7 @@ extension DesktopSpaceController {
         }
 
         let mover = DesktopWindowMover()
-        guard let window = mover.captureFrontmostWindow() else {
+        guard let window = capturedWindow ?? mover.captureFrontmostWindow() else {
             return .failure(.activeWindowUnavailable)
         }
         guard let windowID = mover.windowID(for: window.element) else {
@@ -62,7 +83,7 @@ extension DesktopSpaceController {
         guard mover.isAvailable else {
             return .failure(.moveAPIUnavailable)
         }
-        guard mover.move(windowID: windowID, toSpaceID: target.spaceID) else {
+        guard await mover.move(windowID: windowID, toSpaceID: target.spaceID) else {
             return .failure(.moveFailed(index))
         }
 
@@ -84,15 +105,15 @@ extension DesktopSpaceController {
 
 @MainActor
 private final class DesktopWindowMover {
-    struct CapturedWindow {
-        let application: NSRunningApplication
-        let element: AXUIElement
-    }
-
     private typealias ConnectionID = UInt32
     private typealias MainConnectionFunction = @convention(c) () -> ConnectionID
     private typealias MoveWindowsFunction = @convention(c) (ConnectionID, CFArray, UInt64) -> Void
     private typealias PerformBridgedMoveFunction = @convention(c) (UnsafeMutableRawPointer) -> Int64
+    private typealias CopySpacesForWindowsFunction = @convention(c) (
+        ConnectionID,
+        Int32,
+        CFArray
+    ) -> Unmanaged<CFArray>?
     private typealias AXWindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
 
     private typealias ObjCGetClassFunction = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
@@ -117,6 +138,7 @@ private final class DesktopWindowMover {
     private let mainConnection: MainConnectionFunction?
     private let moveWindows: MoveWindowsFunction?
     private let performBridgedMove: PerformBridgedMoveFunction?
+    private let copySpacesForWindows: CopySpacesForWindowsFunction?
     private let axWindowID: AXWindowIDFunction?
 
     init() {
@@ -139,11 +161,25 @@ private final class DesktopWindowMover {
             moveWindows = nil
         }
 
-        if let handle,
-           let symbol = dlsym(handle, "SLSPerformAsynchronousBridgedWindowManagementOperation") {
+        let bridgedMoveSymbol = handle.flatMap {
+            dlsym($0, "SLSPerformAsynchronousBridgedWindowManagementOperation")
+        } ?? opsnotch_find_macho_symbol(
+            "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight",
+            "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperationP47SLSAsynchronousBridgedWindowManagementOperation"
+        )
+
+        if let symbol = bridgedMoveSymbol {
             performBridgedMove = unsafeBitCast(symbol, to: PerformBridgedMoveFunction.self)
         } else {
             performBridgedMove = nil
+        }
+
+        if let handle,
+           let symbol = dlsym(handle, "SLSCopySpacesForWindows")
+                ?? dlsym(handle, "CGSCopySpacesForWindows") {
+            copySpacesForWindows = unsafeBitCast(symbol, to: CopySpacesForWindowsFunction.self)
+        } else {
+            copySpacesForWindows = nil
         }
 
         if let processHandle,
@@ -164,10 +200,12 @@ private final class DesktopWindowMover {
     }
 
     var isAvailable: Bool {
-        performBridgedMove != nil || (mainConnection != nil && moveWindows != nil)
+        mainConnection != nil
+            && copySpacesForWindows != nil
+            && (performBridgedMove != nil || moveWindows != nil)
     }
 
-    func captureFrontmostWindow() -> CapturedWindow? {
+    func captureFrontmostWindow() -> DesktopCapturedWindow? {
         guard let application = NSWorkspace.shared.frontmostApplication,
               application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             return nil
@@ -200,7 +238,7 @@ private final class DesktopWindowMover {
             return nil
         }
 
-        return CapturedWindow(application: application, element: window)
+        return DesktopCapturedWindow(application: application, element: window)
     }
 
     func windowID(for element: AXUIElement) -> CGWindowID? {
@@ -213,24 +251,56 @@ private final class DesktopWindowMover {
         return windowID
     }
 
-    func move(windowID: CGWindowID, toSpaceID spaceID: UInt64) -> Bool {
+    func move(windowID: CGWindowID, toSpaceID spaceID: UInt64) async -> Bool {
         let windowIDs = [NSNumber(value: Int32(bitPattern: windowID))] as CFArray
+        let sourceSpaces = spaceIDs(for: windowID) ?? []
+
+        if sourceSpaces.contains(spaceID) {
+            desktopWindowLog.info(
+                "window already belongs to target window=\(windowID, privacy: .public) space=\(spaceID, privacy: .public)"
+            )
+            return true
+        }
 
         if let performBridgedMove,
-           moveUsingBridgedOperation(
+           let operationResult = moveUsingBridgedOperation(
                windowIDs: windowIDs,
                spaceID: spaceID,
                perform: performBridgedMove
            ) {
-            return true
+            desktopWindowLog.info(
+                "requested bridged move window=\(windowID, privacy: .public) target=\(spaceID, privacy: .public) result=\(operationResult, privacy: .public)"
+            )
+        } else {
+            guard let mainConnection, let moveWindows else { return false }
+            moveWindows(mainConnection(), windowIDs, spaceID)
+            desktopWindowLog.info(
+                "requested legacy move window=\(windowID, privacy: .public) target=\(spaceID, privacy: .public)"
+            )
         }
 
-        guard let mainConnection, let moveWindows else { return false }
-        moveWindows(mainConnection(), windowIDs, spaceID)
-        return true
+        // Tahoe 26.4+ performs the bridged operation asynchronously. Do not
+        // report success until WindowServer confirms the target Space owns the
+        // requested window; this prevents the silent no-op seen on macOS 26.
+        for _ in 0..<30 {
+            if spaceIDs(for: windowID)?.contains(spaceID) == true {
+                desktopWindowLog.info(
+                    "verified move window=\(windowID, privacy: .public) target=\(spaceID, privacy: .public)"
+                )
+                return true
+            }
+            if Task.isCancelled { return false }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        let version = ProcessInfo.processInfo.operatingSystemVersionString
+        desktopWindowLog.error(
+            "move verification timed out window=\(windowID, privacy: .public) source=\(String(describing: sourceSpaces), privacy: .public) target=\(spaceID, privacy: .public) os=\(version, privacy: .public)"
+        )
+        return false
     }
 
-    func restoreFocus(to window: CapturedWindow) {
+    func restoreFocus(to window: DesktopCapturedWindow) {
         guard !window.application.isTerminated else { return }
         _ = window.application.activate(options: [.activateIgnoringOtherApps])
         _ = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
@@ -240,12 +310,12 @@ private final class DesktopWindowMover {
         windowIDs: CFArray,
         spaceID: UInt64,
         perform: PerformBridgedMoveFunction
-    ) -> Bool {
+    ) -> Int64? {
         guard let processHandle,
               let getClassSymbol = dlsym(processHandle, "objc_getClass"),
               let selectorSymbol = dlsym(processHandle, "sel_registerName"),
               let messageSymbol = dlsym(processHandle, "objc_msgSend") else {
-            return false
+            return nil
         }
 
         let getClass = unsafeBitCast(getClassSymbol, to: ObjCGetClassFunction.self)
@@ -262,12 +332,33 @@ private final class DesktopWindowMover {
         let releaseSelector = "release".withCString({ registerSelector($0) }),
         let allocated = sendAlloc(operationClass, allocSelector),
         let operation = sendInit(allocated, initSelector, windowIDs, spaceID) else {
-            return false
+            return nil
         }
 
-        _ = perform(operation)
+        let result = perform(operation)
         sendRelease(operation, releaseSelector)
-        return true
+        return result
+    }
+
+    private func spaceIDs(for windowID: CGWindowID) -> Set<UInt64>? {
+        guard let mainConnection,
+              let copySpacesForWindows else {
+            return nil
+        }
+
+        let windowIDs = [NSNumber(value: Int32(bitPattern: windowID))] as CFArray
+        // 0x7 is kCGSAllSpacesMask: user, other, and current Spaces.
+        guard let rawSpaces = copySpacesForWindows(
+            mainConnection(),
+            0x7,
+            windowIDs
+        )?.takeRetainedValue() else {
+            return nil
+        }
+
+        return Set((rawSpaces as NSArray).compactMap {
+            ($0 as? NSNumber)?.uint64Value
+        })
     }
 
     private func isFullscreen(_ window: AXUIElement) -> Bool {

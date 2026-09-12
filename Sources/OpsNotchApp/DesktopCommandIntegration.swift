@@ -8,6 +8,7 @@ final class DesktopCommandIntegration {
 
     private weak var model: AppModel?
     private let spaces = DesktopSpaceController()
+    private var preparedMoveSource: DesktopCapturedWindow?
 
     init(model: AppModel) {
         self.model = model
@@ -27,6 +28,12 @@ final class DesktopCommandIntegration {
 
     private func showDesktopMenu() {
         guard let model else { return }
+
+        // Freeze the original app's focused window before NSMenu starts its
+        // tracking loop. Resolving it after the menu closes can race Shelf
+        // focus restoration and select the wrong application or no window.
+        preparedMoveSource = spaces.captureCurrentWindowForMove()
+        defer { preparedMoveSource = nil }
 
         switch spaces.desktops() {
         case .failure(let error):
@@ -146,12 +153,20 @@ final class DesktopCommandIntegration {
     private func moveCurrentWindow(to index: Int, follow: Bool) {
         guard let model else { return }
 
+        // Capture this value before hiding the Shelf; the hide/focus callbacks
+        // are asynchronous and must not change which window is being moved.
+        let sourceWindow = preparedMoveSource ?? spaces.captureCurrentWindowForMove()
+
         model.query = ""
         shelf?.hide()
 
         Task { @MainActor [weak self] in
             guard let self, let model = self.model else { return }
-            let result = await self.spaces.moveCurrentWindow(toDesktop: index, follow: follow)
+            let result = await self.spaces.moveCurrentWindow(
+                toDesktop: index,
+                follow: follow,
+                capturedWindow: sourceWindow
+            )
 
             switch result {
             case .success:

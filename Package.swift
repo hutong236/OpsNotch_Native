@@ -15,9 +15,14 @@ let package = Package(
             name: "OpsNotchCore",
             path: "Sources/OpsNotchCore"
         ),
+        .target(
+            name: "OpsNotchPrivateInterop",
+            path: "Sources/OpsNotchPrivateInterop",
+            publicHeadersPath: "include"
+        ),
         .executableTarget(
             name: "OpsNotchApp",
-            dependencies: ["OpsNotchCore"],
+            dependencies: ["OpsNotchCore", "OpsNotchPrivateInterop"],
             path: "Sources/OpsNotchApp"
         ),
         .testTarget(

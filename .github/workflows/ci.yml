@@ -15,8 +15,8 @@ concurrency:
 
 jobs:
   validate:
-    name: Build and test
-    runs-on: macos-latest
+    name: Build and test (macOS 26)
+    runs-on: macos-26
     timeout-minutes: 20
 
     steps:
@@ -31,6 +31,17 @@ jobs:
 
       - name: Debug build
         run: swift build
+
+      - name: Desktop Space runtime compatibility
+        run: |
+          clang -std=c11 \
+            -I Sources/OpsNotchPrivateInterop/include \
+            Sources/OpsNotchPrivateInterop/MachOSymbolResolver.c \
+            scripts/verify_desktop_space_compatibility.c \
+            -framework ApplicationServices \
+            -framework Foundation \
+            -o "$RUNNER_TEMP/verify-desktop-space"
+          "$RUNNER_TEMP/verify-desktop-space"
 
       - name: Architecture checks
         run: python3 scripts/static_checks.py
