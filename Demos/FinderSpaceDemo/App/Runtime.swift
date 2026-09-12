@@ -15,6 +15,7 @@ struct DemoFailure: LocalizedError {
 
 struct DemoSpace {
     let number: Int
+    let localNumber: Int
     let id: UInt64
     let display: String
     let displayName: String
@@ -22,7 +23,7 @@ struct DemoSpace {
     let current: Bool
 
     var label: String {
-        "\(displayName) · \(tr("桌面", "Desktop")) \(number) · Space \(id)\(current ? " ✓" : "")"
+        "\(displayName) · \(tr("桌面", "Desktop")) \(localNumber) · Space \(id)\(current ? " ✓" : "")"
     }
 }
 
@@ -65,6 +66,7 @@ final class DemoLog {
         #endif
         write("BUILD \(Bundle.main.object(forInfoDictionaryKey: "DemoSourceCommit") as? String ?? "unbundled")")
         write("AX_TRUSTED \(AXIsProcessTrusted())")
+        write("SEPARATE_SPACES \(NSScreen.screensHaveSeparateSpaces)")
         write("BRIDGE \(String(cString: FinderDemoBridgeStatus()))")
     }
 
@@ -117,15 +119,11 @@ final class DemoRuntime {
 
     func spaces() throws -> [DemoSpace] {
         guard let array = readDisplays(connection())?.takeRetainedValue(),
-              let displays = array as? [[String: Any]] else { throw DemoFailure("Cannot read desktop topology") }
-        let screens: [(String, String)] = NSScreen.screens.compactMap { screen in
-            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-                  let uuid = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue() else { return nil }
-            return (CFUUIDCreateString(nil, uuid) as String, screen.localizedName)
-        }
-        let ordered = displays.enumerated().sorted { lhs, rhs in
+              let managed = array as? [[String: Any]] else { throw DemoFailure("Cannot read desktop topology") }
+        let screens = displays()
+        let ordered = managed.enumerated().sorted { lhs, rhs in
             func rank(_ pair: (offset: Int, element: [String: Any])) -> Int {
-                screens.firstIndex { $0.0 == pair.element["Display Identifier"] as? String } ?? screens.count + pair.offset
+                screens.firstIndex { $0.identifier == pair.element["Display Identifier"] as? String } ?? screens.count + pair.offset
             }
             return rank(lhs) < rank(rhs)
         }
@@ -134,11 +132,16 @@ final class DemoRuntime {
             guard let identifier = display["Display Identifier"] as? String else { continue }
             let active = display["Current Space"] as? [String: Any] ?? [:]
             let currentID = Self.spaceID(active)
+            let screen = screens.first { $0.identifier == identifier }
+            let displayName = screen.map { "\(tr("显示器", "Display")) \($0.number)：\($0.name)" }
+                ?? "\(tr("显示器", "Display")) \(offset + 1)"
+            var localNumber = 0
             for raw in display["Spaces"] as? [[String: Any]] ?? [] {
                 guard let id = Self.spaceID(raw), let type = (raw["type"] as? NSNumber)?.intValue,
                       type == 0 || type == 4 else { continue }
-                result.append(DemoSpace(number: result.count + 1, id: id, display: identifier,
-                    displayName: screens.first { $0.0 == identifier }?.1 ?? "Display \(offset + 1)",
+                if type == 0 { localNumber += 1 }
+                result.append(DemoSpace(number: result.count + 1, localNumber: localNumber, id: id, display: identifier,
+                    displayName: displayName,
                     type: type, current: id == currentID))
             }
         }
@@ -245,21 +248,38 @@ final class DemoRuntime {
         log.write("SUBMITTED raw_result=\(result) (not yet verified)")
     }
 
-    func verify(windowID: CGWindowID, target: UInt64, original: Set<UInt64>) async throws -> Bool {
+    func verify(window: FinderWindow, target: DemoSpace, original: Set<UInt64>, transfer: DemoDisplayTransfer?) async throws -> Bool {
+        let windowID = window.id
         var previous = original
+        var previousFrame: CGRect?
         var stableCount = 0
-        for tick in 0..<100 {
+        let clock = ContinuousClock()
+        let started = clock.now
+        let deadline = started.advanced(by: .seconds(5))
+        while clock.now < deadline {
             try await Task.sleep(nanoseconds: 50_000_000)
+            let topology = try transfer.map { try validateTransfer($0) } ?? spaces()
+            guard topology.contains(where: { $0.id == target.id && $0.display == target.display && $0.type == 0 }),
+                  try identifier(window.element) == windowID else { throw DemoFailure("WINDOW_OR_DESTINATION_CHANGED") }
             let after = try membership(windowID)
-            if after != previous { log.write("MEMBERSHIP elapsed_ms=\((tick + 1) * 50) window=\(windowID) spaces=\(after.sorted())") }
+            if after != previous { log.write("MEMBERSHIP elapsed=\(started.duration(to: clock.now)) window=\(windowID) spaces=\(after.sorted())") }
             previous = after
-            stableCount = after == [target] ? stableCount + 1 : 0
+            var placementMatches = true
+            if let transfer {
+                let frame = try windowFrame(window.element)
+                placementMatches = DemoGeometry.contains(frame, in: transfer.destination.visibleFrame)
+                if previousFrame != frame {
+                    log.write("GEOMETRY window=\(windowID) frame=\(frame) target_display=\(target.display) fits=\(placementMatches)")
+                    previousFrame = frame
+                }
+            }
+            stableCount = after == [target.id] && placementMatches ? stableCount + 1 : 0
             if stableCount >= 3 {
-                log.write("VERIFIED window=\(windowID) before=\(original.sorted()) after=\(after.sorted())")
+                log.write("VERIFIED window=\(windowID) before=\(original.sorted()) after=\(after.sorted()) target_display=\(target.display) cross_display=\(transfer != nil)")
                 return true
             }
         }
-        log.write("TIMEOUT window=\(windowID) before=\(original.sorted()) after=\(previous.sorted()) target=\(target)")
+        log.write("TIMEOUT window=\(windowID) before=\(original.sorted()) after=\(previous.sorted()) target=\(target.id) target_display=\(target.display) frame=\(String(describing: previousFrame))")
         return false
     }
 }

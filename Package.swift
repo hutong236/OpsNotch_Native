@@ -42,6 +42,11 @@ let package = Package(
             name: "OpsNotchCoreTests",
             dependencies: ["OpsNotchCore"],
             path: "Tests/OpsNotchCoreTests"
+        ),
+        .testTarget(
+            name: "FinderSpaceDemoTests",
+            dependencies: ["FinderSpaceDemo"],
+            path: "Demos/FinderSpaceDemo/Tests"
         )
     ]
 )

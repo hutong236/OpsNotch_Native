@@ -34,7 +34,7 @@ enum FinderSpaceDemoMain {
                         }
                         log.write("PROBE_PASS method=\(method) same-space invocation returned")
                     }
-                    log.write("CROSS_SPACE_NOT_TESTED; FINDER_NOT_TESTED; run the GUI on the target Mac")
+                    log.write("CROSS_SPACE_NOT_TESTED; CROSS_DISPLAY_NOT_TESTED; FINDER_NOT_TESTED; run the GUI on the target Mac")
                     exit(0)
                 } catch {
                     log.write("PROBE_FAILED \(error.localizedDescription)")
@@ -80,7 +80,7 @@ final class DemoAppDelegate: NSObject, NSApplicationDelegate {
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = tr("Finder 桌面移动 Demo", "Finder Desktop Move Demo")
+        window.title = tr("Finder 跨显示器 / 桌面移动 Demo 0.2", "Finder Display / Desktop Move Demo 0.2")
         window.minSize = NSSize(width: 700, height: 580)
         window.isReleasedWhenClosed = false
         window.collectionBehavior = [.canJoinAllSpaces]
@@ -97,8 +97,8 @@ final class DemoAppDelegate: NSObject, NSApplicationDelegate {
             stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -18)
         ])
         let help = NSTextField(wrappingLabelWithString: tr(
-            "打开一个普通 Finder 文件夹窗口，刷新后选择窗口和目标桌面。先测“移动”，再手动切换桌面目视确认。",
-            "Open a normal Finder folder window, refresh, then choose that window and a destination. Move first, then switch desktops manually to inspect it."))
+            "打开普通 Finder 窗口，刷新后选择目标显示器和桌面。支持同屏与跨屏测试；跨屏会先调整窗口位置，再移动到指定桌面。",
+            "Open a normal Finder window, refresh, and choose a display and desktop. Cross-display tests place the window on that monitor before moving it to the requested desktop."))
         stack.addArrangedSubview(help)
         let permission = button(tr("辅助功能权限", "Accessibility"), #selector(permissionAction))
         let open = button(tr("打开 Finder", "Open Finder"), #selector(openFinder))
@@ -184,14 +184,21 @@ final class DemoAppDelegate: NSObject, NSApplicationDelegate {
         finderWindows = []
         targets = []
         do {
+            for display in runtime.displays() {
+                log.write("DISPLAY number=\(display.number) uuid=\(display.identifier) id=\(display.id) frame=\(display.frame) visible=\(display.visibleFrame) scale=\(display.scale)")
+            }
             targets = try runtime.spaces().filter { $0.type == 0 }
             target.addItems(withTitles: targets.map(\.label))
-            for space in targets { log.write("DESKTOP number=\(space.number) id=\(space.id) display=\(space.display) current=\(space.current)") }
+            for space in targets { log.write("DESKTOP number=\(space.number) local_number=\(space.localNumber) id=\(space.id) display=\(space.display) current=\(space.current)") }
             finderWindows = try runtime.finderWindows()
             source.addItems(withTitles: finderWindows.map { "\($0.title) · Window \($0.id)" })
             status.stringValue = finderWindows.isEmpty
                 ? tr("没有普通 Finder 窗口，请打开文件夹后刷新。", "No normal Finder window. Open a folder and refresh.")
                 : tr("请选择另一个普通桌面，然后点击移动。", "Select a different normal desktop, then Move.")
+            if NSScreen.screens.count > 1 && !NSScreen.screensHaveSeparateSpaces {
+                status.stringValue = tr("当前各屏共享桌面；跨屏指定桌面需要开启“显示器具有单独的空间”，并按系统提示重新登录。",
+                                        "Displays currently share Spaces. Enable Displays have separate Spaces and log in again to select a desktop on another monitor.")
+            }
             sourceChanged()
         } catch { showError(error) }
     }
@@ -201,7 +208,8 @@ final class DemoAppDelegate: NSObject, NSApplicationDelegate {
         let selected = finderWindows[source.indexOfSelectedItem]
         if let before = try? runtime.membership(selected.id),
            let sourceSpace = targets.first(where: { before.contains($0.id) }),
-           let candidate = targets.firstIndex(where: { $0.display == sourceSpace.display && !before.contains($0.id) }) {
+           let candidate = targets.firstIndex(where: { $0.display == sourceSpace.display && !before.contains($0.id) })
+                ?? targets.firstIndex(where: { !before.contains($0.id) }) {
             target.selectItem(at: candidate)
         }
     }
@@ -232,8 +240,9 @@ final class DemoAppDelegate: NSObject, NSApplicationDelegate {
                 guard before.count == 1, let sourceSpace = topology.first(where: { before.contains($0.id) }), sourceSpace.type == 0 else {
                     throw DemoFailure(tr("窗口不属于单一普通桌面；请检查“分配到所有桌面”和全屏设置。", "Window must belong to one normal desktop. Check All Desktops / full screen."))
                 }
-                guard topology.contains(where: { $0.id == destination.id && $0.type == 0 }), sourceSpace.display == destination.display else {
-                    throw DemoFailure(tr("请在同一显示器的两个普通桌面之间测试。", "Choose two normal desktops on the same display."))
+                guard let liveDestination = topology.first(where: { $0.id == destination.id && $0.type == 0 }),
+                      liveDestination.display == destination.display else {
+                    throw DemoFailure(tr("目标桌面已改变，请刷新后重试。", "Destination changed. Refresh and retry."))
                 }
                 guard !before.contains(destination.id) else {
                     throw DemoFailure(tr("窗口已在该桌面，请选择其他桌面；这不算移动成功。", "Already on that desktop. Choose another; this is not a movement test."))
@@ -247,13 +256,30 @@ final class DemoAppDelegate: NSObject, NSApplicationDelegate {
                 // Do not replace the selected AXWindow after activation.
                 guard try runtime.identifier(selected.element) == selected.id,
                       try runtime.membership(selected.id) == before else { throw DemoFailure("Source changed before call; refresh and retry") }
+                let transfer = try runtime.displayTransfer(window: selected, source: sourceSpace, destination: liveDestination)
+                if let transfer {
+                    status.stringValue = tr("正在将窗口放入目标显示器…", "Placing the window on the destination display…")
+                    try await runtime.stageOnDisplay(window: selected, transfer: transfer)
+                    _ = try runtime.validateTransfer(transfer)
+                }
+                let afterPlacement = try runtime.membership(selected.id)
                 status.stringValue = tr("已请求移动，正在检查窗口归属…", "Move requested; checking window membership…")
-                try runtime.requestMove(windowID: selected.id, spaceID: destination.id, method: callMethod)
-                let verified = try await runtime.verify(windowID: selected.id, target: destination.id, original: before)
+                if transfer != nil && afterPlacement == [destination.id] {
+                    // Moving to another monitor's visible desktop can finish via AX alone.
+                    log.write("SPACE_CALL_SKIPPED reason=placement_already_reached_target window=\(selected.id) spaces=\(afterPlacement.sorted()) (private Space API not tested)")
+                } else {
+                    try runtime.requestMove(windowID: selected.id, spaceID: destination.id, method: callMethod)
+                }
+                let verified = try await runtime.verify(window: selected, target: liveDestination, original: before, transfer: transfer)
                 status.stringValue = verified
-                    ? tr("系统已确认窗口进入目标桌面。请手动切换过去目视确认。", "WindowServer confirmed the destination. Switch there manually to inspect it.")
-                    : tr("5 秒内未确认移动。请复制日志，以便定位失败步骤。", "Movement not confirmed within 5 seconds. Copy the log to diagnose.")
-            } catch { showError(error) }
+                    ? tr("已确认窗口进入目标桌面；跨屏时也已确认窗口位于目标显示器。请目视确认。", "Destination desktop confirmed; cross-display placement was also checked. Inspect the window visually.")
+                    : tr("未完全移到指定桌面，可能已停在目标屏当前桌面。请复制日志。", "The requested move is incomplete; the window may be on the destination monitor's current desktop. Copy the log.")
+            } catch {
+                if let after = try? runtime.membership(selected.id) {
+                    log.write("FAILED_STATE window=\(selected.id) spaces=\(after.sorted()) frame=\(String(describing: try? runtime.windowFrame(selected.element)))")
+                }
+                showError(error)
+            }
         }
     }
 
