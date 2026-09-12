@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 // AX uses global points with the origin at the primary display's top left.
 // NSScreen uses global points with the origin at its bottom left. Do not apply
