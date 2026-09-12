@@ -225,3 +225,18 @@ Ops Notch 不应创建任何 1420 监听端口。
 14. 打开“系统设置 → 隐私与安全性”验证：本功能不应新增 Accessibility / Input Monitoring 权限请求；应用也不得读取 shell history、浏览器历史或钥匙串内容。
 15. 连续复制 20 段不同文字、复制 Finder 文件、从 Working Set/Recent 二次取回文件各执行多轮：Clipboard Catch 仍完整记录外部复制，Ops Notch 自身复制不回灌，文件始终保持 file URL pasteboard 语义。
 16. 双显示器分别在 Finder / Terminal / Browser 前台呼出 Smart Quick Shelf：面板仍出现在预期屏幕，当前 App 上下文排序正确，多屏 Sensor / Finder 打开能力无回归。
+
+## 21. 桌面窗口移动（macOS 26.6.2）
+
+前置条件：使用普通桌面 Space（非 Full Screen / Split View），并在“系统设置 → 隐私与安全性 → 辅助功能”中允许 Ops Notch。
+
+1. 在桌面 1 打开 Sublime Text，确保其普通窗口处于前台。
+2. 使用全局快捷键呼出 Quick Shelf，输入 `d` 并按 `Enter` 打开桌面列表。
+3. 按住 `⌥` 选择桌面 2：Sublime Text 窗口必须移动到桌面 2，用户仍停留在桌面 1。
+4. 将窗口移回桌面 1，再重复步骤 2；按住 `⌥⇧` 选择桌面 2：窗口、用户焦点和鼠标必须一起到达桌面 2。
+5. 分别使用 Sublime Text、Finder 和 Safari 重复测试，确认每次只移动当前活动窗口。
+6. 选择窗口当前所在桌面：操作应安全完成，不得重复移动、闪退或错误切换。
+7. 尝试选择 Full Screen Space：操作必须被拒绝并显示可理解提示。
+8. 运行 `./script/build_and_run.sh --telemetry`，成功操作必须出现 `desktop-window` 分类的 `verified move`；如果 WindowServer 未确认目标 Space，必须显示移动失败，日志出现 `move verification timed out`，不得继续跟随切换。
+
+GitHub CI 必须在 `macos-26` Runner 上通过 `scripts/verify_desktop_space_compatibility.swift`，确认 26.x 所需 SkyLight/AX 符号与 Objective-C 初始化方法仍存在。CI 只能验证运行时接口兼容性；上述真实窗口跨 Space 行为仍以真机验收为准。
