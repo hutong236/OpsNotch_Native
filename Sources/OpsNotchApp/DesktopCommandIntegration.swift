@@ -99,34 +99,6 @@ final class DesktopCommandIntegration {
 
                 guard !desktop.isFullscreen else { continue }
 
-                let moveItem = NSMenuItem(
-                    title: String(
-                        format: L10n.text("desktopMoveWindow", model.language),
-                        desktop.index
-                    ) + " · " + displayLabel,
-                    action: #selector(moveWindowToDesktop(_:)),
-                    keyEquivalent: ""
-                )
-                moveItem.target = self
-                moveItem.representedObject = desktop
-                moveItem.isAlternate = true
-                moveItem.keyEquivalentModifierMask = [.option]
-                menu.addItem(moveItem)
-
-                let moveAndFollowItem = NSMenuItem(
-                    title: String(
-                        format: L10n.text("desktopMoveAndFollow", model.language),
-                        desktop.index
-                    ) + " · " + displayLabel,
-                    action: #selector(moveWindowAndFollowDesktop(_:)),
-                    keyEquivalent: ""
-                )
-                moveAndFollowItem.target = self
-                moveAndFollowItem.representedObject = desktop
-                moveAndFollowItem.isAlternate = true
-                moveAndFollowItem.keyEquivalentModifierMask = [.option, .shift]
-                menu.addItem(moveAndFollowItem)
-
                 // Explicit mouse/keyboard actions also work without modifiers.
                 for (submenu, selector) in [(moveMenu, #selector(moveWindowToDesktop(_:))),
                                              (followMenu, #selector(moveWindowAndFollowDesktop(_:)))] {
@@ -160,7 +132,31 @@ final class DesktopCommandIntegration {
     @objc
     private func selectDesktop(_ sender: NSMenuItem) {
         guard let target = sender.representedObject as? DesktopSpaceDescriptor else { return }
-        switchToDesktop(target.index, expectedTarget: target)
+        let flags = desktopMenuModifierFlags()
+        let action = DesktopTargetSelectionResolver.resolve(
+            optionPressed: flags.contains(.option),
+            shiftPressed: flags.contains(.shift)
+        )
+        desktopWindowLog.info("desktop target selected index=\(target.index, privacy: .public) space=\(target.spaceID, privacy: .public) option=\(flags.contains(.option), privacy: .public) shift=\(flags.contains(.shift), privacy: .public) action=\(String(describing: action), privacy: .public)")
+        switch action {
+        case .switchDesktop:
+            switchToDesktop(target.index, expectedTarget: target)
+        case .moveWindow:
+            moveCurrentWindow(to: target, follow: false)
+        case .moveWindowAndFollow:
+            moveCurrentWindow(to: target, follow: true)
+        }
+    }
+
+    /// Read both the event that dispatched the NSMenu action and the live
+    /// modifier state. AppKit popup-menu tracking can consume flagsChanged
+    /// events before the target/action callback runs.
+    private func desktopMenuModifierFlags() -> NSEvent.ModifierFlags {
+        var flags = NSEvent.modifierFlags
+        if let event = NSApp.currentEvent {
+            flags.formUnion(event.modifierFlags)
+        }
+        return flags.intersection(.deviceIndependentFlagsMask)
     }
 
     @objc
