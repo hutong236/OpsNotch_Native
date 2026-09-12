@@ -45,3 +45,29 @@ jobs:
 
       - name: Architecture checks
         run: python3 scripts/static_checks.py
+
+      - name: Bundle Finder Space demo
+        run: ./script/finder_space_demo.sh --build-only
+
+      - name: Exercise move call on demo-owned window (same Space only)
+        run: |
+          set -o pipefail
+          dist/FinderSpaceDemo.app/Contents/MacOS/FinderSpaceDemo --probe 2>&1 | tee dist/FinderSpaceDemo-probe.log
+
+      - name: Zip Finder Space demo
+        if: always()
+        run: |
+          if [[ -d dist/FinderSpaceDemo.app ]]; then
+            ditto -c -k --sequesterRsrc --keepParent dist/FinderSpaceDemo.app dist/FinderSpaceDemo-macOS.zip
+          fi
+
+      - name: Upload Finder Space demo and probe log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: FinderSpaceDemo-macOS
+          path: |
+            dist/FinderSpaceDemo-macOS.zip
+            dist/FinderSpaceDemo-probe.log
+            Demos/FinderSpaceDemo/README.md
+          if-no-files-found: warn
