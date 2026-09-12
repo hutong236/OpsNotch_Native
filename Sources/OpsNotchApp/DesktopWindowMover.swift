@@ -3,6 +3,7 @@ import AppKit
 import ApplicationServices
 import Darwin
 import Foundation
+import OpsNotchPrivateInterop
 import OSLog
 
 private let desktopWindowLog = Logger(
@@ -160,8 +161,14 @@ private final class DesktopWindowMover {
             moveWindows = nil
         }
 
-        if let handle,
-           let symbol = dlsym(handle, "SLSPerformAsynchronousBridgedWindowManagementOperation") {
+        let bridgedMoveSymbol = handle.flatMap {
+            dlsym($0, "SLSPerformAsynchronousBridgedWindowManagementOperation")
+        } ?? opsnotch_find_macho_symbol(
+            "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight",
+            "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperationP47SLSAsynchronousBridgedWindowManagementOperation"
+        )
+
+        if let symbol = bridgedMoveSymbol {
             performBridgedMove = unsafeBitCast(symbol, to: PerformBridgedMoveFunction.self)
         } else {
             performBridgedMove = nil
