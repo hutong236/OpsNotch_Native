@@ -45,3 +45,27 @@ jobs:
 
       - name: Architecture checks
         run: python3 scripts/static_checks.py
+
+      - name: Invoke production window move bridge (own window, same Space)
+        run: |
+          clang -fobjc-arc \
+            -I Sources/OpsNotchPrivateInterop/include \
+            Sources/OpsNotchPrivateInterop/MachOSymbolResolver.c \
+            Sources/OpsNotchPrivateInterop/DesktopWindowMoveBridge.m \
+            scripts/verify_desktop_window_move.m \
+            -framework AppKit \
+            -o "$RUNNER_TEMP/verify-window-move"
+          "$RUNNER_TEMP/verify-window-move"
+
+      - name: Package app for manual acceptance
+        run: |
+          scripts/build_app.sh
+          codesign --verify --deep --strict "build/Ops Notch.app"
+          ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" build/OpsNotch-PR-macOS.zip
+
+      - name: Upload app for manual acceptance
+        uses: actions/upload-artifact@v7
+        with:
+          name: OpsNotch-PR-macOS
+          path: build/OpsNotch-PR-macOS.zip
+          if-no-files-found: error
