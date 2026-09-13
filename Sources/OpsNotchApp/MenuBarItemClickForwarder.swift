@@ -48,18 +48,23 @@ enum MenuBarItemClickForwarder {
     }
 
     static func makeEvents(for target: Target, interaction: MenuBarPanelInteraction) -> (down: CGEvent, up: CGEvent)? {
-        guard target.pid > 0, target.windowID != kCGNullWindowID, validFrame(target.frame),
-              let source = CGEventSource(stateID: .privateState) else { return nil }
+        guard target.pid > 0, target.windowID != kCGNullWindowID, validFrame(target.frame) else { return nil }
         let secondary = interaction == .secondary
         let point = CGPoint(x: target.frame.midX, y: target.frame.midY)
-        let button: CGMouseButton = secondary ? .right : .left
-        guard let down = CGEvent(mouseEventSource: source,
-                                 mouseType: secondary ? .rightMouseDown : .leftMouseDown,
-                                 mouseCursorPosition: point, mouseButton: button),
-              let up = CGEvent(mouseEventSource: source,
-                               mouseType: secondary ? .rightMouseUp : .leftMouseUp,
-                               mouseCursorPosition: point, mouseButton: button) else { return nil }
+        // PID delivery bypasses WindowServer's global-to-window coordinate conversion.
+        // Construct the native event with local coordinates first, then supply its screen point.
+        // A raw CGEvent with only a screen point can reach the window but miss its button.
+        func makeEvent(_ type: NSEvent.EventType) -> CGEvent? {
+            NSEvent.mouseEvent(with: type,
+                               location: NSPoint(x: target.frame.width / 2, y: target.frame.height / 2),
+                               modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: Int(target.windowID), context: nil,
+                               eventNumber: 0, clickCount: 1, pressure: 0)?.cgEvent
+        }
+        guard let down = makeEvent(secondary ? .rightMouseDown : .leftMouseDown),
+              let up = makeEvent(secondary ? .rightMouseUp : .leftMouseUp) else { return nil }
         for event in [down, up] {
+            event.location = point
             // Control-click was already mapped to secondary. Command must never turn an
             // activation into a status-item drag, so do not inherit the user's modifier flags.
             event.flags = []

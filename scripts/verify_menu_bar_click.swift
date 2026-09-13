@@ -96,7 +96,8 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func clicked(_ event: NSEvent) {
         require(event.windowNumber == item.windowNumber, "event reached wrong native window")
-        require(clickView.bounds.contains(event.locationInWindow), "event has wrong local coordinates")
+        require(clickView.bounds.contains(event.locationInWindow),
+                "event has wrong local coordinates: \(event.locationInWindow), bounds: \(clickView.bounds)")
         switch event.type {
         case .leftMouseDown, .rightMouseDown:
             break
