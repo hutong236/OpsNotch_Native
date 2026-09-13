@@ -185,8 +185,8 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     : CGRect(x: 2560, y: 360, width: 1920, height: 30), layer: 0)
         }
         let hidden = Forwarder.Window(pid: 2225, id: 8000,
-            frame: CGRect(x: -2980, y: 0, width: 36, height: 30), layer: 0,
-            source: .windowServer, isMenuBarItem: true)
+            frame: CGRect(x: -2980, y: 0, width: 36, height: 30), layer: 25,
+            source: .windowServer)
         var fallbackCalls = 0
         func queries(_ menuWindows: [Forwarder.Window], diagnostic: String = "fixture-inventory") -> Forwarder.WindowQueries {
             Forwarder.WindowQueries(byID: { _ in nil }, publicWindows: { publicWindows }, menuBarWindows: {
@@ -207,17 +207,21 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 && unavailable.diagnostic.contains("public-count=8")
                 && unavailable.diagnostic.contains("menu-owner-count=0"), "empty inventory lost failure details")
         let sibling = Forwarder.Window(pid: 2225, id: 8001, frame: hidden.frame, layer: 25,
-            source: .windowServer, isMenuBarItem: true)
+            source: .windowServer)
         require(Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil,
             queries: queries([hidden, sibling])).target == nil, "ambiguous menu inventory selected a window")
         require(Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: 9999,
             queries: queries([hidden])).target == nil, "stale AX identity fell back to a different menu item")
         let foreign = Forwarder.Window(pid: 3333, id: 8002, frame: hidden.frame, layer: 25,
-            source: .windowServer, isMenuBarItem: true)
+            source: .windowServer)
         let wrongOwner = Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil, queries: queries([foreign]))
         require(wrongOwner.target == nil && wrongOwner.diagnostic.contains("8002/pid=3333"),
                 "foreign menu owner was accepted or not diagnosed")
-        print("PASS: resolver fallback for reported AX geometry, missing public window, roster membership, ambiguity and owner checks")
+        let nonStatus = Forwarder.Window(pid: 2225, id: 8003, frame: hidden.frame, layer: 0,
+            source: .windowServer)
+        require(Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil,
+            queries: queries([nonStatus])).target == nil, "server inventory relaxed the status-window check")
+        print("PASS: resolver fallback for reported AX geometry, missing public window, layers, ambiguity and owner checks")
     }
 
     private func clicked(_ event: NSEvent) {

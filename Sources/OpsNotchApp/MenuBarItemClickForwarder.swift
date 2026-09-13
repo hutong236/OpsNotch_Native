@@ -45,16 +45,14 @@ enum MenuBarItemClickForwarder {
         let frame: CGRect
         let layer: Int
         let source: WindowSource
-        let isMenuBarItem: Bool
 
         init(pid: pid_t, id: CGWindowID, frame: CGRect, layer: Int,
-             source: WindowSource = .publicDescription, isMenuBarItem: Bool = false) {
+             source: WindowSource = .publicDescription) {
             self.pid = pid
             self.id = id
             self.frame = frame
             self.layer = layer
             self.source = source
-            self.isMenuBarItem = isMenuBarItem
         }
     }
 
@@ -150,8 +148,7 @@ enum MenuBarItemClickForwarder {
         let candidates = windows.filter { window in
             guard window.pid == pid, window.id != kCGNullWindowID, validFrame(window.frame) else { return false }
             if let windowID { return window.id == windowID }
-            return ((window.source == .windowServer && window.isMenuBarItem)
-                    || window.layer == Int(CGWindowLevelForKey(.statusWindow)))
+            return window.layer == Int(CGWindowLevelForKey(.statusWindow))
                 && contains(elementFrame, in: window.frame)
         }
         guard candidates.count == 1, let window = candidates.first,

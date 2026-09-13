@@ -84,7 +84,7 @@ enum MenuBarWindowServer {
         var windows = [MenuBarItemClickForwarder.Window]()
         var errors = [String]()
         for id in ids {
-            let result = readWindow(id, api: api, connection: connection, isMenuBarItem: true)
+            let result = readWindow(id, api: api, connection: connection)
             if let window = result.window { windows.append(window) }
             else { errors.append("\(id):\(result.diagnostic)") }
         }
@@ -96,11 +96,11 @@ enum MenuBarWindowServer {
     /// window. This is also used immediately before posting a previously resolved click.
     static func readWindow(_ identifier: CGWindowID) -> MenuBarItemClickForwarder.Window? {
         guard let api else { return nil }
-        return readWindow(identifier, api: api, connection: api.mainConnection(), isMenuBarItem: false).window
+        return readWindow(identifier, api: api, connection: api.mainConnection()).window
     }
 
-    private static func readWindow(_ identifier: CGWindowID, api: API, connection: Int32,
-                                   isMenuBarItem: Bool) -> (window: MenuBarItemClickForwarder.Window?, diagnostic: String) {
+    private static func readWindow(_ identifier: CGWindowID, api: API, connection: Int32)
+        -> (window: MenuBarItemClickForwarder.Window?, diagnostic: String) {
         guard identifier != kCGNullWindowID else { return (nil, "null-id") }
         var owner: Int32 = 0
         let ownerResult = api.windowOwner(connection, identifier, &owner)
@@ -117,7 +117,7 @@ enum MenuBarWindowServer {
         let layerResult = api.windowLevel(connection, identifier, &layer)
         guard layerResult == .success else { return (nil, "layer=\(layerResult.rawValue)") }
         return (MenuBarItemClickForwarder.Window(pid: pid, id: identifier, frame: frame,
-            layer: Int(layer), source: .windowServer, isMenuBarItem: isMenuBarItem), "ok")
+            layer: Int(layer), source: .windowServer), "ok")
     }
 }
 #endif
