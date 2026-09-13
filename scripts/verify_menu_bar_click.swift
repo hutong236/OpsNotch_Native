@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 /// Uses real offscreen AppKit windows without requiring a running menu-bar service.
 /// It never sends input to third-party apps. Actual NSStatusItem behavior needs a user session.
@@ -81,10 +82,24 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // well; encoding must not depend on finding the destination in NSApp.windows.
         let foreign = MenuBarItemClickForwarder.Target(pid: getpid() + 1,
             windowID: CGWindowID(Int32.max), frame: current.frame)
-        guard let foreignPair = MenuBarItemClickForwarder.makeEvents(for: foreign, interaction: .secondary),
-              let foreignDown = NSEvent(cgEvent: foreignPair.down) else { fail("foreign-window encoding failed") }
-        require(foreignDown.locationInWindow == NSPoint(x: 14, y: 14),
-                "foreign-window coordinates were lost: \(foreignDown.locationInWindow)")
+        typealias GetWindowLocation = @convention(c) (CGEvent) -> CGPoint
+        guard let image = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+              let symbol = dlsym(image, "CGEventGetWindowLocation"),
+              let foreignPair = MenuBarItemClickForwarder.makeEvents(for: foreign, interaction: .secondary)
+              else { fail("foreign-window encoding check unavailable") }
+        defer { dlclose(image) }
+        let getWindowLocation = unsafeBitCast(symbol, to: GetWindowLocation.self)
+        // NSEvent.locationInWindow falls back to screen coordinates for an unknown local
+        // window number. Inspect the serialized window point that the receiving process uses.
+        require(getWindowLocation(foreignPair.down) == CGPoint(x: 14, y: 14)
+                && getWindowLocation(foreignPair.up) == CGPoint(x: 14, y: 14),
+                "foreign-window payload lost its local coordinates")
+        if let plain = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 14, y: 14),
+            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: Int(foreign.windowID), context: nil, eventNumber: 0, clickCount: 1, pressure: 0)?.cgEvent {
+            plain.location = CGPoint(x: current.frame.midX, y: current.frame.midY)
+            print("PROBE: local point without explicit encoding = \(getWindowLocation(plain))")
+        }
         print("PASS: foreign-window coordinate encoding (no event posted)")
         require(MenuBarItemClickForwarder.post(to: current, interaction: .primary), "primary not submitted")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
