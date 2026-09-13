@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import ApplicationServices
+import Darwin
 
 enum MenuBarPanelInteraction: Equatable {
     case primary
@@ -20,6 +21,13 @@ enum MenuBarItemClickForwarder {
     // AppKit's destination window field. Keep this compatibility detail at the native edge;
     // the macOS probe verifies NSEvent decoding and delivery using the production event pair.
     private static let destinationWindow = CGEventField(rawValue: 0x33)!
+    private typealias SetWindowLocation = @convention(c) (CGEvent, CGPoint) -> Void
+    private static let setWindowLocation: SetWindowLocation? = {
+        // Retain the framework for the process lifetime, as the stored function pointer uses it.
+        guard let image = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+              let symbol = dlsym(image, "CGEventSetWindowLocation") else { return nil }
+        return unsafeBitCast(symbol, to: SetWindowLocation.self)
+    }()
 
     /// Read current AX geometry, never the scan's cached position. Window metadata is available
     /// without capturing screen pixels. Ambiguous matches fail instead of clicking a sibling.
@@ -48,7 +56,8 @@ enum MenuBarItemClickForwarder {
     }
 
     static func makeEvents(for target: Target, interaction: MenuBarPanelInteraction) -> (down: CGEvent, up: CGEvent)? {
-        guard target.pid > 0, target.windowID != kCGNullWindowID, validFrame(target.frame) else { return nil }
+        guard target.pid > 0, target.windowID != kCGNullWindowID, validFrame(target.frame),
+              let setWindowLocation else { return nil }
         let secondary = interaction == .secondary
         let point = CGPoint(x: target.frame.midX, y: target.frame.midY)
         // PID delivery bypasses WindowServer's global-to-window coordinate conversion.
@@ -74,6 +83,9 @@ enum MenuBarItemClickForwarder {
             event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(target.windowID))
             event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent,
                                        value: Int64(target.windowID))
+            // NSEvent cannot resolve another process's NSWindow during the CGEvent conversion.
+            // Explicit local coordinates are required for foreign destinations as well.
+            setWindowLocation(event, CGPoint(x: target.frame.width / 2, y: target.frame.height / 2))
         }
         return (down, up)
     }
