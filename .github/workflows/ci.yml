@@ -29,6 +29,7 @@ jobs:
       - name: Offscreen native clicks (own windows)
         run: |
           swiftc Sources/OpsNotchApp/MenuBarItemClickForwarder.swift \
+            Sources/OpsNotchApp/MenuBarWindowServer.swift \
             scripts/verify_menu_bar_click.swift \
             -o "$RUNNER_TEMP/verify-menu-bar-click"
           python3 - <<'PY'

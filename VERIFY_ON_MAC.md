@@ -262,3 +262,7 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 6. 在刘海屏和不同排列的多显示器分别执行，确认原菜单在可见屏幕内可操作。记录 macOS 版本、CPU、应用版本与显示器布局。
 
 CI 的 `verify_menu_bar_click.swift` 仅验证自身离屏 AppKit 窗口的实际事件接收、菜单 tracking 和外部窗口坐标编码；CI 菜单栏服务无法创建真实状态项，不能替代第三方 App 和真机菜单选项验收。
+
+### 隐藏窗口清单回归（2026-09-13）
+
+保持持续隐藏区收起，在面板里分别左键/右键 Clash Verge、OneDrive、TCP Latency；确认能操作原生菜单且没有展开隐藏区域、移动鼠标或更改图标顺序。若失败，复制诊断，检查 `stage=server-window-match`、`server-menu-count`、`readable`、`menu-owner-count` 及匹配窗口矩形；提供整段诊断以区分清单缺失、所有者不同和接口失败。仅 CI 通过不能勾选实机验收。
