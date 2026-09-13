@@ -12,6 +12,7 @@ import OpsNotchCore
 final class MenuBarManager: NSObject, ObservableObject {
     @Published private(set) var state: MenuBarVisibilityState = .allExpanded
     @Published var hotkeyConflict = false
+    var onCopyDiagnostic: ((String) -> Void)?
 
     private static let controlAutosaveName = "lab.hutong.opsnotch.menubar.control"
     // Reuse the legacy visible boundary identity for the fixed toggle so upgrades keep the
@@ -133,6 +134,7 @@ final class MenuBarManager: NSObject, ObservableObject {
             self?.interactWithPanelItem(id: id, interaction: interaction)
         }
         panelController.onDismiss = { [weak self] in self?.cancelPanelInteraction() }
+        panelController.onCopyDiagnostic = { [weak self] report in self?.onCopyDiagnostic?(report) }
     }
 
     func start() {
@@ -941,19 +943,25 @@ final class MenuBarManager: NSObject, ObservableObject {
             guard let self, generation == self.panelInteractionGeneration,
                   self.panelController.isInteracting else { return }
             self.panelInteractionGeneration += 1
-            self.panelController.finishInteraction(error: L10n.text("menuBarPanelActivateFailed", self.model.language))
+            self.panelController.finishInteraction(
+                error: L10n.text("menuBarPanelActivateFailed", self.model.language),
+                diagnostic: "stage=lookup-timeout item=\(id)"
+            )
         }
         // AX requests to an unresponsive app must never stall the popover's mouse handling.
         panelInteractionQueue.async { [weak self] in
-            let target = MenuBarItemClickForwarder.resolve(item.element)
+            let result = MenuBarItemClickForwarder.resolve(item.element)
             DispatchQueue.main.async { [weak self] in
                 guard let self, generation == self.panelInteractionGeneration else { return }
                 guard self.panelController.isVisible else {
                     self.cancelPanelInteraction()
                     return
                 }
-                guard let target else {
-                    self.panelController.finishInteraction(error: L10n.text("menuBarPanelActivateFailed", self.model.language))
+                guard let target = result.target else {
+                    self.panelController.finishInteraction(
+                        error: L10n.text("menuBarPanelActivateFailed", self.model.language),
+                        diagnostic: result.diagnostic
+                    )
                     self.lastPanelScanAt = nil
                     return
                 }
@@ -968,7 +976,10 @@ final class MenuBarManager: NSObject, ObservableObject {
                         if let button = self.controlItem.button {
                             self.panelController.show(relativeTo: button)
                         }
-                        self.panelController.finishInteraction(error: L10n.text("menuBarPanelActivateFailed", self.model.language))
+                        self.panelController.finishInteraction(
+                            error: L10n.text("menuBarPanelActivateFailed", self.model.language),
+                            diagnostic: "stage=post-validation \(result.diagnostic)"
+                        )
                     }
                 }
             }

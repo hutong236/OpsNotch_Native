@@ -170,6 +170,7 @@ enum L10n {
             "menuBarPanelGrantPermission": "授予辅助功能权限",
             "menuBarPanelUnavailable": "暂时无法读取菜单栏项目，请确认分隔线位置后重试。",
             "menuBarPanelActivateFailed": "未能连接到该图标，请刷新面板后重试",
+            "menuBarPanelCopyDiagnostic": "复制诊断信息",
             "menuBarPanelEmpty": "当前隐藏区域没有可读取的菜单栏项目",
             "menuBarAlwaysHiddenSection": "持续隐藏",
             "menuBarHiddenSection": "普通隐藏"
@@ -339,6 +340,7 @@ enum L10n {
             "menuBarPanelGrantPermission": "Grant Accessibility Permission",
             "menuBarPanelUnavailable": "Menu bar items are temporarily unavailable. Check separator placement and try again.",
             "menuBarPanelActivateFailed": "Could not reach this item. Refresh the panel and try again.",
+            "menuBarPanelCopyDiagnostic": "Copy diagnostics",
             "menuBarPanelEmpty": "No accessible menu bar items were found in the hidden sections",
             "menuBarAlwaysHiddenSection": "Always hidden",
             "menuBarHiddenSection": "Hidden"

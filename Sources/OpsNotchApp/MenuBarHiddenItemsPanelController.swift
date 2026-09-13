@@ -34,11 +34,13 @@ final class MenuBarHiddenItemsPanelController: NSObject, ObservableObject, NSPop
     @Published private(set) var isRefreshing = false
     @Published private(set) var isInteracting = false
     @Published private(set) var interactionError: String?
+    @Published private(set) var interactionDiagnostic: String?
 
     var onRefresh: (() -> Void)?
     var onRequestPermission: (() -> Void)?
     var onInteract: ((String, MenuBarPanelInteraction) -> Void)?
     var onDismiss: (() -> Void)?
+    var onCopyDiagnostic: ((String) -> Void)?
 
     private let popover = NSPopover()
     private var closingForInteraction = false
@@ -68,12 +70,21 @@ final class MenuBarHiddenItemsPanelController: NSObject, ObservableObject, NSPop
 
     func beginInteraction() {
         interactionError = nil
+        interactionDiagnostic = nil
         isInteracting = true
     }
 
-    func finishInteraction(error: String? = nil) {
+    func finishInteraction(error: String? = nil, diagnostic: String? = nil) {
         isInteracting = false
         interactionError = error
+        interactionDiagnostic = diagnostic
+    }
+
+    func copyInteractionDiagnostic() {
+        guard let interactionDiagnostic else { return }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let report = "Ops Notch \(version)\n\(ProcessInfo.processInfo.operatingSystemVersionString)\n\(interactionDiagnostic)"
+        onCopyDiagnostic?(report)
     }
 
     func closeForInteraction() {
@@ -95,6 +106,7 @@ final class MenuBarHiddenItemsPanelController: NSObject, ObservableObject, NSPop
 
     func beginRefresh(preserveItems: Bool) {
         interactionError = nil
+        interactionDiagnostic = nil
         isRefreshing = true
         if !preserveItems || items.isEmpty {
             phase = .loading
@@ -159,7 +171,16 @@ private struct MenuBarHiddenItemsPanelView: View {
             Divider()
 
             if let error = controller.interactionError {
-                Text(error).font(.system(size: 11)).foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(error).font(.system(size: 11)).foregroundStyle(.red)
+                    if controller.interactionDiagnostic != nil {
+                        Button(L10n.text("menuBarPanelCopyDiagnostic", controller.language)) {
+                            controller.copyInteractionDiagnostic()
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 10))
+                    }
+                }
             }
 
             switch controller.phase {

@@ -47,6 +47,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func startChecks() {
+        verifyWindowMatching()
         print("PROBE: reading target window")
         let window = item!
         let initial = MenuBarItemClickForwarder.Target(
@@ -55,7 +56,13 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let current = MenuBarItemClickForwarder.currentTarget(initial) else {
             fail("status-window metadata unavailable")
         }
-        target = current
+        // Use an asymmetric inset button so native delivery also checks Quartz/AppKit Y conversion.
+        let buttonFrame = CGRect(x: current.frame.minX + 2, y: current.frame.minY + 3, width: 18, height: 16)
+        let metadata = MenuBarItemClickForwarder.Window(pid: getpid(), id: current.windowID,
+            frame: current.frame, layer: Int(CGWindowLevelForKey(.statusWindow)))
+        guard let insetTarget = MenuBarItemClickForwarder.match(pid: getpid(), elementFrame: buttonFrame,
+            windowID: current.windowID, windows: [metadata]) else { fail("live inset target unavailable") }
+        target = insetTarget
         var count: UInt32 = 0
         require(CGGetActiveDisplayList(0, nil, &count) == .success && count > 0, "display service unavailable")
         var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
@@ -101,11 +108,11 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("PROBE: local point without explicit encoding = \(getWindowLocation(plain))")
         }
         print("PASS: foreign-window coordinate encoding (no event posted)")
-        require(MenuBarItemClickForwarder.post(to: current, interaction: .primary), "primary not submitted")
+        require(MenuBarItemClickForwarder.post(to: insetTarget, interaction: .primary), "primary not submitted")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.require(self.primaryCount == 1, "offscreen primary up not received exactly once")
             self.require(self.secondaryCount == 0 && self.decoyCount == 0, "wrong target received primary")
-            self.require(MenuBarItemClickForwarder.post(to: current, interaction: .secondary), "secondary not submitted")
+            self.require(MenuBarItemClickForwarder.post(to: insetTarget, interaction: .secondary), "secondary not submitted")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.finishChecks() }
         }
     }
@@ -118,10 +125,50 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return window
     }
 
+    private func verifyWindowMatching() {
+        typealias Forwarder = MenuBarItemClickForwarder
+        let statusLayer = Int(CGWindowLevelForKey(.statusWindow))
+        let outer = CGRect(x: -20_000, y: 0, width: 44, height: 28)
+        // Deliberately asymmetric: clicking the window center is not clicking this AX button.
+        let button = CGRect(x: -19_997, y: 2, width: 20, height: 18)
+        let window = Forwarder.Window(pid: 101, id: 201, frame: outer, layer: statusLayer)
+        let exact = Forwarder.match(pid: 101, elementFrame: outer, windowID: nil, windows: [window])
+        require(exact?.windowID == 201, "exact rectangle regression")
+        let inset = Forwarder.match(pid: 101, elementFrame: button, windowID: nil, windows: [window])
+        require(inset?.localPoint == CGPoint(x: 13, y: 11), "inset AX button could not be matched")
+        guard let inset, let pair = Forwarder.makeEvents(for: inset, interaction: .secondary) else {
+            fail("inset AX event creation failed")
+        }
+        require(pair.down.location == CGPoint(x: -19_987, y: 11), "inset click missed AX center")
+        let sibling = Forwarder.Window(pid: 101, id: 202, frame: outer, layer: statusLayer)
+        require(Forwarder.match(pid: 101, elementFrame: button, windowID: nil, windows: [window, sibling]) == nil,
+                "ambiguous geometry selected an arbitrary sibling")
+        require(Forwarder.match(pid: 101, elementFrame: button, windowID: 202, windows: [window, sibling])?.windowID == 202,
+                "AX window identity did not disambiguate")
+        require(Forwarder.match(pid: 102, elementFrame: button, windowID: 201, windows: [window]) == nil,
+                "foreign owner accepted")
+        require(Forwarder.match(pid: 101, elementFrame: button, windowID: 999, windows: [window]) == nil,
+                "stale AX identity fell back to another window")
+        let customLevel = Forwarder.Window(pid: 101, id: 203, frame: outer, layer: statusLayer + 1)
+        require(Forwarder.match(pid: 101, elementFrame: button, windowID: 203, windows: [customLevel])?.windowID == 203,
+                "authoritative AX identity rejected only by layer")
+        require(Forwarder.match(pid: 101, elementFrame: button, windowID: nil, windows: [customLevel]) == nil,
+                "unidentified non-status window accepted")
+        let outside = button.offsetBy(dx: 100, dy: 0)
+        require(Forwarder.match(pid: 101, elementFrame: outside, windowID: 201, windows: [window]) == nil,
+                "out-of-window AX coordinates accepted")
+        require(Forwarder.match(pid: 101, elementFrame: .zero, windowID: 201, windows: [window]) == nil,
+                "invalid AX geometry accepted")
+        print("PASS: window matching (insets, negative coordinates, AX identity, owner, layers, ambiguity, stale IDs)")
+    }
+
     private func clicked(_ event: NSEvent) {
         require(event.windowNumber == item.windowNumber, "event reached wrong native window")
         require(clickView.bounds.contains(event.locationInWindow),
                 "event has wrong local coordinates: \(event.locationInWindow), bounds: \(clickView.bounds)")
+        let expected = CGPoint(x: target.pointInWindow.x, y: target.frame.height - target.pointInWindow.y)
+        require(event.locationInWindow == expected,
+                "inset event missed button center: \(event.locationInWindow), expected: \(expected)")
         switch event.type {
         case .leftMouseDown, .rightMouseDown:
             break
