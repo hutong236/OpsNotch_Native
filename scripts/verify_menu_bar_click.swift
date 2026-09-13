@@ -121,6 +121,12 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
 @main
 struct MenuBarClickProbe {
     @MainActor static func main() {
+        setbuf(stdout, nil)
+        // Keep a watchdog outside AppKit's tracking run loop as well as the CI process timeout.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
+            fputs("FAIL: native tracking watchdog expired\n", stderr)
+            exit(1)
+        }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let delegate = ClickProbe()

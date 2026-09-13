@@ -20,7 +20,7 @@ struct MenuBarHiddenItemPresentation: Identifiable {
 /// 可选隐藏项目面板。扫描与点击仅在用户启用此功能后使用辅助功能 API；
 /// 基础的菜单栏隐藏/展开完全不需要该权限。
 @MainActor
-final class MenuBarHiddenItemsPanelController: ObservableObject {
+final class MenuBarHiddenItemsPanelController: NSObject, ObservableObject, NSPopoverDelegate {
     enum Phase {
         case loading
         case permissionRequired
@@ -38,11 +38,15 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
     var onRefresh: (() -> Void)?
     var onRequestPermission: (() -> Void)?
     var onInteract: ((String, MenuBarPanelInteraction) -> Void)?
+    var onDismiss: (() -> Void)?
 
     private let popover = NSPopover()
+    private var closingForInteraction = false
 
     init(language: AppLanguage) {
         self.language = language
+        super.init()
+        popover.delegate = self
         popover.behavior = .transient
         popover.animates = true
         popover.contentSize = NSSize(width: 360, height: 340)
@@ -75,9 +79,18 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
     func closeForInteraction() {
         // Complete dismissal before another app starts native menu tracking.
         let animated = popover.animates
+        closingForInteraction = true
         popover.animates = false
         popover.close()
         popover.animates = animated
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        if !closingForInteraction { onDismiss?() }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        closingForInteraction = false
     }
 
     func beginRefresh(preserveItems: Bool) {

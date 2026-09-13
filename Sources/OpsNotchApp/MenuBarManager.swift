@@ -132,6 +132,7 @@ final class MenuBarManager: NSObject, ObservableObject {
         panelController.onInteract = { [weak self] id, interaction in
             self?.interactWithPanelItem(id: id, interaction: interaction)
         }
+        panelController.onDismiss = { [weak self] in self?.cancelPanelInteraction() }
     }
 
     func start() {
@@ -364,6 +365,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     func showHiddenItemsPanel() {
         guard model.settings.menuBarManagementEnabled, model.settings.menuBarPanelEnabled,
               let button = controlItem.button else { return }
+        cancelPanelInteraction()
         panelOpenedForNotchOverflow = false
         panelController.show(relativeTo: button)
 
@@ -935,6 +937,12 @@ final class MenuBarManager: NSObject, ObservableObject {
         panelInteractionGeneration += 1
         let generation = panelInteractionGeneration
         panelController.beginInteraction()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, generation == self.panelInteractionGeneration,
+                  self.panelController.isInteracting else { return }
+            self.panelInteractionGeneration += 1
+            self.panelController.finishInteraction(error: L10n.text("menuBarPanelActivateFailed", self.model.language))
+        }
         // AX requests to an unresponsive app must never stall the popover's mouse handling.
         panelInteractionQueue.async { [weak self] in
             let target = MenuBarItemClickForwarder.resolve(item.element)

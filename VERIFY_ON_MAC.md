@@ -249,7 +249,8 @@ Ops Notch 不应创建任何 1420 监听端口。
 15. 普通剪贴板搜索取回与 Esc 收起继续归还原应用焦点；桌面移动后不得被旧 Shelf 回调激活回原桌面。
 
 CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_desktop_space_compatibility.c` 符号探针、`scripts/verify_desktop_window_move.m` 生产桥接的自有窗口同 Space 调用、正式 App 编译和签名打包。日志明确输出 `CROSS_SPACE_NOT_TESTED; CROSS_DISPLAY_NOT_TESTED; EXTERNAL_APP_NOT_TESTED`；外部 App 的上述操作仍需真机验收。
-# 隐藏图标面板原生点击（Issue #100）
+
+## 隐藏图标面板原生点击（Issue #100）
 
 1. 授予辅助功能权限，将微信及一个左右键行为不同的 App 放入普通隐藏区域并收起。打开面板，左键一次即执行原主操作；再次打开面板，右键一次即出现原菜单，菜单选项可选。
 2. 在持续隐藏区重复上述操作；整个过程不选择“显示全部”，其他隐藏图标不出现，图标顺序和鼠标位置不变。
