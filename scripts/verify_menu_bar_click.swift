@@ -15,6 +15,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var originalCursor = CGPoint.zero
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        print("PROBE: did finish launching")
         originalCursor = CGEvent(source: nil)?.location ?? .zero
         item = NSStatusBar.system.statusItem(withLength: 28)
         item.button?.title = "P"
@@ -27,6 +28,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         decoy.button?.action = #selector(decoyClicked)
         // A real wide spacer reproduces the app's hiding technique.
         spacer = NSStatusBar.system.statusItem(withLength: 20_000)
+        print("PROBE: created hidden status items")
         menu.addItem(withTitle: "Probe action", action: nil, keyEquivalent: "")
         menu.delegate = self
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.startChecks() }
@@ -34,6 +36,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func startChecks() {
+        print("PROBE: reading target window")
         guard let window = item.button?.window else { fail("status window missing") }
         let initial = MenuBarItemClickForwarder.Target(
             pid: getpid(), windowID: CGWindowID(window.windowNumber), frame: .zero
@@ -81,7 +84,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
             secondaryCount += 1
             // A native menu must enter tracking even though its status item remains offscreen.
             let dismiss = Timer(timeInterval: 0.15, repeats: false) { [weak self] _ in
-                self?.menu.cancelTracking()
+                MainActor.assumeIsolated { self?.menu.cancelTracking() }
             }
             RunLoop.main.add(dismiss, forMode: .common)
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
@@ -128,9 +131,13 @@ struct MenuBarClickProbe {
             exit(1)
         }
         let app = NSApplication.shared
+        print("PROBE: application created")
         app.setActivationPolicy(.accessory)
         let delegate = ClickProbe()
         app.delegate = delegate
+        print("PROBE: finishing launch")
+        app.finishLaunching()
+        print("PROBE: starting run loop")
         withExtendedLifetime(delegate) { app.run() }
     }
 }
