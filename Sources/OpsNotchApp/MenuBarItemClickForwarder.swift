@@ -18,6 +18,8 @@ enum MenuBarItemClickForwarder {
     }
 
     struct Target: Equatable {
+        /// PID that owns the native destination window. A proxied AX menu item can have a
+        /// different AX PID; events must always be posted to this native window owner.
         let pid: pid_t
         let windowID: CGWindowID
         let frame: CGRect
@@ -79,6 +81,7 @@ enum MenuBarItemClickForwarder {
     }
 
     private static let messagingTimeout: Float = 0.18
+    private static let statusWindowLayer = Int(CGWindowLevelForKey(.statusWindow))
     private static let log = Logger(subsystem: "lab.hutong.opsnotch", category: "menu-bar-click")
     private typealias AXWindowID = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
     private static let axWindowID: AXWindowID? = {
@@ -127,7 +130,38 @@ enum MenuBarItemClickForwarder {
         // only unrelated app windows. Ask the menu-bar inventory instead of widening geometry.
         let inventory = queries.menuBarWindows()
         let menuWindows = inventory.windows.filter { $0.pid == pid }
-        let target = match(pid: pid, elementFrame: frame, windowID: identifier, windows: menuWindows)
+        if let target = match(pid: pid, elementFrame: frame, windowID: identifier, windows: menuWindows) {
+            return resolution(target, detail: "stage=server-window ax-pid=\(pid) window-pid=\(target.pid) window=\(target.windowID) ax=\(frame) native=\(target.frame)")
+        }
+
+        // macOS can expose the AX status item from one process while a different process owns
+        // the native status-window that receives mouse events. Only use this fallback when AX
+        // has no authoritative window ID, the AX owner has no geometrically matching status
+        // window at all, and exactly one foreign status-window contains the AX item. Never
+        // choose a nearest/first foreign window or bypass same-owner ambiguity.
+        let sameOwnerCandidates: [Window]
+        if identifier == nil {
+            sameOwnerCandidates = menuWindows.filter {
+                $0.id != kCGNullWindowID && validFrame($0.frame)
+                    && $0.layer == statusWindowLayer && contains(frame, in: $0.frame)
+            }
+        } else {
+            sameOwnerCandidates = []
+        }
+        let proxyWindows: [Window]
+        if identifier == nil && sameOwnerCandidates.isEmpty {
+            proxyWindows = inventory.windows.filter {
+                $0.pid != pid && $0.id != kCGNullWindowID && validFrame($0.frame)
+                    && $0.layer == statusWindowLayer && contains(frame, in: $0.frame)
+            }
+        } else {
+            proxyWindows = []
+        }
+        if proxyWindows.count == 1, let proxy = proxyWindows.first,
+           let target = target(for: proxy, elementFrame: frame) {
+            return resolution(target, detail: "stage=server-proxy-window ax-pid=\(pid) window-pid=\(target.pid) window=\(target.windowID) ax=\(frame) native=\(target.frame)")
+        }
+
         func describe(_ windows: [Window]) -> String {
             windows.sorted { lhs, rhs in
                 let left = contains(frame, in: lhs.frame)
@@ -136,9 +170,9 @@ enum MenuBarItemClickForwarder {
             }.prefix(8).map { "\($0.id)/pid=\($0.pid)/layer=\($0.layer)/\($0.frame)" }.joined(separator: "; ")
         }
         // Include counts before truncation and geometrically relevant other owners. This makes
-        // an empty roster, an owner mismatch, and unrelated full-width windows distinguishable.
+        // an empty roster, an owner mismatch, ambiguity, and unrelated windows distinguishable.
         let otherOwners = inventory.windows.filter { $0.pid != pid && contains(frame, in: $0.frame) }
-        return resolution(target, detail: "stage=server-window-match pid=\(pid) axWindow=\(identifier.map(String.init) ?? "none") ax=\(frame) \(inventory.diagnostic) public-count=\(windows.count) public=[\(describe(windows))] menu-owner-count=\(menuWindows.count) menu=[\(describe(menuWindows))] other-owners=[\(describe(otherOwners))]")
+        return resolution(nil, detail: "stage=server-window-match pid=\(pid) axWindow=\(identifier.map(String.init) ?? "none") ax=\(frame) \(inventory.diagnostic) public-count=\(windows.count) public=[\(describe(windows))] menu-owner-count=\(menuWindows.count) menu=[\(describe(menuWindows))] same-owner-candidate-count=\(sameOwnerCandidates.count) same-owner-candidates=[\(describe(sameOwnerCandidates))] proxy-count=\(proxyWindows.count) proxy=[\(describe(proxyWindows))] other-owners=[\(describe(otherOwners))]")
     }
 
     /// Shared by the resolver and regression probe. An authoritative AX window ID must not
@@ -148,15 +182,10 @@ enum MenuBarItemClickForwarder {
         let candidates = windows.filter { window in
             guard window.pid == pid, window.id != kCGNullWindowID, validFrame(window.frame) else { return false }
             if let windowID { return window.id == windowID }
-            return window.layer == Int(CGWindowLevelForKey(.statusWindow))
-                && contains(elementFrame, in: window.frame)
+            return window.layer == statusWindowLayer && contains(elementFrame, in: window.frame)
         }
-        guard candidates.count == 1, let window = candidates.first,
-              contains(elementFrame, in: window.frame) else { return nil }
-        let point = CGPoint(x: elementFrame.midX - window.frame.minX,
-                            y: elementFrame.midY - window.frame.minY)
-        guard CGRect(origin: .zero, size: window.frame.size).contains(point) else { return nil }
-        return Target(pid: pid, windowID: window.id, frame: window.frame, localPoint: point, source: window.source)
+        guard candidates.count == 1, let window = candidates.first else { return nil }
+        return target(for: window, elementFrame: elementFrame)
     }
 
     /// Revalidate identity immediately before sending. A moved window keeps its identity and
@@ -217,6 +246,15 @@ enum MenuBarItemClickForwarder {
         events.down.postToPid(current.pid)
         events.up.postToPid(current.pid)
         return true
+    }
+
+    private static func target(for window: Window, elementFrame: CGRect) -> Target? {
+        guard contains(elementFrame, in: window.frame) else { return nil }
+        let point = CGPoint(x: elementFrame.midX - window.frame.minX,
+                            y: elementFrame.midY - window.frame.minY)
+        guard CGRect(origin: .zero, size: window.frame.size).contains(point) else { return nil }
+        return Target(pid: window.pid, windowID: window.id, frame: window.frame,
+                      localPoint: point, source: window.source)
     }
 
     private static func window(from window: [String: Any]) -> Window? {

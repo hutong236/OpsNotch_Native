@@ -158,7 +158,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         require(Forwarder.match(pid: 101, elementFrame: button, windowID: 202, windows: [window, sibling])?.windowID == 202,
                 "AX window identity did not disambiguate")
         require(Forwarder.match(pid: 102, elementFrame: button, windowID: 201, windows: [window]) == nil,
-                "foreign owner accepted")
+                "foreign owner accepted by strict identity matching")
         require(Forwarder.match(pid: 101, elementFrame: button, windowID: 999, windows: [window]) == nil,
                 "stale AX identity fell back to another window")
         let customLevel = Forwarder.Window(pid: 101, id: 203, frame: outer, layer: statusLayer + 1)
@@ -176,8 +176,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func verifyMissingPublicWindow() {
         typealias Forwarder = MenuBarItemClickForwarder
-        // Actual reported AX geometry and public-list shape. The menu window below is an
-        // explicit fixture for the missing roster entry, not claimed to be observed on the user's Mac.
+        // Actual earlier report: public descriptions omitted the hidden status window entirely.
         let ax = CGRect(x: -2980, y: 3, width: 36, height: 24)
         let publicWindows = (0..<8).map { offset in
             Forwarder.Window(pid: 2225, id: CGWindowID(7831 + offset),
@@ -212,16 +211,61 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
             queries: queries([hidden, sibling])).target == nil, "ambiguous menu inventory selected a window")
         require(Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: 9999,
             queries: queries([hidden])).target == nil, "stale AX identity fell back to a different menu item")
-        let foreign = Forwarder.Window(pid: 3333, id: 8002, frame: hidden.frame, layer: 25,
-            source: .windowServer)
-        let wrongOwner = Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil, queries: queries([foreign]))
-        require(wrongOwner.target == nil && wrongOwner.diagnostic.contains("8002/pid=3333"),
-                "foreign menu owner was accepted or not diagnosed")
         let nonStatus = Forwarder.Window(pid: 2225, id: 8003, frame: hidden.frame, layer: 0,
             source: .windowServer)
         require(Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil,
             queries: queries([nonStatus])).target == nil, "server inventory relaxed the status-window check")
-        print("PASS: resolver fallback for reported AX geometry, missing public window, layers, ambiguity and owner checks")
+
+        // Actual 2026-09-13 report after PR #103: AX and the real native status-window have
+        // different PIDs even though their offscreen geometry identifies the same menu item.
+        let proxyAX = CGRect(x: -3016, y: 3, width: 38, height: 24)
+        let proxyPublic = [Forwarder.Window(pid: 75732, id: 7812,
+            frame: CGRect(x: 1982, y: 32, width: 295, height: 136), layer: 101)]
+        let proxyWindow = Forwarder.Window(pid: 1284, id: 7619,
+            frame: CGRect(x: -3015, y: 0, width: 36, height: 30), layer: 25,
+            source: .windowServer)
+        func proxyQueries(_ menuWindows: [Forwarder.Window]) -> Forwarder.WindowQueries {
+            Forwarder.WindowQueries(byID: { _ in nil }, publicWindows: { proxyPublic }, menuBarWindows: {
+                MenuBarWindowServer.Inventory(windows: menuWindows,
+                    diagnostic: "server-menu-count=26 readable=26 errors=[]")
+            })
+        }
+        let proxyResult = Forwarder.resolve(pid: 75732, elementFrame: proxyAX, windowID: nil,
+            queries: proxyQueries([proxyWindow]))
+        guard let proxyTarget = proxyResult.target else {
+            fail("cross-owner proxy fallback failed: \(proxyResult.diagnostic)")
+        }
+        require(proxyTarget.pid == 1284 && proxyTarget.windowID == 7619 && proxyTarget.source == .windowServer,
+                "proxy target did not preserve the native WindowServer owner")
+        require(proxyTarget.localPoint == CGPoint(x: 18, y: 15), "proxy target has wrong local point")
+        require(proxyResult.diagnostic.contains("stage=server-proxy-window")
+                && proxyResult.diagnostic.contains("ax-pid=75732")
+                && proxyResult.diagnostic.contains("window-pid=1284"),
+                "proxy resolution lost AX/native owner diagnostics")
+        guard let proxyPair = Forwarder.makeEvents(for: proxyTarget, interaction: .secondary) else {
+            fail("proxy event creation failed")
+        }
+        require(proxyPair.down.location == CGPoint(x: -2997, y: 15), "proxy click missed AX center")
+        require(proxyPair.down.getIntegerValueField(.eventTargetUnixProcessID) == 1284,
+                "proxy event was addressed to the AX PID instead of the native owner")
+        require(NSEvent(cgEvent: proxyPair.down)?.windowNumber == 7619,
+                "proxy event lost the native destination window")
+
+        let proxySibling = Forwarder.Window(pid: 1285, id: 7620, frame: proxyWindow.frame, layer: 25,
+            source: .windowServer)
+        let ambiguousProxy = Forwarder.resolve(pid: 75732, elementFrame: proxyAX, windowID: nil,
+            queries: proxyQueries([proxyWindow, proxySibling]))
+        require(ambiguousProxy.target == nil && ambiguousProxy.diagnostic.contains("proxy-count=2"),
+                "ambiguous cross-owner status windows selected an arbitrary target")
+        let proxyNonStatus = Forwarder.Window(pid: 1284, id: 7621, frame: proxyWindow.frame, layer: 0,
+            source: .windowServer)
+        require(Forwarder.resolve(pid: 75732, elementFrame: proxyAX, windowID: nil,
+            queries: proxyQueries([proxyNonStatus])).target == nil,
+                "cross-owner fallback accepted a non-status window")
+        require(Forwarder.resolve(pid: 75732, elementFrame: proxyAX, windowID: 9999,
+            queries: proxyQueries([proxyWindow])).target == nil,
+                "cross-owner fallback ignored an authoritative stale AX window ID")
+        print("PASS: resolver fallback for missing public windows and unique cross-owner status-window proxies")
     }
 
     private func clicked(_ event: NSEvent) {
