@@ -1,11 +1,22 @@
 import AppKit
 
-/// This probe uses only its own status items. It never sends input to third-party apps.
+/// Uses real offscreen AppKit windows without requiring a running menu-bar service.
+/// It never sends input to third-party apps. Actual NSStatusItem behavior needs a user session.
+@MainActor
+final class ProbeClickView: NSView {
+    var onEvent: ((NSEvent) -> Void)?
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { onEvent?(event) }
+    override func mouseUp(with event: NSEvent) { onEvent?(event) }
+    override func rightMouseDown(with event: NSEvent) { onEvent?(event) }
+    override func rightMouseUp(with event: NSEvent) { onEvent?(event) }
+}
+
 @MainActor
 final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private var item: NSStatusItem!
-    private var decoy: NSStatusItem!
-    private var spacer: NSStatusItem!
+    private var item: NSWindow!
+    private let clickView = ProbeClickView(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+    private var decoy: NSWindow!
     private var target: MenuBarItemClickForwarder.Target!
     private var primaryCount = 0
     private var secondaryCount = 0
@@ -17,18 +28,17 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("PROBE: did finish launching")
         originalCursor = CGEvent(source: nil)?.location ?? .zero
-        item = NSStatusBar.system.statusItem(withLength: 28)
-        item.button?.title = "P"
-        item.button?.target = self
-        item.button?.action = #selector(clicked(_:))
-        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        decoy = NSStatusBar.system.statusItem(withLength: 28)
-        decoy.button?.title = "D"
-        decoy.button?.target = self
-        decoy.button?.action = #selector(decoyClicked)
-        // A real wide spacer reproduces the app's hiding technique.
-        spacer = NSStatusBar.system.statusItem(withLength: 20_000)
-        print("PROBE: created hidden status items")
+        print("PROBE: creating offscreen windows")
+        item = makeWindow(x: -20_000)
+        item.contentView = clickView
+        clickView.onEvent = { [weak self] event in self?.clicked(event) }
+        decoy = makeWindow(x: -21_000)
+        let decoyView = ProbeClickView(frame: clickView.frame)
+        decoyView.onEvent = { [weak self] _ in self?.decoyCount += 1 }
+        decoy.contentView = decoyView
+        item.orderFrontRegardless()
+        decoy.orderFrontRegardless()
+        print("PROBE: created offscreen windows")
         menu.addItem(withTitle: "Probe action", action: nil, keyEquivalent: "")
         menu.delegate = self
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.startChecks() }
@@ -37,7 +47,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startChecks() {
         print("PROBE: reading target window")
-        guard let window = item.button?.window else { fail("status window missing") }
+        let window = item!
         let initial = MenuBarItemClickForwarder.Target(
             pid: getpid(), windowID: CGWindowID(window.windowNumber), frame: .zero
         )
@@ -51,7 +61,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         CGGetActiveDisplayList(count, &displays, &count)
         require(!displays.contains { CGDisplayBounds($0).intersects(current.frame) },
                 "fixture must be offscreen: \(current.frame)")
-        print("OFFSCREEN_STATUS_ITEM window=\(current.windowID) frame=\(current.frame)")
+        print("OFFSCREEN_NATIVE_WINDOW window=\(current.windowID) frame=\(current.frame)")
 
         for interaction in [MenuBarPanelInteraction.primary, .secondary] {
             guard let pair = MenuBarItemClickForwarder.makeEvents(for: current, interaction: interaction),
@@ -69,45 +79,52 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         require(MenuBarItemClickForwarder.currentTarget(wrongOwner) == nil, "mismatched owner accepted")
         require(MenuBarItemClickForwarder.post(to: current, interaction: .primary), "primary not submitted")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.require(self.primaryCount == 1, "offscreen primary action not received exactly once")
+            self.require(self.primaryCount == 1, "offscreen primary up not received exactly once")
             self.require(self.secondaryCount == 0 && self.decoyCount == 0, "wrong target received primary")
             self.require(MenuBarItemClickForwarder.post(to: current, interaction: .secondary), "secondary not submitted")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.finishChecks() }
         }
     }
 
-    @objc private func clicked(_ button: NSStatusBarButton) {
-        switch NSApp.currentEvent?.type {
+    private func makeWindow(x: CGFloat) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: x, y: 400, width: 28, height: 28),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.level = .statusBar
+        return window
+    }
+
+    private func clicked(_ event: NSEvent) {
+        require(event.windowNumber == item.windowNumber, "event reached wrong native window")
+        require(clickView.bounds.contains(event.locationInWindow), "event has wrong local coordinates")
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown:
+            break
         case .leftMouseUp:
             primaryCount += 1
         case .rightMouseUp:
             secondaryCount += 1
-            // A native menu must enter tracking even though its status item remains offscreen.
             let dismiss = Timer(timeInterval: 0.15, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.menu.cancelTracking() }
             }
             RunLoop.main.add(dismiss, forMode: .common)
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
+            menu.popUp(positioning: nil, at: .zero, in: clickView)
         default:
-            fail("unexpected status-item event")
+            fail("unexpected native event")
         }
     }
-
-    @objc private func decoyClicked() { decoyCount += 1 }
 
     func menuWillOpen(_ menu: NSMenu) { menuCount += 1 }
 
     private func finishChecks() {
         require(primaryCount == 1 && secondaryCount == 1 && decoyCount == 0, "incorrect action counts")
         require(menuCount == 1, "native menu did not enter tracking")
-        require(spacer.length == 20_000, "hidden region was expanded")
         require(MenuBarItemClickForwarder.currentTarget(target)?.frame == target.frame, "item was moved")
         require(CGEvent(source: nil)?.location == originalCursor, "cursor moved")
-        NSStatusBar.system.removeStatusItem(item)
-        NSStatusBar.system.removeStatusItem(decoy)
-        NSStatusBar.system.removeStatusItem(spacer)
+        item.orderOut(nil)
+        decoy.orderOut(nil)
         print("PASS: offscreen left/right actions, native menu tracking, target isolation, unchanged geometry and cursor")
-        print("THIRD_PARTY_APPS_NOT_TESTED / NOTCH_NOT_TESTED / MULTI_DISPLAY_NOT_TESTED")
+        print("STATUS_ITEMS_NOT_TESTED / THIRD_PARTY_APPS_NOT_TESTED / NOTCH_NOT_TESTED / MULTI_DISPLAY_NOT_TESTED")
         exit(0)
     }
 

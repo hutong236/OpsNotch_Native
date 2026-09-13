@@ -26,7 +26,7 @@ jobs:
       - name: Swift version
         run: swift --version
 
-      - name: Hidden menu-bar item native clicks (own process)
+      - name: Offscreen native clicks (own windows)
         run: |
           swiftc Sources/OpsNotchApp/MenuBarItemClickForwarder.swift \
             scripts/verify_menu_bar_click.swift \
