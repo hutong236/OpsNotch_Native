@@ -136,10 +136,20 @@ enum MenuBarItemClickForwarder {
 
         // macOS can expose the AX status item from one process while a different process owns
         // the native status-window that receives mouse events. Only use this fallback when AX
-        // has no authoritative window ID, and only when exactly one foreign status-window
-        // geometrically contains the AX item. Never choose a nearest/first foreign window.
-        let proxyWindows: [Window]
+        // has no authoritative window ID, the AX owner has no geometrically matching status
+        // window at all, and exactly one foreign status-window contains the AX item. Never
+        // choose a nearest/first foreign window or bypass same-owner ambiguity.
+        let sameOwnerCandidates: [Window]
         if identifier == nil {
+            sameOwnerCandidates = menuWindows.filter {
+                $0.id != kCGNullWindowID && validFrame($0.frame)
+                    && $0.layer == statusWindowLayer && contains(frame, in: $0.frame)
+            }
+        } else {
+            sameOwnerCandidates = []
+        }
+        let proxyWindows: [Window]
+        if identifier == nil && sameOwnerCandidates.isEmpty {
             proxyWindows = inventory.windows.filter {
                 $0.pid != pid && $0.id != kCGNullWindowID && validFrame($0.frame)
                     && $0.layer == statusWindowLayer && contains(frame, in: $0.frame)
@@ -162,7 +172,7 @@ enum MenuBarItemClickForwarder {
         // Include counts before truncation and geometrically relevant other owners. This makes
         // an empty roster, an owner mismatch, ambiguity, and unrelated windows distinguishable.
         let otherOwners = inventory.windows.filter { $0.pid != pid && contains(frame, in: $0.frame) }
-        return resolution(nil, detail: "stage=server-window-match pid=\(pid) axWindow=\(identifier.map(String.init) ?? "none") ax=\(frame) \(inventory.diagnostic) public-count=\(windows.count) public=[\(describe(windows))] menu-owner-count=\(menuWindows.count) menu=[\(describe(menuWindows))] proxy-count=\(proxyWindows.count) proxy=[\(describe(proxyWindows))] other-owners=[\(describe(otherOwners))]")
+        return resolution(nil, detail: "stage=server-window-match pid=\(pid) axWindow=\(identifier.map(String.init) ?? "none") ax=\(frame) \(inventory.diagnostic) public-count=\(windows.count) public=[\(describe(windows))] menu-owner-count=\(menuWindows.count) menu=[\(describe(menuWindows))] same-owner-candidate-count=\(sameOwnerCandidates.count) same-owner-candidates=[\(describe(sameOwnerCandidates))] proxy-count=\(proxyWindows.count) proxy=[\(describe(proxyWindows))] other-owners=[\(describe(otherOwners))]")
     }
 
     /// Shared by the resolver and regression probe. An authoritative AX window ID must not
