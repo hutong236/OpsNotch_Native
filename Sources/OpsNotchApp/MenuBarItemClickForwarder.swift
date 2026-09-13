@@ -12,18 +12,26 @@ enum MenuBarPanelInteraction: Equatable {
 /// Delivers a mouse pair to a specific menu-extra window, including an offscreen one.
 /// Posting to the owner PID avoids global hit testing against the spacer or the panel.
 enum MenuBarItemClickForwarder {
+    enum WindowSource: String {
+        case publicDescription
+        case windowServer
+    }
+
     struct Target: Equatable {
         let pid: pid_t
         let windowID: CGWindowID
         let frame: CGRect
         /// Coordinates within the owning window, with a top-left origin (Quartz).
         let localPoint: CGPoint?
+        let source: WindowSource
 
-        init(pid: pid_t, windowID: CGWindowID, frame: CGRect, localPoint: CGPoint? = nil) {
+        init(pid: pid_t, windowID: CGWindowID, frame: CGRect, localPoint: CGPoint? = nil,
+             source: WindowSource = .publicDescription) {
             self.pid = pid
             self.windowID = windowID
             self.frame = frame
             self.localPoint = localPoint
+            self.source = source
         }
 
         var pointInWindow: CGPoint {
@@ -36,6 +44,33 @@ enum MenuBarItemClickForwarder {
         let id: CGWindowID
         let frame: CGRect
         let layer: Int
+        let source: WindowSource
+
+        init(pid: pid_t, id: CGWindowID, frame: CGRect, layer: Int,
+             source: WindowSource = .publicDescription) {
+            self.pid = pid
+            self.id = id
+            self.frame = frame
+            self.layer = layer
+            self.source = source
+        }
+    }
+
+    /// The regression probe can omit a status item from the public list while returning it
+    /// from the real fallback path. This exercises lookup ordering, not just rectangle math.
+    struct WindowQueries {
+        let byID: (CGWindowID) -> Window?
+        let publicWindows: () -> [Window]
+        let menuBarWindows: () -> MenuBarWindowServer.Inventory
+
+        static var live: WindowQueries {
+            WindowQueries(byID: { MenuBarItemClickForwarder.readWindow($0) ?? MenuBarWindowServer.readWindow($0) },
+                publicWindows: {
+                    let info = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)
+                        as? [[String: Any]] ?? []
+                    return info.compactMap(MenuBarItemClickForwarder.window(from:))
+                }, menuBarWindows: { MenuBarWindowServer.menuBarWindows() })
+        }
     }
 
     struct Resolution {
@@ -73,18 +108,37 @@ enum MenuBarItemClickForwarder {
         guard let frame = frame(of: element) else {
             return resolution(nil, detail: "stage=ax-frame pid=\(pid)")
         }
-        let identifier = owningWindowID(of: element)
+        return resolve(pid: pid, elementFrame: frame, windowID: owningWindowID(of: element))
+    }
+
+    static func resolve(pid: pid_t, elementFrame frame: CGRect, windowID identifier: CGWindowID?,
+                        queries: WindowQueries = .live) -> Resolution {
+        guard pid > 0, validFrame(frame) else { return resolution(nil, detail: "stage=invalid-ax-data") }
         // A targeted description query can find a hidden window that a broad list omitted.
-        if let identifier, let window = readWindow(identifier),
+        if let identifier, let window = queries.byID(identifier),
            let target = match(pid: pid, elementFrame: frame, windowID: identifier, windows: [window]) {
-            return resolution(target, detail: "stage=ax-window pid=\(pid) window=\(identifier) ax=\(frame) native=\(window.frame) layer=\(window.layer)")
+            return resolution(target, detail: "stage=ax-window pid=\(pid) window=\(identifier) ax=\(frame) native=\(window.frame) source=\(window.source.rawValue)")
         }
-        let info = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)
-            as? [[String: Any]] ?? []
-        let windows = info.compactMap(window(from:)).filter { $0.pid == pid }
-        let target = match(pid: pid, elementFrame: frame, windowID: identifier, windows: windows)
-        let candidates = windows.prefix(8).map { "\($0.id)/layer=\($0.layer)/\($0.frame)" }.joined(separator: "; ")
-        return resolution(target, detail: "stage=window-match pid=\(pid) axWindow=\(identifier.map(String.init) ?? "none") ax=\(frame) candidates=[\(candidates)]")
+        let windows = queries.publicWindows().filter { $0.pid == pid }
+        if let target = match(pid: pid, elementFrame: frame, windowID: identifier, windows: windows) {
+            return resolution(target, detail: "stage=public-window pid=\(pid) window=\(target.windowID) ax=\(frame) native=\(target.frame)")
+        }
+        // AX can expose an offscreen extra without AXWindow, while CG's generic list exposes
+        // only unrelated app windows. Ask the menu-bar inventory instead of widening geometry.
+        let inventory = queries.menuBarWindows()
+        let menuWindows = inventory.windows.filter { $0.pid == pid }
+        let target = match(pid: pid, elementFrame: frame, windowID: identifier, windows: menuWindows)
+        func describe(_ windows: [Window]) -> String {
+            windows.sorted { lhs, rhs in
+                let left = contains(frame, in: lhs.frame)
+                let right = contains(frame, in: rhs.frame)
+                return left == right ? lhs.id < rhs.id : left
+            }.prefix(8).map { "\($0.id)/pid=\($0.pid)/layer=\($0.layer)/\($0.frame)" }.joined(separator: "; ")
+        }
+        // Include counts before truncation and geometrically relevant other owners. This makes
+        // an empty roster, an owner mismatch, and unrelated full-width windows distinguishable.
+        let otherOwners = inventory.windows.filter { $0.pid != pid && contains(frame, in: $0.frame) }
+        return resolution(target, detail: "stage=server-window-match pid=\(pid) axWindow=\(identifier.map(String.init) ?? "none") ax=\(frame) \(inventory.diagnostic) public-count=\(windows.count) public=[\(describe(windows))] menu-owner-count=\(menuWindows.count) menu=[\(describe(menuWindows))] other-owners=[\(describe(otherOwners))]")
     }
 
     /// Shared by the resolver and regression probe. An authoritative AX window ID must not
@@ -102,17 +156,20 @@ enum MenuBarItemClickForwarder {
         let point = CGPoint(x: elementFrame.midX - window.frame.minX,
                             y: elementFrame.midY - window.frame.minY)
         guard CGRect(origin: .zero, size: window.frame.size).contains(point) else { return nil }
-        return Target(pid: pid, windowID: window.id, frame: window.frame, localPoint: point)
+        return Target(pid: pid, windowID: window.id, frame: window.frame, localPoint: point, source: window.source)
     }
 
     /// Revalidate identity immediately before sending. A moved window keeps its identity and
     /// uses its new coordinates; a terminated/replaced owner cannot receive a stale click.
     static func currentTarget(_ target: Target) -> Target? {
-        guard let window = readWindow(target.windowID), window.pid == target.pid else { return nil }
+        let window = target.source == .windowServer
+            ? MenuBarWindowServer.readWindow(target.windowID) : readWindow(target.windowID)
+        guard let window, window.pid == target.pid else { return nil }
         // A translated window preserves the point. If it resized, discard an old subview point
         // rather than potentially hitting a different control; the next click resolves fresh AX.
         if target.localPoint != nil, window.frame.size != target.frame.size { return nil }
-        return Target(pid: window.pid, windowID: window.id, frame: window.frame, localPoint: target.localPoint)
+        return Target(pid: window.pid, windowID: window.id, frame: window.frame,
+                      localPoint: target.localPoint, source: target.source)
     }
 
     static func makeEvents(for target: Target, interaction: MenuBarPanelInteraction) -> (down: CGEvent, up: CGEvent)? {

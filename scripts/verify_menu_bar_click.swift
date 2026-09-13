@@ -48,6 +48,7 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startChecks() {
         verifyWindowMatching()
+        verifyMissingPublicWindow()
         print("PROBE: reading target window")
         let window = item!
         let initial = MenuBarItemClickForwarder.Target(
@@ -56,12 +57,20 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let current = MenuBarItemClickForwarder.currentTarget(initial) else {
             fail("status-window metadata unavailable")
         }
+        let inventory = MenuBarWindowServer.menuBarWindows()
+        require(inventory.diagnostic.hasPrefix("server-menu-count="),
+                "WindowServer menu inventory failed: \(inventory.diagnostic)")
+        guard let serverWindow = MenuBarWindowServer.readWindow(current.windowID) else {
+            fail("WindowServer owner/frame query failed for own window")
+        }
+        require(serverWindow.pid == getpid() && serverWindow.frame == current.frame,
+                "WindowServer owner/frame differs from own window")
+        print("PASS: WindowServer menu inventory and own-window owner/frame queries; \(inventory.diagnostic)")
         // Use an asymmetric inset button so native delivery also checks Quartz/AppKit Y conversion.
         let buttonFrame = CGRect(x: current.frame.minX + 2, y: current.frame.minY + 3, width: 18, height: 16)
-        let metadata = MenuBarItemClickForwarder.Window(pid: getpid(), id: current.windowID,
-            frame: current.frame, layer: Int(CGWindowLevelForKey(.statusWindow)))
         guard let insetTarget = MenuBarItemClickForwarder.match(pid: getpid(), elementFrame: buttonFrame,
-            windowID: current.windowID, windows: [metadata]) else { fail("live inset target unavailable") }
+            windowID: current.windowID, windows: [serverWindow]) else { fail("live inset target unavailable") }
+        require(insetTarget.source == .windowServer, "native probe must revalidate through WindowServer")
         target = insetTarget
         var count: UInt32 = 0
         require(CGGetActiveDisplayList(0, nil, &count) == .success && count > 0, "display service unavailable")
@@ -85,6 +94,9 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let wrongOwner = MenuBarItemClickForwarder.Target(pid: getpid() + 1, windowID: current.windowID, frame: current.frame)
         require(MenuBarItemClickForwarder.currentTarget(wrongOwner) == nil, "mismatched owner accepted")
+        let wrongServerOwner = MenuBarItemClickForwarder.Target(pid: getpid() + 1,
+            windowID: current.windowID, frame: current.frame, source: .windowServer)
+        require(MenuBarItemClickForwarder.currentTarget(wrongServerOwner) == nil, "WindowServer mismatched owner accepted")
         // The sender has no NSWindow instance for a third-party window. Exercise that path as
         // well; encoding must not depend on finding the destination in NSApp.windows.
         let foreign = MenuBarItemClickForwarder.Target(pid: getpid() + 1,
@@ -160,6 +172,56 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         require(Forwarder.match(pid: 101, elementFrame: .zero, windowID: 201, windows: [window]) == nil,
                 "invalid AX geometry accepted")
         print("PASS: window matching (insets, negative coordinates, AX identity, owner, layers, ambiguity, stale IDs)")
+    }
+
+    private func verifyMissingPublicWindow() {
+        typealias Forwarder = MenuBarItemClickForwarder
+        // Actual reported AX geometry and public-list shape. The menu window below is an
+        // explicit fixture for the missing roster entry, not claimed to be observed on the user's Mac.
+        let ax = CGRect(x: -2980, y: 3, width: 36, height: 24)
+        let publicWindows = (0..<8).map { offset in
+            Forwarder.Window(pid: 2225, id: CGWindowID(7831 + offset),
+                frame: offset < 4 ? CGRect(x: 0, y: 0, width: 2560, height: 30)
+                    : CGRect(x: 2560, y: 360, width: 1920, height: 30), layer: 0)
+        }
+        let hidden = Forwarder.Window(pid: 2225, id: 8000,
+            frame: CGRect(x: -2980, y: 0, width: 36, height: 30), layer: 25,
+            source: .windowServer)
+        var fallbackCalls = 0
+        func queries(_ menuWindows: [Forwarder.Window], diagnostic: String = "fixture-inventory") -> Forwarder.WindowQueries {
+            Forwarder.WindowQueries(byID: { _ in nil }, publicWindows: { publicWindows }, menuBarWindows: {
+                fallbackCalls += 1
+                return MenuBarWindowServer.Inventory(windows: menuWindows, diagnostic: diagnostic)
+            })
+        }
+        let result = Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil, queries: queries([hidden]))
+        guard let target = result.target else { fail("missing-public-window fallback failed: \(result.diagnostic)") }
+        require(fallbackCalls == 1 && target.windowID == 8000 && target.source == .windowServer,
+                "resolver did not use the menu-bar inventory")
+        require(target.localPoint == CGPoint(x: 18, y: 15), "hidden target has wrong local point")
+        guard let pair = Forwarder.makeEvents(for: target, interaction: .secondary) else { fail("hidden event creation failed") }
+        require(pair.down.location == CGPoint(x: -2962, y: 15), "hidden click missed reported AX center")
+        let unavailable = Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil,
+            queries: queries([], diagnostic: "server-api=unavailable"))
+        require(unavailable.target == nil && unavailable.diagnostic.contains("server-api=unavailable")
+                && unavailable.diagnostic.contains("public-count=8")
+                && unavailable.diagnostic.contains("menu-owner-count=0"), "empty inventory lost failure details")
+        let sibling = Forwarder.Window(pid: 2225, id: 8001, frame: hidden.frame, layer: 25,
+            source: .windowServer)
+        require(Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil,
+            queries: queries([hidden, sibling])).target == nil, "ambiguous menu inventory selected a window")
+        require(Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: 9999,
+            queries: queries([hidden])).target == nil, "stale AX identity fell back to a different menu item")
+        let foreign = Forwarder.Window(pid: 3333, id: 8002, frame: hidden.frame, layer: 25,
+            source: .windowServer)
+        let wrongOwner = Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil, queries: queries([foreign]))
+        require(wrongOwner.target == nil && wrongOwner.diagnostic.contains("8002/pid=3333"),
+                "foreign menu owner was accepted or not diagnosed")
+        let nonStatus = Forwarder.Window(pid: 2225, id: 8003, frame: hidden.frame, layer: 0,
+            source: .windowServer)
+        require(Forwarder.resolve(pid: 2225, elementFrame: ax, windowID: nil,
+            queries: queries([nonStatus])).target == nil, "server inventory relaxed the status-window check")
+        print("PASS: resolver fallback for reported AX geometry, missing public window, layers, ambiguity and owner checks")
     }
 
     private func clicked(_ event: NSEvent) {
