@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         desktopCommands = DesktopCommandIntegration(model: model)
         clipboard = ClipboardManager(model: model)
+        menuBarManager.onCopyDiagnostic = { [weak clipboard] report in clipboard?.copyFromApp(report) }
         clipboard.startMonitoring()
         shelf = ShelfWindowController(model: model, clipboard: clipboard)
         // Quick Shelf 会临时成为 key window；集中管理原应用焦点的记录与归还。
