@@ -99,6 +99,10 @@ final class MenuBarManager: NSObject, ObservableObject {
     private var notchProbeGeneration = 0
     private var lastPanelScanAt: Date?
     private var panelScanGeneration = 0
+    private var panelInteractionGeneration = 0
+    private let panelInteractionQueue = DispatchQueue(
+        label: "lab.hutong.opsnotch.menu-bar-click", qos: .userInitiated
+    )
 
     private let separatorLength: CGFloat = 12
     private let hiddenToggleLength: CGFloat = 16
@@ -151,6 +155,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     func stop() {
+        cancelPanelInteraction()
         autoHideTimer?.invalidate()
         animationTimer?.invalidate()
         autoHideTimer = nil
@@ -172,6 +177,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     func syncFromSettings(initial: Bool = false) {
+        cancelPanelInteraction()
         let settings = model.settings
         let enabled = settings.menuBarManagementEnabled
         let enabling = enabled && (!managementWasEnabled || initial)
@@ -554,6 +560,7 @@ final class MenuBarManager: NSObject, ObservableObject {
         persist: Bool = true,
         scheduleAutoHide: Bool = true
     ) {
+        cancelPanelInteraction()
         // A direct state request always wins over a delayed notch-overflow probe that may still
         // be queued from an earlier expand action. This prevents stale probe results from
         // reopening the proxy panel or collapsing the user's newly selected state.
@@ -792,6 +799,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     private func screenParametersDidChange() {
+        cancelPanelInteraction()
         guard model.settings.menuBarManagementEnabled else { return }
         applyState(state, animated: false, scheduleAutoHide: true)
     }
@@ -823,6 +831,7 @@ final class MenuBarManager: NSObject, ObservableObject {
     // MARK: - Optional hidden-item panel
 
     private func refreshPanelItems(promptForPermission: Bool) {
+        cancelPanelInteraction()
         panelScanGeneration += 1
         let generation = panelScanGeneration
         panelController.language = model.language
@@ -916,11 +925,51 @@ final class MenuBarManager: NSObject, ObservableObject {
     }
 
     private func interactWithPanelItem(id: String, interaction: MenuBarPanelInteraction) {
-        guard let item = rawPanelItems[id] else { return }
-        panelOpenedForNotchOverflow = false
-        if !MenuBarAXScanner.perform(interaction, on: item) {
-            model.showToast(L10n.text("menuBarPanelActivateFailed", model.language))
+        guard !panelController.isInteracting, let item = rawPanelItems[id],
+              model.settings.menuBarManagementEnabled, model.settings.menuBarPanelEnabled else { return }
+        guard MenuBarAXScanner.ensureTrusted(prompt: false) else {
+            panelController.setPermissionRequired()
+            return
         }
+        panelOpenedForNotchOverflow = false
+        panelInteractionGeneration += 1
+        let generation = panelInteractionGeneration
+        panelController.beginInteraction()
+        // AX requests to an unresponsive app must never stall the popover's mouse handling.
+        panelInteractionQueue.async { [weak self] in
+            let target = MenuBarItemClickForwarder.resolve(item.element)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, generation == self.panelInteractionGeneration else { return }
+                guard self.panelController.isVisible else {
+                    self.cancelPanelInteraction()
+                    return
+                }
+                guard let target else {
+                    self.panelController.finishInteraction(error: L10n.text("menuBarPanelActivateFailed", self.model.language))
+                    self.lastPanelScanAt = nil
+                    return
+                }
+                self.panelController.closeForInteraction()
+                // Leave the originating mouse-up/popover lifecycle before delivering the pair.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, generation == self.panelInteractionGeneration else { return }
+                    let submitted = MenuBarItemClickForwarder.post(to: target, interaction: interaction)
+                    self.panelController.finishInteraction()
+                    if !submitted {
+                        self.lastPanelScanAt = nil
+                        if let button = self.controlItem.button {
+                            self.panelController.show(relativeTo: button)
+                        }
+                        self.panelController.finishInteraction(error: L10n.text("menuBarPanelActivateFailed", self.model.language))
+                    }
+                }
+            }
+        }
+    }
+
+    private func cancelPanelInteraction() {
+        panelInteractionGeneration += 1
+        panelController?.finishInteraction()
     }
 }
 #endif

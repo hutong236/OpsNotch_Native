@@ -10,11 +10,6 @@ enum MenuBarHiddenSection: String {
     case alwaysHidden
 }
 
-enum MenuBarPanelInteraction {
-    case primary
-    case secondary
-}
-
 struct MenuBarHiddenItemPresentation: Identifiable {
     let id: String
     let title: String
@@ -37,6 +32,8 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
     @Published private(set) var items: [MenuBarHiddenItemPresentation] = []
     @Published private(set) var phase: Phase = .loading
     @Published private(set) var isRefreshing = false
+    @Published private(set) var isInteracting = false
+    @Published private(set) var interactionError: String?
 
     var onRefresh: (() -> Void)?
     var onRequestPermission: (() -> Void)?
@@ -65,7 +62,26 @@ final class MenuBarHiddenItemsPanelController: ObservableObject {
         popover.performClose(nil)
     }
 
+    func beginInteraction() {
+        interactionError = nil
+        isInteracting = true
+    }
+
+    func finishInteraction(error: String? = nil) {
+        isInteracting = false
+        interactionError = error
+    }
+
+    func closeForInteraction() {
+        // Complete dismissal before another app starts native menu tracking.
+        let animated = popover.animates
+        popover.animates = false
+        popover.close()
+        popover.animates = animated
+    }
+
     func beginRefresh(preserveItems: Bool) {
+        interactionError = nil
         isRefreshing = true
         if !preserveItems || items.isEmpty {
             phase = .loading
@@ -124,10 +140,14 @@ private struct MenuBarHiddenItemsPanelView: View {
                     }
                 }
                 .buttonStyle(.borderless)
-                .disabled(controller.isRefreshing)
+                .disabled(controller.isRefreshing || controller.isInteracting)
             }
 
             Divider()
+
+            if let error = controller.interactionError {
+                Text(error).font(.system(size: 11)).foregroundStyle(.red)
+            }
 
             switch controller.phase {
             case .loading:
@@ -271,7 +291,11 @@ private final class MenuBarHiddenItemMouseView: NSView {
 
     @objc private func handlePrimaryClick(_ recognizer: NSClickGestureRecognizer) {
         guard recognizer.state == .ended else { return }
-        onPrimary?()
+        if NSApp.currentEvent?.modifierFlags.contains(.control) == true {
+            onSecondary?()
+        } else {
+            onPrimary?()
+        }
     }
 
     @objc private func handleSecondaryClick(_ recognizer: NSClickGestureRecognizer) {
@@ -484,33 +508,6 @@ enum MenuBarAXScanner {
             ))
         }
         return result
-    }
-
-    static func perform(_ interaction: MenuBarPanelInteraction, on item: Item) -> Bool {
-        configureTimeout(on: item.element)
-        var rawActions: CFArray?
-        let actions: [String]
-        if AXUIElementCopyActionNames(item.element, &rawActions) == .success,
-           let rawActions {
-            actions = rawActions as? [String] ?? []
-        } else {
-            actions = []
-        }
-
-        let orderedActions: [String]
-        switch interaction {
-        case .primary:
-            orderedActions = [kAXPressAction as String, kAXShowMenuAction as String]
-        case .secondary:
-            orderedActions = [kAXShowMenuAction as String, kAXPressAction as String]
-        }
-
-        for action in orderedActions where actions.isEmpty || actions.contains(action) {
-            if AXUIElementPerformAction(item.element, action as CFString) == .success {
-                return true
-            }
-        }
-        return false
     }
 
     private static func configureTimeout(on element: AXUIElement) {
