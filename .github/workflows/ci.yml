@@ -26,6 +26,16 @@ jobs:
       - name: Swift version
         run: swift --version
 
+      - name: Offscreen native clicks (own windows)
+        run: |
+          swiftc Sources/OpsNotchApp/MenuBarItemClickForwarder.swift \
+            scripts/verify_menu_bar_click.swift \
+            -o "$RUNNER_TEMP/verify-menu-bar-click"
+          python3 - <<'PY'
+          import os, subprocess
+          subprocess.run([os.environ["RUNNER_TEMP"] + "/verify-menu-bar-click"], check=True, timeout=20)
+          PY
+
       - name: Core tests
         run: swift test
 

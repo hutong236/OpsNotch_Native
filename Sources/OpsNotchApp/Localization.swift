@@ -169,7 +169,7 @@ enum L10n {
             "menuBarPanelPermission": "隐藏图标面板需要 macOS 辅助功能权限；菜单栏隐藏本身仍可无权限使用。",
             "menuBarPanelGrantPermission": "授予辅助功能权限",
             "menuBarPanelUnavailable": "暂时无法读取菜单栏项目，请确认分隔线位置后重试。",
-            "menuBarPanelActivateFailed": "无法触发该菜单栏项目",
+            "menuBarPanelActivateFailed": "未能连接到该图标，请刷新面板后重试",
             "menuBarPanelEmpty": "当前隐藏区域没有可读取的菜单栏项目",
             "menuBarAlwaysHiddenSection": "持续隐藏",
             "menuBarHiddenSection": "普通隐藏"
@@ -338,7 +338,7 @@ enum L10n {
             "menuBarPanelPermission": "The Hidden Items Panel needs Accessibility permission; basic menu bar hiding remains permission-free.",
             "menuBarPanelGrantPermission": "Grant Accessibility Permission",
             "menuBarPanelUnavailable": "Menu bar items are temporarily unavailable. Check separator placement and try again.",
-            "menuBarPanelActivateFailed": "Could not activate this menu bar item",
+            "menuBarPanelActivateFailed": "Could not reach this item. Refresh the panel and try again.",
             "menuBarPanelEmpty": "No accessible menu bar items were found in the hidden sections",
             "menuBarAlwaysHiddenSection": "Always hidden",
             "menuBarHiddenSection": "Hidden"
