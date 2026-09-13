@@ -77,6 +77,15 @@ final class ClickProbe: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let wrongOwner = MenuBarItemClickForwarder.Target(pid: getpid() + 1, windowID: current.windowID, frame: current.frame)
         require(MenuBarItemClickForwarder.currentTarget(wrongOwner) == nil, "mismatched owner accepted")
+        // The sender has no NSWindow instance for a third-party window. Exercise that path as
+        // well; encoding must not depend on finding the destination in NSApp.windows.
+        let foreign = MenuBarItemClickForwarder.Target(pid: getpid() + 1,
+            windowID: CGWindowID(Int32.max), frame: current.frame)
+        guard let foreignPair = MenuBarItemClickForwarder.makeEvents(for: foreign, interaction: .secondary),
+              let foreignDown = NSEvent(cgEvent: foreignPair.down) else { fail("foreign-window encoding failed") }
+        require(foreignDown.locationInWindow == NSPoint(x: 14, y: 14),
+                "foreign-window coordinates were lost: \(foreignDown.locationInWindow)")
+        print("PASS: foreign-window coordinate encoding (no event posted)")
         require(MenuBarItemClickForwarder.post(to: current, interaction: .primary), "primary not submitted")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.require(self.primaryCount == 1, "offscreen primary up not received exactly once")
