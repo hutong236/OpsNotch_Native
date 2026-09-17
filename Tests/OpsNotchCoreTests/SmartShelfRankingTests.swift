@@ -21,6 +21,118 @@ final class SmartShelfRankingTests: XCTestCase {
         XCTAssertTrue(ShelfSemantic.isIPv4("255.255.255.255"))
     }
 
+    func testNewestAddedItemAlwaysRanksFirst() {
+        let now: UInt64 = 100_000
+        let heavilyFavoredOldItem = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000020")!,
+            kind: .text,
+            title: "Frequent command",
+            content: "kubectl get pods",
+            createdAt: now - 600,
+            updatedAt: now,
+            useCount: 10_000,
+            lastUsedAt: now
+        )
+        let newest = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000021")!,
+            kind: .text,
+            title: "Just added",
+            content: "ordinary note",
+            createdAt: now - 1,
+            updatedAt: now - 1
+        )
+
+        let ordered = SmartShelfRanking.ordered(
+            [heavilyFavoredOldItem, newest],
+            appContext: .terminal,
+            now: now
+        )
+        XCTAssertEqual(ordered.first?.id, newest.id)
+    }
+
+    func testUseOrEditDoesNotMakeOldItemNewestAgain() {
+        let now: UInt64 = 110_000
+        let oldButRecentlyUpdated = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000022")!,
+            kind: .text,
+            title: "Old",
+            content: "kubectl get pods",
+            createdAt: now - 1_000,
+            updatedAt: now,
+            useCount: 200,
+            lastUsedAt: now
+        )
+        let newlyAdded = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000023")!,
+            kind: .text,
+            title: "New",
+            content: "plain note",
+            createdAt: now - 10,
+            updatedAt: now - 10
+        )
+
+        let ordered = SmartShelfRanking.ordered(
+            [oldButRecentlyUpdated, newlyAdded],
+            appContext: .terminal,
+            now: now
+        )
+        XCTAssertEqual(ordered.first?.id, newlyAdded.id)
+    }
+
+    func testSameSecondNewestUsesLaterInputPosition() {
+        let now: UInt64 = 120_000
+        let first = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000024")!,
+            kind: .text,
+            title: "First",
+            content: "kubectl get pods",
+            createdAt: now,
+            updatedAt: now
+        )
+        let second = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000025")!,
+            kind: .text,
+            title: "Second",
+            content: "ordinary note",
+            createdAt: now,
+            updatedAt: now
+        )
+
+        let ordered = SmartShelfRanking.ordered([first, second], appContext: .terminal, now: now)
+        XCTAssertEqual(ordered.first?.id, second.id)
+    }
+
+    func testRemainingItemsKeepSmartRankingAfterNewest() {
+        let now: UInt64 = 130_000
+        let command = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000026")!,
+            kind: .text,
+            title: "Command",
+            content: "kubectl get pods",
+            createdAt: now - 100,
+            updatedAt: now - 100
+        )
+        let note = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000027")!,
+            kind: .text,
+            title: "Note",
+            content: "ordinary note",
+            createdAt: now - 100,
+            updatedAt: now - 100
+        )
+        let newest = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000028")!,
+            kind: .text,
+            title: "Newest",
+            content: "new ordinary note",
+            createdAt: now - 1,
+            updatedAt: now - 1
+        )
+
+        let ordered = SmartShelfRanking.ordered([note, command, newest], appContext: .terminal, now: now)
+        XCTAssertEqual(ordered.map(\.id), [newest.id, command.id, note.id])
+    }
+
     func testTerminalContextPrefersCommandOverPlainText() {
         let now: UInt64 = 10_000
         let command = ShelfItem(
@@ -40,6 +152,8 @@ final class SmartShelfRankingTests: XCTestCase {
             updatedAt: now - 10
         )
 
+        // 同一 createdAt 时，最后输入条目会占用“最新加入”位；这里把 command 放在最后，
+        // 同时验证其余 SmartScore 行为不会改变既有 Terminal 亲和度预期。
         let ordered = SmartShelfRanking.ordered([note, command], appContext: .terminal, now: now)
         XCTAssertEqual(ordered.first?.id, command.id)
     }
@@ -67,35 +181,45 @@ final class SmartShelfRankingTests: XCTestCase {
         XCTAssertEqual(ordered.first?.id, file.id)
     }
 
-    func testQueryRelevanceOutweighsContextAffinity() {
+    func testQueryRelevanceOutweighsContextAffinityAfterNewestSlot() {
         let now: UInt64 = 30_000
-        let matchingText = ShelfItem(
+        let exactMatch = ShelfItem(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
             kind: .text,
             title: "prod-cluster",
             content: "important deployment note",
-            createdAt: now - 300,
-            updatedAt: now - 300
+            createdAt: now - 500,
+            updatedAt: now - 500
         )
         let terminalFavored = ShelfItem(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
             kind: .text,
             title: "command prod-cluster helper",
             content: "kubectl get pods",
-            createdAt: now,
-            updatedAt: now
+            createdAt: now - 400,
+            updatedAt: now,
+            useCount: 1_000,
+            lastUsedAt: now
+        )
+        let newestContentMatch = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000029")!,
+            kind: .text,
+            title: "Newest note",
+            content: "notes for prod-cluster",
+            createdAt: now - 1,
+            updatedAt: now - 1
         )
 
         let ordered = SmartShelfRanking.ordered(
-            [terminalFavored, matchingText],
+            [exactMatch, terminalFavored, newestContentMatch],
             query: "prod-cluster",
             appContext: .terminal,
             now: now
         )
-        XCTAssertEqual(ordered.first?.id, matchingText.id)
+        XCTAssertEqual(ordered.map(\.id), [newestContentMatch.id, exactMatch.id, terminalFavored.id])
     }
 
-    func testQueryMatchTierCannotBeOvertakenByContextOrFrequency() {
+    func testQueryMatchTierCannotBeOvertakenByContextOrFrequencyAfterNewestSlot() {
         let now: UInt64 = 1_000_000
         let exact = ShelfItem(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
@@ -110,19 +234,27 @@ final class SmartShelfRankingTests: XCTestCase {
             kind: .text,
             title: "prod deploy helper",
             content: "kubectl get pods",
-            createdAt: now,
+            createdAt: now - 200_000,
             updatedAt: now,
             useCount: 10_000,
             lastUsedAt: now
         )
+        let newestContentMatch = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000012")!,
+            kind: .text,
+            title: "Newest",
+            content: "reference prod",
+            createdAt: now - 1,
+            updatedAt: now - 1
+        )
 
         let ordered = SmartShelfRanking.ordered(
-            [prefixCommand, exact],
+            [exact, prefixCommand, newestContentMatch],
             query: "prod",
             appContext: .terminal,
             now: now
         )
-        XCTAssertEqual(ordered.first?.id, exact.id)
+        XCTAssertEqual(ordered.map(\.id), [newestContentMatch.id, exact.id, prefixCommand.id])
     }
 
     func testUsageFrequencyContributesToRanking() {
@@ -142,12 +274,20 @@ final class SmartShelfRankingTests: XCTestCase {
             kind: .text,
             title: "Unused",
             content: "note",
-            createdAt: now - 100,
+            createdAt: now - 200,
             updatedAt: now - 100
         )
+        let newest = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000030")!,
+            kind: .text,
+            title: "Newest",
+            content: "note",
+            createdAt: now - 1,
+            updatedAt: now - 1
+        )
 
-        let ordered = SmartShelfRanking.ordered([unused, frequent], now: now)
-        XCTAssertEqual(ordered.first?.id, frequent.id)
+        let ordered = SmartShelfRanking.ordered([unused, frequent, newest], now: now)
+        XCTAssertEqual(ordered.map(\.id), [newest.id, frequent.id, unused.id])
     }
 
     func testLegacyModelsDecodeWithV2Defaults() throws {
@@ -205,27 +345,39 @@ final class SmartShelfRankingTests: XCTestCase {
         XCTAssertEqual(value.settings.workingSetItemIDs, [workingID])
     }
 
-    /// 旧实现的参考版本:排序比较器内逐次调用 score。评分预计算重构后,输出必须与它逐项一致。
-    private func legacyOrdered(
+    /// 新规则的参考版本：筛选后先保留 createdAt 最新的一条，其余再按旧 SmartScore 排序。
+    private func referenceOrdered(
         _ items: [ShelfItem],
         query: String,
         kindFilter: ShelfKindFilter,
         appContext: AppContextKind,
         now: UInt64
     ) -> [ShelfItem] {
-        items
-            .filter { ShelfLogic.matches($0, query: query, kindFilter: kindFilter) }
-            .sorted { lhs, rhs in
-                let left = SmartShelfRanking.score(item: lhs, query: query, appContext: appContext, now: now)
-                let right = SmartShelfRanking.score(item: rhs, query: query, appContext: appContext, now: now)
-                if left != right { return left > right }
-                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-                if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
+        let filtered = items.filter { ShelfLogic.matches($0, query: query, kindFilter: kindFilter) }
+        guard filtered.count > 1 else { return filtered }
+
+        let newestIndex = filtered.indices.max { lhs, rhs in
+            let left = filtered[lhs]
+            let right = filtered[rhs]
+            if left.createdAt != right.createdAt { return left.createdAt < right.createdAt }
+            return lhs < rhs
+        }!
+        let newest = filtered[newestIndex]
+        var remaining = filtered
+        remaining.remove(at: newestIndex)
+
+        let tail = remaining.sorted { lhs, rhs in
+            let left = SmartShelfRanking.score(item: lhs, query: query, appContext: appContext, now: now)
+            let right = SmartShelfRanking.score(item: rhs, query: query, appContext: appContext, now: now)
+            if left != right { return left > right }
+            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+            if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        return [newest] + tail
     }
 
-    func testPrecomputedScoringKeepsLegacyOrdering() {
+    func testPrecomputedScoringKeepsTailOrderingWithNewestFirst() {
         var state: UInt64 = 0x9E37_79B9_7F4A_7C15
         func next(_ bound: UInt64) -> UInt64 {
             state = state &* 6364136223846793005 &+ 1442695040888963407
@@ -266,7 +418,7 @@ final class SmartShelfRankingTests: XCTestCase {
                     let optimized = SmartShelfRanking.ordered(
                         items, query: query, kindFilter: filter, appContext: context, now: now
                     )
-                    let reference = legacyOrdered(items, query: query, kindFilter: filter, appContext: context, now: now)
+                    let reference = referenceOrdered(items, query: query, kindFilter: filter, appContext: context, now: now)
                     XCTAssertEqual(optimized.map(\.id), reference.map(\.id))
                 }
             }

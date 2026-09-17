@@ -90,10 +90,41 @@ public enum SmartShelfRanking {
         appContext: AppContextKind = .generic,
         now: UInt64 = ShelfClock.now()
     ) -> [ShelfItem] {
+        let filtered = items.filter { ShelfLogic.matches($0, query: query, kindFilter: kindFilter) }
+        guard filtered.count > 1 else { return filtered }
+
+        // “最新加入”使用 createdAt，而不是 updatedAt / lastUsedAt：
+        // 编辑、复制取回或使用次数变化不能把旧条目伪装成刚加入的条目。
+        // createdAt 只有秒级精度；同秒加入时保留输入数组中靠后的条目为最新，
+        // 与 ShelfStoreService 新增条目 append 到数组尾部的行为一致。
+        let newestIndex = filtered.indices.max { lhs, rhs in
+            let left = filtered[lhs]
+            let right = filtered[rhs]
+            if left.createdAt != right.createdAt { return left.createdAt < right.createdAt }
+            return lhs < rhs
+        }!
+        let newest = filtered[newestIndex]
+
+        var remaining = filtered
+        remaining.remove(at: newestIndex)
+        return [newest] + smartOrdered(
+            remaining,
+            query: query,
+            appContext: appContext,
+            now: now
+        )
+    }
+
+    /// 最新加入条目之外的内容继续沿用原有 SmartScore 排序。
+    private static func smartOrdered(
+        _ items: [ShelfItem],
+        query: String,
+        appContext: AppContextKind,
+        now: UInt64
+    ) -> [ShelfItem] {
         // 评分预计算:每条目只算一次 score,排序比较器不再重复全文评分。
         // 排序键(score → updatedAt → createdAt → id)与逐次评分的旧实现逐字段一致。
         items
-            .filter { ShelfLogic.matches($0, query: query, kindFilter: kindFilter) }
             .map { item in
                 (item: item, score: score(item: item, query: query, appContext: appContext, now: now))
             }
@@ -126,7 +157,7 @@ public enum SmartShelfRanking {
         let content = item.content.lowercased()
 
         // 每个匹配等级的间隔都大于 recency + frequency + app-context 的最大总贡献，
-        // 保证用户显式搜索始终优先于环境推荐。
+        // 保证用户显式搜索在“最新加入”保留位之后，仍优先于环境推荐。
         if title == q || content == q { return 4_000 }
         if title.hasPrefix(q) || content.hasPrefix(q) { return 3_000 }
         if title.contains(q) { return 2_000 }
