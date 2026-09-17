@@ -40,3 +40,5 @@ jobs:
         run: |
           gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.23
           echo "Dispatched package-app.yml for v2.7.23"
+
+# One-time trigger commit after this workflow exists on the default branch.
