@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   release:
-    if: contains(github.event.head_commit.message, 'chore: create v2.7.23 release tag')
+    if: contains(github.event.head_commit.message, 'release-v2.7.23')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -40,5 +40,3 @@ jobs:
         run: |
           gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.23
           echo "Dispatched package-app.yml for v2.7.23"
-
-# One-time trigger commit after this workflow exists on the default branch.
