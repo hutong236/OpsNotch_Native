@@ -15,6 +15,8 @@ final class SensorManager {
     /// 仅在 DragSessionCoordinator 已识别真实外部拖拽时启用 Sensor 命中测试。
     /// 空闲时 Panel 必须鼠标穿透，避免透明拖放窗口形成不可点击死区。
     private var externalDragSessionActive = false
+    /// Sensor 自身完成 drop 时显式结束全局 drag session，避免只依赖 global mouseUp。
+    var onNativeDragSessionFinished: (() -> Void)?
     private var observer: NSObjectProtocol?
 
     init(model: AppModel, shelf: ShelfWindowController, clipboard _: ClipboardManager) {
@@ -108,6 +110,7 @@ final class SensorManager {
             self.lastActiveDisplayID = id
             self.shelf.cancelScheduledExpand()
             let accepted = self.handle(payload: payload)
+            self.finishNativeDragSessionAfterCurrentEvent()
             if accepted { self.showAcceptedDropFeedback(on: screen) }
             return accepted
         }
@@ -119,6 +122,8 @@ final class SensorManager {
                 self.shelf.showDrop(on: screen)
             }
             self.model.showToast(self.model.language == .zhCN ? "正在接收文件…" : "Receiving file…")
+            // File Promise 已在本窗口完成鼠标 drop；后台文件写入不应继续占用 Sensor 命中测试。
+            self.finishNativeDragSessionAfterCurrentEvent()
         }
         view.onPromisedFiles = { [weak self] urls in
             guard let self else { return }
@@ -134,6 +139,12 @@ final class SensorManager {
         panel.contentView = view
         panel.orderFrontRegardless()
         return panel
+    }
+
+    private func finishNativeDragSessionAfterCurrentEvent() {
+        DispatchQueue.main.async { [weak self] in
+            self?.onNativeDragSessionFinished?()
+        }
     }
 
     private func applyMouseEventPolicyToPanels() {

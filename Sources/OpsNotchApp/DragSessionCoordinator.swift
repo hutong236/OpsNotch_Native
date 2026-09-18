@@ -99,6 +99,12 @@ final class DragSessionCoordinator {
         setExternalDragActivity(false)
     }
 
+    /// SensorPanel 自身完成 drop 时不能只依赖 global mouseUp：
+    /// AppKit 可能把结束事件留在本进程，因此显式收束本次外部拖拽状态。
+    func sensorDragSessionDidFinish() {
+        cancelSession()
+    }
+
     /// Shelf/Sensor 的可见性是现有系统拖放链路的事实来源。
     /// 一旦顶部 Sensor 展开 Drop 面板，附近目标立即让位；Sensor 收起而拖拽仍继续时再恢复附近目标。
     func shelfVisibilityDidChange(_ visible: Bool, onDisplayID visibleDisplayID: CGDirectDisplayID?) {
