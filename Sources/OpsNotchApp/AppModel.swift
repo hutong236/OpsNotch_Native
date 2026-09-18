@@ -179,6 +179,18 @@ final class AppModel: ObservableObject {
         highlightedQuickEntryID = visible[next].id
     }
 
+    /// 左右键跨功能区跳转：← 智能最近首条；→ Finder 快捷目录首条。
+    /// 目标功能区当前不可见或为空时保持原高亮，避免意外跳到其他区域。
+    func moveHorizontalHighlight(_ direction: QuickShelfHorizontalDirection) {
+        let recentEntryIDs = grouped.recent.map { quickEntryID(for: $0) }
+        guard let destinationID = QuickShelfKeyboardNavigation.destinationID(
+            for: direction,
+            finderEntryIDs: visibleFinderEntries.map(\.id),
+            recentEntryIDs: recentEntryIDs
+        ) else { return }
+        highlightedQuickEntryID = destinationID
+    }
+
     /// Enter：Finder 打开目录；Shelf 维持正确 pasteboard 语义。
     func confirmHighlight(using clipboard: ClipboardManager) {
         guard let entry = highlightedQuickEntry else { return }
