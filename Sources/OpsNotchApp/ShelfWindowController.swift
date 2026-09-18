@@ -104,6 +104,12 @@ final class ShelfWindowController: NSObject {
                   self.model.editorDraft == nil else { return event }
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             switch event.keyCode {
+            case 123:
+                MainActor.assumeIsolated { self.model.moveHorizontalHighlight(.left) }
+                return nil
+            case 124:
+                MainActor.assumeIsolated { self.model.moveHorizontalHighlight(.right) }
+                return nil
             case 125:
                 MainActor.assumeIsolated { self.model.moveHighlight(1) }
                 return nil
