@@ -12,8 +12,8 @@ final class SensorManager {
     private let shelf: ShelfWindowController
     private var panels: [CGDirectDisplayID: NSPanel] = [:]
     private var lastActiveDisplayID: CGDirectDisplayID?
-    /// Nearby 已识别到外部拖拽时，顶部 Sensor 仍可作为原生 drop destination；
-    /// ordinary pointer hover 已禁用，这里只用于协调 Nearby 与顶部 drop UI。
+    /// 仅在 DragSessionCoordinator 已识别真实外部拖拽时启用 Sensor 命中测试。
+    /// 空闲时 Panel 必须鼠标穿透，避免透明拖放窗口形成不可点击死区。
     private var externalDragSessionActive = false
     private var observer: NSObjectProtocol?
 
@@ -53,9 +53,11 @@ final class SensorManager {
     func setShelfVisible(_: Bool, onDisplayID _: CGDirectDisplayID?) {}
 
     /// DragSessionCoordinator 的事件驱动状态，不做额外轮询。
-    /// ordinary pointer hover 已禁用；状态只用于避免 Nearby 与顶部 Drop 清单重复出现。
+    /// 空闲时所有 SensorPanel 鼠标穿透；只有真实外部拖拽期间才临时接管拖放事件。
     func setExternalDragSessionActive(_ active: Bool) {
+        guard externalDragSessionActive != active else { return }
         externalDragSessionActive = active
+        applyMouseEventPolicyToPanels()
     }
 
     /// 常驻展开模式启动时选定初始屏：按显示策略取第一块屏。
@@ -83,7 +85,9 @@ final class SensorManager {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isMovable = false
-        panel.ignoresMouseEvents = false
+        panel.ignoresMouseEvents = SensorMouseEventPolicy.ignoresMouseEvents(
+            externalDragSessionActive: externalDragSessionActive
+        )
 
         let view = SensorView(frame: .zero)
         view.onDragEntered = { [weak self] in
@@ -130,6 +134,15 @@ final class SensorManager {
         panel.contentView = view
         panel.orderFrontRegardless()
         return panel
+    }
+
+    private func applyMouseEventPolicyToPanels() {
+        let ignoresMouseEvents = SensorMouseEventPolicy.ignoresMouseEvents(
+            externalDragSessionActive: externalDragSessionActive
+        )
+        for panel in panels.values {
+            panel.ignoresMouseEvents = ignoresMouseEvents
+        }
     }
 
     private func showAcceptedDropFeedback(on screen: NSScreen) {

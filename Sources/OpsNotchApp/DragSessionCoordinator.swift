@@ -30,7 +30,7 @@ final class DragSessionCoordinator {
     private(set) var state: State = .idle
     var dropHandler: ((NativeDropPayload) -> Bool)?
     var promisedFilesHandler: (([URL]) -> Bool)?
-    /// Sensor 用它暂停普通 hover 展开，避免 Nearby 与完整 Shelf 在同一 drag session 竞争。
+    /// Sensor 用它在真实外部拖拽期间临时关闭鼠标穿透，拖拽结束后立即恢复。
     var onExternalDragActivityChange: ((Bool) -> Void)?
 
     init(model: AppModel, shelf: ShelfWindowController, overlay: DragDropOverlayController) {
@@ -181,7 +181,7 @@ final class DragSessionCoordinator {
             setExternalDragActivity(false)
         case .resolvingPromise:
             // File Promise 已在 performDragOperation 内启动。鼠标松开是正常 drop 结束，
-            // 不能把仍在后台写入的 promise 当作取消，也继续抑制 Sensor hover 直到 promise 完成。
+            // 不能把仍在后台写入的 promise 当作取消；Sensor 继续保持拖拽命中直到 promise 完成。
             sessionRecognized = false
             baselineChangeCount = dragPasteboard.changeCount
         default:
