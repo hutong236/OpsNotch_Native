@@ -40,3 +40,5 @@ jobs:
         run: |
           gh workflow run package-app.yml --repo "$GITHUB_REPOSITORY" --ref v2.7.24
           echo "Dispatched package-app.yml for v2.7.24"
+
+# Trigger commit for v2.7.24.
