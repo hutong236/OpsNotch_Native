@@ -8,20 +8,17 @@ final class SettingsWindowController {
     private let model: AppModel
     private let finderReveal: FinderRevealController
     private let inputMethodManager: InputMethodManager
-    private let menuBarManager: MenuBarManager
     private let loginItem = LoginItemService()
     private var window: NSWindow?
 
     init(
         model: AppModel,
         finderReveal: FinderRevealController,
-        inputMethodManager: InputMethodManager,
-        menuBarManager: MenuBarManager
+        inputMethodManager: InputMethodManager
     ) {
         self.model = model
         self.finderReveal = finderReveal
         self.inputMethodManager = inputMethodManager
-        self.menuBarManager = menuBarManager
     }
 
     func show() {
@@ -34,8 +31,7 @@ final class SettingsWindowController {
             model: model,
             loginItem: loginItem,
             finderReveal: finderReveal,
-            inputMethodManager: inputMethodManager,
-            menuBarManager: menuBarManager
+            inputMethodManager: inputMethodManager
         )
         let hosting = NSHostingView(rootView: view)
         let window = NSWindow(
@@ -59,7 +55,6 @@ struct SettingsView: View {
     @ObservedObject var loginItem: LoginItemService
     @ObservedObject var finderReveal: FinderRevealController
     @ObservedObject var inputMethodManager: InputMethodManager
-    @ObservedObject var menuBarManager: MenuBarManager
 
     var body: some View {
         ScrollView {
@@ -120,10 +115,6 @@ struct SettingsView: View {
                     settingRow(L10n.text("hotkeyRow", model.language)) { HotkeyRecorderView(model: model) }
                     Text(L10n.text("hotkeyHint", model.language))
                         .font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 2)
-                }
-
-                group(L10n.text("menuBarManagement", model.language)) {
-                    MenuBarSettingsView(model: model, manager: menuBarManager)
                 }
 
                 group(model.language == .zhCN ? "输入法管理" : "Input Method Manager") {
