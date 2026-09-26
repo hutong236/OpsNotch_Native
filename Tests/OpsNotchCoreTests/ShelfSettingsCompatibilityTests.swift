@@ -6,18 +6,6 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
         XCTAssertEqual(ShelfSettings().dragAssistMode, .nearby)
     }
 
-    func testMenuBarManagerDefaultsAreBackwardSafe() {
-        let settings = ShelfSettings()
-        XCTAssertFalse(settings.menuBarManagementEnabled)
-        XCTAssertEqual(settings.menuBarAutoHideSeconds, 30)
-        XCTAssertTrue(settings.menuBarStartCollapsed)
-        XCTAssertFalse(settings.menuBarAlwaysHiddenEnabled)
-        XCTAssertNil(settings.menuBarHotkey)
-        XCTAssertFalse(settings.menuBarPanelEnabled)
-        XCTAssertTrue(settings.menuBarAnimationEnabled)
-        XCTAssertEqual(settings.menuBarLastState, .hiddenExpanded)
-    }
-
     func testLegacySettingsWithoutDragAssistModeDecodeAsNearby() throws {
         let json = """
         {
@@ -35,13 +23,6 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(ShelfSettings.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.dragAssistMode, .nearby)
-        XCTAssertFalse(decoded.menuBarManagementEnabled)
-        XCTAssertEqual(decoded.menuBarAutoHideSeconds, 30)
-        XCTAssertTrue(decoded.menuBarStartCollapsed)
-        XCTAssertFalse(decoded.menuBarAlwaysHiddenEnabled)
-        XCTAssertFalse(decoded.menuBarPanelEnabled)
-        XCTAssertTrue(decoded.menuBarAnimationEnabled)
-        XCTAssertEqual(decoded.menuBarLastState, .hiddenExpanded)
     }
 
     func testSensorOnlyRoundTripsThroughCodable() throws {
@@ -54,27 +35,60 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
         XCTAssertEqual(decoded.dragAssistMode, .sensorOnly)
     }
 
-    func testMenuBarSettingsRoundTripThroughCodable() throws {
-        var settings = ShelfSettings()
-        settings.menuBarManagementEnabled = true
-        settings.menuBarAutoHideSeconds = 10
-        settings.menuBarStartCollapsed = false
-        settings.menuBarAlwaysHiddenEnabled = true
-        settings.menuBarHotkey = HotkeyShortcut(keyCode: 46, carbonModifiers: HotkeyValidation.carbonCommand)
-        settings.menuBarPanelEnabled = true
-        settings.menuBarAnimationEnabled = false
-        settings.menuBarLastState = .allExpanded
+    func testLegacyMenuBarFieldsAreRemovedFromPersistedStoreDuringMigration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("opsnotch-menu-bar-removal-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
-        let data = try JSONEncoder().encode(settings)
-        let decoded = try JSONDecoder().decode(ShelfSettings.self, from: data)
+        let json = """
+        {
+          "version": 24,
+          "items": [],
+          "settings": {
+            "temp_ttl_hours": 24,
+            "add_mode": "reference",
+            "display_target": "all",
+            "language": "zh-CN",
+            "menu_bar_management_enabled": true,
+            "menu_bar_auto_hide_seconds": 10,
+            "menu_bar_start_collapsed": false,
+            "menu_bar_always_hidden_enabled": true,
+            "menu_bar_panel_enabled": true,
+            "menu_bar_animation_enabled": false,
+            "menu_bar_last_state": "all_expanded"
+          }
+        }
+        """
+        let storeURL = root.appendingPathComponent("shelf.json")
+        try Data(json.utf8).write(to: storeURL)
 
-        XCTAssertTrue(decoded.menuBarManagementEnabled)
-        XCTAssertEqual(decoded.menuBarAutoHideSeconds, 10)
-        XCTAssertFalse(decoded.menuBarStartCollapsed)
-        XCTAssertTrue(decoded.menuBarAlwaysHiddenEnabled)
-        XCTAssertEqual(decoded.menuBarHotkey, settings.menuBarHotkey)
-        XCTAssertTrue(decoded.menuBarPanelEnabled)
-        XCTAssertFalse(decoded.menuBarAnimationEnabled)
-        XCTAssertEqual(decoded.menuBarLastState, .allExpanded)
+        let service = ShelfStoreService(rootURL: root)
+        let loaded = try service.load()
+        let rewritten = try String(contentsOf: storeURL, encoding: .utf8)
+
+        XCTAssertEqual(loaded.version, ShelfStore.currentVersion)
+        XCTAssertEqual(ShelfStore.currentVersion, 25)
+        XCTAssertFalse(rewritten.contains("menu_bar_"))
+    }
+
+    func testLegacyMenuBarFieldsAreIgnoredAfterFeatureRemoval() throws {
+        let json = """
+        {
+          "menu_bar_management_enabled": true,
+          "menu_bar_auto_hide_seconds": 10,
+          "menu_bar_start_collapsed": false,
+          "menu_bar_always_hidden_enabled": true,
+          "menu_bar_panel_enabled": true,
+          "menu_bar_animation_enabled": false,
+          "menu_bar_last_state": "all_expanded"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(ShelfSettings.self, from: Data(json.utf8))
+        let encoded = try JSONEncoder().encode(decoded)
+        let encodedJSON = String(decoding: encoded, as: UTF8.self)
+
+        XCTAssertFalse(encodedJSON.contains("menu_bar_"))
     }
 }

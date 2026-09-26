@@ -44,13 +44,6 @@ public enum DragAssistMode: String, Codable, CaseIterable, Sendable {
     case sensorOnly = "sensor_only"
 }
 
-/// 菜单栏管理器的三段可见状态。
-public enum MenuBarVisibilityState: String, Codable, CaseIterable, Sendable {
-    case collapsed
-    case hiddenExpanded = "hidden_expanded"
-    case allExpanded = "all_expanded"
-}
-
 public enum AppLanguage: String, Codable, CaseIterable, Sendable {
     case zhCN = "zh-CN"
     case enUS = "en-US"
@@ -129,22 +122,6 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
     /// 常驻展开（图钉）模式：开启后 Shelf 不因鼠标移出/失焦等自动路径收起。
     public var shelfKeepOpen: Bool
 
-    /// 菜单栏图标分区管理。默认关闭，避免升级后改变既有菜单栏布局。
-    public var menuBarManagementEnabled: Bool
-    /// 展开后自动收起秒数；0 表示永不自动收起。
-    public var menuBarAutoHideSeconds: UInt64
-    /// 启动时直接进入收起态；关闭时恢复上次状态。
-    public var menuBarStartCollapsed: Bool
-    /// 启用最左侧“持续隐藏”分区，形成 持续隐藏 / 普通隐藏 / 始终显示 三段。
-    public var menuBarAlwaysHiddenEnabled: Bool
-    /// 菜单栏管理器独立全局热键。
-    public var menuBarHotkey: HotkeyShortcut?
-    /// 可选隐藏项目面板；只有真正打开面板时才会请求辅助功能权限。
-    public var menuBarPanelEnabled: Bool
-    /// 菜单栏分隔区域展开/收起过渡动画。
-    public var menuBarAnimationEnabled: Bool
-    /// 上次用户可见状态，用于关闭“启动时默认隐藏”后的恢复。
-    public var menuBarLastState: MenuBarVisibilityState
 
     public init(
         tempTTLHours: UInt64 = 24,
@@ -158,15 +135,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         finderDefaultPath: String = "~",
         finderQuickPaths: [FinderQuickPath] = [],
         workingSetItemIDs: [UUID] = [],
-        shelfKeepOpen: Bool = false,
-        menuBarManagementEnabled: Bool = false,
-        menuBarAutoHideSeconds: UInt64 = 30,
-        menuBarStartCollapsed: Bool = true,
-        menuBarAlwaysHiddenEnabled: Bool = false,
-        menuBarHotkey: HotkeyShortcut? = nil,
-        menuBarPanelEnabled: Bool = false,
-        menuBarAnimationEnabled: Bool = true,
-        menuBarLastState: MenuBarVisibilityState = .hiddenExpanded
+        shelfKeepOpen: Bool = false
     ) {
         self.tempTTLHours = tempTTLHours
         self.addMode = addMode
@@ -180,14 +149,6 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         self.finderQuickPaths = Array(finderQuickPaths.prefix(9))
         self.workingSetItemIDs = Self.uniqueIDs(workingSetItemIDs, limit: 64)
         self.shelfKeepOpen = shelfKeepOpen
-        self.menuBarManagementEnabled = menuBarManagementEnabled
-        self.menuBarAutoHideSeconds = menuBarAutoHideSeconds
-        self.menuBarStartCollapsed = menuBarStartCollapsed
-        self.menuBarAlwaysHiddenEnabled = menuBarAlwaysHiddenEnabled
-        self.menuBarHotkey = menuBarHotkey
-        self.menuBarPanelEnabled = menuBarPanelEnabled
-        self.menuBarAnimationEnabled = menuBarAnimationEnabled
-        self.menuBarLastState = menuBarLastState
     }
 
     enum CodingKeys: String, CodingKey {
@@ -203,14 +164,6 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         case finderQuickPaths = "finder_quick_paths"
         case workingSetItemIDs = "working_set_item_ids"
         case shelfKeepOpen = "shelf_keep_open"
-        case menuBarManagementEnabled = "menu_bar_management_enabled"
-        case menuBarAutoHideSeconds = "menu_bar_auto_hide_seconds"
-        case menuBarStartCollapsed = "menu_bar_start_collapsed"
-        case menuBarAlwaysHiddenEnabled = "menu_bar_always_hidden_enabled"
-        case menuBarHotkey = "menu_bar_hotkey"
-        case menuBarPanelEnabled = "menu_bar_panel_enabled"
-        case menuBarAnimationEnabled = "menu_bar_animation_enabled"
-        case menuBarLastState = "menu_bar_last_state"
     }
 
     public init(from decoder: Decoder) throws {
@@ -230,14 +183,6 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
             limit: 64
         )
         shelfKeepOpen = try container.decodeIfPresent(Bool.self, forKey: .shelfKeepOpen) ?? false
-        menuBarManagementEnabled = try container.decodeIfPresent(Bool.self, forKey: .menuBarManagementEnabled) ?? false
-        menuBarAutoHideSeconds = try container.decodeIfPresent(UInt64.self, forKey: .menuBarAutoHideSeconds) ?? 30
-        menuBarStartCollapsed = try container.decodeIfPresent(Bool.self, forKey: .menuBarStartCollapsed) ?? true
-        menuBarAlwaysHiddenEnabled = try container.decodeIfPresent(Bool.self, forKey: .menuBarAlwaysHiddenEnabled) ?? false
-        menuBarHotkey = try container.decodeIfPresent(HotkeyShortcut.self, forKey: .menuBarHotkey)
-        menuBarPanelEnabled = try container.decodeIfPresent(Bool.self, forKey: .menuBarPanelEnabled) ?? false
-        menuBarAnimationEnabled = try container.decodeIfPresent(Bool.self, forKey: .menuBarAnimationEnabled) ?? true
-        menuBarLastState = try container.decodeIfPresent(MenuBarVisibilityState.self, forKey: .menuBarLastState) ?? .hiddenExpanded
     }
 
     private static func uniqueIDs(_ ids: [UUID], limit: Int) -> [UUID] {
@@ -355,7 +300,7 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct ShelfStore: Codable, Equatable, Sendable {
-    public static let currentVersion = 24
+    public static let currentVersion = 25
 
     public var version: Int
     public var items: [ShelfItem]
