@@ -300,7 +300,7 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct ShelfStore: Codable, Equatable, Sendable {
-    public static let currentVersion = 24
+    public static let currentVersion = 25
 
     public var version: Int
     public var items: [ShelfItem]
