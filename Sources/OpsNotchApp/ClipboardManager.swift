@@ -8,6 +8,7 @@ final class ClipboardManager {
     private static let activePollIntervalNanoseconds: UInt64 = 100_000_000
     private static let idlePollIntervalNanoseconds: UInt64 = 400_000_000
     private static let duplicateSuppressionInterval: TimeInterval = 1.0
+    private static let pngPasteboardType = NSPasteboard.PasteboardType("public.png")
 
     private struct ContentFingerprint: Equatable {
         let digest: Int
@@ -22,6 +23,8 @@ final class ClipboardManager {
     private var lastCapturedTextAt: TimeInterval = 0
     private var lastCapturedFilesFingerprint: ContentFingerprint?
     private var lastCapturedFilesAt: TimeInterval = 0
+    private var lastCapturedImageFingerprint: ContentFingerprint?
+    private var lastCapturedImageAt: TimeInterval = 0
     var panelVisibleProvider: (() -> Bool)?
 
     init(model: AppModel) {
@@ -57,6 +60,7 @@ final class ClipboardManager {
         let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount != handledChangeCount else { return false }
         handledChangeCount = pasteboard.changeCount
+        let sourceAppName = NSWorkspace.shared.frontmostApplication?.localizedName
 
         // 和拖入使用同一条真实文件 URL 读取规则。先读 pasteboard item 明确声明的 fileURL/path，
         // 避免泛型 NSURL object reader 从文件内容 flavor 生成 /tmp/... 临时路径。
@@ -71,7 +75,20 @@ final class ClipboardManager {
             }
             lastCapturedFilesFingerprint = fingerprint
             lastCapturedFilesAt = now
-            model.captureClipboardFiles(urls)
+            model.captureClipboardFiles(urls, sourceAppName: sourceAppName)
+            return true
+        }
+
+        if let imageData = normalizedPNGData(from: pasteboard) {
+            let fingerprint = Self.fingerprint(data: imageData)
+            let now = ProcessInfo.processInfo.systemUptime
+            if fingerprint == lastCapturedImageFingerprint,
+               now - lastCapturedImageAt < Self.duplicateSuppressionInterval {
+                return false
+            }
+            lastCapturedImageFingerprint = fingerprint
+            lastCapturedImageAt = now
+            model.captureClipboardImageData(imageData, sourceAppName: sourceAppName)
             return true
         }
 
@@ -88,7 +105,7 @@ final class ClipboardManager {
         lastCapturedTextFingerprint = fingerprint
         lastCapturedTextAt = now
 
-        model.captureClipboardText(text)
+        model.captureClipboardText(text, sourceAppName: sourceAppName)
         return true
     }
 
@@ -97,6 +114,22 @@ final class ClipboardManager {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         handledChangeCount = pasteboard.changeCount
+    }
+
+    @discardableResult
+    func copyImageFile(_ path: String) -> Bool {
+        guard let image = NSImage(contentsOfFile: path),
+              let tiff = image.tiffRepresentation else { return false }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(tiff, forType: .tiff)
+        if let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            pasteboard.setData(png, forType: Self.pngPasteboardType)
+        }
+        handledChangeCount = pasteboard.changeCount
+        return true
     }
 
     func copyPayload(_ payload: ShelfCopyPayload) {
@@ -115,6 +148,15 @@ final class ClipboardManager {
         handledChangeCount = NSPasteboard.general.changeCount
     }
 
+    private func normalizedPNGData(from pasteboard: NSPasteboard) -> Data? {
+        if let png = pasteboard.data(forType: Self.pngPasteboardType), !png.isEmpty {
+            return png
+        }
+        guard let tiff = pasteboard.data(forType: .tiff),
+              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+
     private func normalizedClipboardText(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -128,6 +170,16 @@ final class ClipboardManager {
         return ContentFingerprint(
             digest: hasher.finalize(),
             byteCount: text.utf8.count,
+            itemCount: 1
+        )
+    }
+
+    private static func fingerprint(data: Data) -> ContentFingerprint {
+        var hasher = Hasher()
+        hasher.combine(data)
+        return ContentFingerprint(
+            digest: hasher.finalize(),
+            byteCount: data.count,
             itemCount: 1
         )
     }

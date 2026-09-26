@@ -200,6 +200,13 @@ final class AppModel: ObservableObject {
         case .finder(_, _, let path, let quickPathID):
             requestOpenFinderPath?(path, quickPathID)
         case .shelf(let item):
+            if item.clipboardImage {
+                guard clipboard.copyImageFile(item.content) else { return }
+                recordUse(item.id)
+                showToast(L10n.text("copied", language))
+                requestDelayedHide?()
+                return
+            }
             let payload = ShelfLogic.copyPayload(items: [item])
             guard !payload.isEmpty else { return }
             clipboard.copyPayload(payload)
@@ -331,15 +338,15 @@ final class AppModel: ObservableObject {
         catch { showToast(error.localizedDescription) }
     }
 
-    func addPaths(_ urls: [URL], forcedKind: ShelfKind? = nil) {
+    func addPaths(_ urls: [URL], forcedKind: ShelfKind? = nil, sourceAppName: String? = nil) {
         for url in urls {
-            do { apply(try store.addPath(url, mode: settings.addMode, forcedKind: forcedKind)) }
+            do { apply(try store.addPath(url, mode: settings.addMode, forcedKind: forcedKind, sourceAppName: sourceAppName)) }
             catch { showToast(error.localizedDescription) }
         }
     }
 
-    func addApplication(_ url: URL) {
-        do { apply(try store.addApplication(url)) }
+    func addApplication(_ url: URL, sourceAppName: String? = nil) {
+        do { apply(try store.addApplication(url, sourceAppName: sourceAppName)) }
         catch { showToast(error.localizedDescription) }
     }
 
@@ -451,6 +458,12 @@ final class AppModel: ObservableObject {
 
     func copySelected(using clipboard: ClipboardManager) {
         let selected = visibleItems.filter { selection.contains($0.id) }
+        if selected.count == 1, let item = selected.first, item.clipboardImage {
+            guard clipboard.copyImageFile(item.content) else { return }
+            recordUse(item.id)
+            showToast(L10n.text("copied", language))
+            return
+        }
         let payload = ShelfLogic.copyPayload(items: selected)
         guard !payload.isEmpty else { return }
         clipboard.copyPayload(payload)
@@ -490,6 +503,22 @@ final class AppModel: ObservableObject {
         panel.allowedContentTypes = [.application]
         NSApplication.shared.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url { addApplication(url) }
+    }
+
+    var highlightedShelfItem: ShelfItem? {
+        guard case .shelf(let item) = highlightedQuickEntry else { return nil }
+        return item
+    }
+
+    func togglePinHighlighted() {
+        guard let item = highlightedShelfItem else { return }
+        togglePin(item)
+    }
+
+    func removeHighlighted() {
+        guard let item = highlightedShelfItem else { return }
+        remove(Set([item.id]))
+        resetQuickHighlight()
     }
 
     private var highlightedQuickEntry: QuickShelfEntry? {

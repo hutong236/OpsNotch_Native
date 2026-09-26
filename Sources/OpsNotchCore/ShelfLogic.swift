@@ -30,7 +30,9 @@ public enum ShelfLogic {
         guard matchesKind(item, kindFilter: kindFilter) else { return false }
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return true }
-        return item.title.lowercased().contains(q) || item.content.lowercased().contains(q)
+        return item.title.lowercased().contains(q)
+            || item.content.lowercased().contains(q)
+            || (item.sourceAppName?.lowercased().contains(q) ?? false)
     }
 
     private static func matchesKind(_ item: ShelfItem, kindFilter: ShelfKindFilter) -> Bool {

@@ -128,6 +128,14 @@ final class ShelfWindowController: NSObject {
                     MainActor.assumeIsolated { self.model.focusRequestToken = UUID() }
                 }
                 return nil
+            case 35:
+                guard modifiers == .command else { return event }
+                MainActor.assumeIsolated { self.model.togglePinHighlighted() }
+                return nil
+            case 2:
+                guard modifiers == .command else { return event }
+                MainActor.assumeIsolated { self.model.removeHighlighted() }
+                return nil
             case 18, 19, 20, 21, 22, 23:
                 guard modifiers == .command,
                       let index = [18, 19, 20, 21, 23, 22].firstIndex(of: event.keyCode) else { return event }
@@ -378,7 +386,7 @@ final class ShelfWindowController: NSObject {
 
     private func size(for state: Presentation) -> NSSize {
         switch state {
-        case .expanded: return NSSize(width: 440, height: 560)
+        case .expanded: return NSSize(width: 720, height: 560)
         case .drop: return NSSize(width: 350, height: 112)
         case .peek: return NSSize(width: 320, height: 68)
         }

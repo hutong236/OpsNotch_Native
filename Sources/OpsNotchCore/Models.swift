@@ -267,6 +267,10 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
     public var useCount: UInt64
     /// V2：最近一次成功使用时间（Unix seconds）。0 表示从未使用。
     public var lastUsedAt: UInt64
+    /// 剪贴板捕获时的来源应用名称；手动添加/旧数据为空。
+    public var sourceAppName: String?
+    /// 该文件是否由图片剪贴板捕获生成；用于恢复图片 pasteboard 语义。
+    public var clipboardImage: Bool
 
     public init(
         id: UUID = UUID(),
@@ -280,7 +284,9 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         actionKind: SafeActionKind? = nil,
         fileExtension: String? = nil,
         useCount: UInt64 = 0,
-        lastUsedAt: UInt64 = 0
+        lastUsedAt: UInt64 = 0,
+        sourceAppName: String? = nil,
+        clipboardImage: Bool = false
     ) {
         self.id = id
         self.kind = kind
@@ -294,6 +300,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         self.fileExtension = fileExtension
         self.useCount = useCount
         self.lastUsedAt = lastUsedAt
+        self.sourceAppName = sourceAppName
+        self.clipboardImage = clipboardImage
     }
 
     enum CodingKeys: String, CodingKey {
@@ -305,6 +313,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         case fileExtension = "extension"
         case useCount = "use_count"
         case lastUsedAt = "last_used_at"
+        case sourceAppName = "source_app_name"
+        case clipboardImage = "clipboard_image"
     }
 
     public init(from decoder: Decoder) throws {
@@ -329,6 +339,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         fileExtension = try? container.decode(String.self, forKey: .fileExtension)
         useCount = (try? container.decode(UInt64.self, forKey: .useCount)) ?? 0
         lastUsedAt = Self.decodeTimestamp(container, key: .lastUsedAt) ?? 0
+        sourceAppName = try? container.decode(String.self, forKey: .sourceAppName)
+        clipboardImage = (try? container.decode(Bool.self, forKey: .clipboardImage)) ?? false
     }
 
     private static func decodeTimestamp(
@@ -343,7 +355,7 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct ShelfStore: Codable, Equatable, Sendable {
-    public static let currentVersion = 23
+    public static let currentVersion = 24
 
     public var version: Int
     public var items: [ShelfItem]
