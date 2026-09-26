@@ -103,7 +103,7 @@ public final class ShelfStoreService: @unchecked Sendable {
     }
 
     @discardableResult
-    public func addPath(_ source: URL, mode: StorageMode, forcedKind: ShelfKind? = nil) throws -> ShelfStore {
+    public func addPath(_ source: URL, mode: StorageMode, forcedKind: ShelfKind? = nil, sourceAppName: String? = nil) throws -> ShelfStore {
         let values = try source.resourceValues(forKeys: [.isDirectoryKey, .nameKey])
         let kind: ShelfKind = forcedKind ?? ((values.isDirectory ?? false) ? .folder : .file)
         let id = UUID()
@@ -126,14 +126,15 @@ public final class ShelfStoreService: @unchecked Sendable {
                 title: title,
                 content: storedURL.path,
                 storageMode: mode,
-                fileExtension: source.pathExtension.nonEmpty
+                fileExtension: source.pathExtension.nonEmpty,
+                sourceAppName: sourceAppName
             ))
         }
     }
 
     @discardableResult
-    public func addApplication(_ url: URL) throws -> ShelfStore {
-        try addPath(url, mode: .reference, forcedKind: .application)
+    public func addApplication(_ url: URL, sourceAppName: String? = nil) throws -> ShelfStore {
+        try addPath(url, mode: .reference, forcedKind: .application, sourceAppName: sourceAppName)
     }
 
     @discardableResult
