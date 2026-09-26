@@ -23,8 +23,23 @@ final class StatusBarController: NSObject {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
 
+        cleanupLegacyMenuBarPreferences()
         configureStatusItem()
         rebuildMenu()
+    }
+
+    /// 删除已移除的隐藏区分隔条位置记录；保留 control 的位置，使 Ops Notch 图标升级后不跳位。
+    private func cleanupLegacyMenuBarPreferences() {
+        let legacyAutosaveNames = [
+            "lab.hutong.opsnotch.menubar.hidden-separator",
+            "lab.hutong.opsnotch.menubar.hidden-spacer-v3",
+            "lab.hutong.opsnotch.menubar.always-hidden-separator",
+        ]
+        for autosaveName in legacyAutosaveNames {
+            UserDefaults.standard.removeObject(
+                forKey: "NSStatusItem Preferred Position \(autosaveName)"
+            )
+        }
     }
 
     /// 菜单在设置变化时重建；状态项仅作为 Ops Notch 的普通菜单栏入口。
