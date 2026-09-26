@@ -16,7 +16,14 @@ enum ItemActionService {
             if let url = URL(string: item.content) {
                 succeeded = NSWorkspace.shared.open(url)
             }
-        case .file, .folder:
+        case .file:
+            if item.clipboardImage {
+                succeeded = clipboard.copyImageFile(item.content)
+                if succeeded { model.showToast(L10n.text("copied", model.language)) }
+            } else {
+                succeeded = NSWorkspace.shared.open(URL(fileURLWithPath: item.content))
+            }
+        case .folder:
             succeeded = NSWorkspace.shared.open(URL(fileURLWithPath: item.content))
         case .application:
             succeeded = NSWorkspace.shared.open(URL(fileURLWithPath: item.content))
