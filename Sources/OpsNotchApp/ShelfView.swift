@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import Foundation
 import SwiftUI
 import OpsNotchCore
 
@@ -28,7 +29,7 @@ struct ShelfRootView: View {
             filterChips
             if !model.selection.isEmpty { selectionBar }
             Divider().opacity(0.35)
-            content
+            workspace
             Divider().opacity(0.35)
             footer
         }
@@ -54,8 +55,10 @@ struct ShelfRootView: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.text("quickShelf", model.language)).font(.system(size: 13, weight: .semibold))
-                Text("Smart · Finder · Clipboard").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(L10n.text("quickShelf", model.language)).font(.system(size: 14, weight: .semibold))
+                Text(model.language == .zhCN ? "剪贴板 · 收藏 · Finder · 快速操作" : "Clipboard · Favorites · Finder · Quick Actions")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
             }
             Spacer()
             Image(systemName: model.settings.shelfKeepOpen ? "pin.fill" : "pin")
@@ -95,7 +98,7 @@ struct ShelfRootView: View {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField(L10n.text("searchUnified", model.language), text: $model.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .focused($searchFocused)
             if !model.query.isEmpty {
                 Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -103,8 +106,12 @@ struct ShelfRootView: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: 30)
-        .background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .frame(height: 36)
+        .background(.primary.opacity(0.075), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(searchFocused ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.05), lineWidth: 0.7)
+        )
         .padding(.horizontal, 12)
         .padding(.bottom, 9)
     }
@@ -268,6 +275,20 @@ struct ShelfRootView: View {
                         proxy.scrollTo(id)
                     }
                 }
+            }
+        }
+    }
+
+    private var workspace: some View {
+        HStack(spacing: 0) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let item = model.highlightedShelfItem {
+                Divider().opacity(0.35)
+                ClipboardPreviewPane(model: model, clipboard: clipboard, item: item)
+                    .frame(width: 258)
+                    .transition(.opacity)
             }
         }
     }
@@ -566,9 +587,16 @@ struct ShelfRowView: View {
                 .frame(width: 16, height: 18)
                 .help(L10n.text("dragHandle", model.language))
         }
-        .padding(.horizontal, 8)
-        .frame(height: 42)
-        .background(selected ? Color.accentColor.opacity(0.12) : hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .padding(.horizontal, 9)
+        .frame(height: 58)
+        .background(
+            selected
+                ? Color.accentColor.opacity(0.13)
+                : hovered
+                    ? Color.primary.opacity(0.075)
+                    : Color.primary.opacity(0.028),
+            in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+        )
         .overlay {
             if highlighted && !selected {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -585,6 +613,13 @@ struct ShelfRowView: View {
                     clipboard.copyFromApp(item.content)
                     model.recordUse(item.id)
                     model.showToast(L10n.text("copied", model.language))
+                }
+            } else if item.clipboardImage {
+                Button(L10n.text("copy", model.language)) {
+                    if clipboard.copyImageFile(item.content) {
+                        model.recordUse(item.id)
+                        model.showToast(L10n.text("copied", model.language))
+                    }
                 }
             }
             if [.file, .folder].contains(item.kind) {
@@ -609,12 +644,19 @@ struct ShelfRowView: View {
     }
 
     private var leading: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             itemIcon
-                .frame(width: 24, height: 24)
+                .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
-                    Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                    Text(item.title)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .lineLimit(1)
+                    if item.pinned {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(Color.accentColor)
+                    }
                     if let badge = semanticBadgeText {
                         Text(badge)
                             .font(.system(size: 7.5, weight: .semibold))
@@ -624,7 +666,15 @@ struct ShelfRowView: View {
                             .background(Color.primary.opacity(0.06), in: Capsule())
                     }
                 }
-                Text(subtitle).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                Text(subtitle)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(metadata)
+                    .font(.system(size: 8.3))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
         }
     }
@@ -640,10 +690,16 @@ struct ShelfRowView: View {
     }
 
     @ViewBuilder private var itemIcon: some View {
-        if let icon = ItemActionService.icon(for: item) {
+        if ItemPreviewKind.isImagePath(item.content), let image = NSImage(contentsOfFile: item.content) {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(.white.opacity(0.10), lineWidth: 0.5))
+        } else if let icon = ItemActionService.icon(for: item) {
             Image(nsImage: icon).resizable().aspectRatio(contentMode: .fit)
         } else {
-            Image(systemName: symbolName).font(.system(size: 15)).foregroundStyle(.secondary)
+            Image(systemName: symbolName).font(.system(size: 16)).foregroundStyle(.secondary)
         }
     }
 
@@ -654,6 +710,13 @@ struct ShelfRowView: View {
                     clipboard.copyFromApp(item.content)
                     model.recordUse(item.id)
                     model.showToast(L10n.text("copied", model.language))
+                }
+            } else if item.clipboardImage {
+                actionIcon("doc.on.doc") {
+                    if clipboard.copyImageFile(item.content) {
+                        model.recordUse(item.id)
+                        model.showToast(L10n.text("copied", model.language))
+                    }
                 }
             }
             if item.kind == .file {
@@ -710,9 +773,166 @@ struct ShelfRowView: View {
     private var subtitle: String {
         switch item.kind {
         case .text, .url: return item.content.replacingOccurrences(of: "\n", with: " ")
-        case .file, .folder, .application: return item.content
+        case .file, .folder, .application: return item.clipboardImage
+            ? (model.language == .zhCN ? "剪贴板图片" : "Clipboard image")
+            : item.content
         case .action: return item.actionKind == .openURL ? "HTTP/HTTPS" : "Local path"
         }
+    }
+
+    private var metadata: String {
+        let source = item.sourceAppName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceText = (source?.isEmpty == false) ? source! : kindLabel
+        return "\(sourceText) · \(relativeTime)"
+    }
+
+    private var kindLabel: String {
+        if item.clipboardImage { return model.language == .zhCN ? "图片" : "Image" }
+        switch item.kind {
+        case .text: return model.language == .zhCN ? "文本" : "Text"
+        case .url: return "URL"
+        case .file: return model.language == .zhCN ? "文件" : "File"
+        case .folder: return model.language == .zhCN ? "文件夹" : "Folder"
+        case .application: return model.language == .zhCN ? "应用" : "App"
+        case .action: return model.language == .zhCN ? "操作" : "Action"
+        }
+    }
+
+    private var relativeTime: String {
+        let interval = max(0, Int(ShelfClock.now() - item.updatedAt))
+        if interval < 60 { return model.language == .zhCN ? "刚刚" : "now" }
+        if interval < 3600 { return model.language == .zhCN ? "\(interval / 60) 分钟前" : "\(interval / 60)m ago" }
+        if interval < 86_400 { return model.language == .zhCN ? "\(interval / 3600) 小时前" : "\(interval / 3600)h ago" }
+        return model.language == .zhCN ? "\(interval / 86_400) 天前" : "\(interval / 86_400)d ago"
+    }
+}
+
+private struct ClipboardPreviewPane: View {
+    @ObservedObject var model: AppModel
+    let clipboard: ClipboardManager
+    let item: ShelfItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: item.clipboardImage ? "photo" : "rectangle.and.text.magnifyingglass")
+                    .foregroundStyle(.secondary)
+                Text(model.language == .zhCN ? "预览" : "Preview")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Button {
+                    model.togglePin(item)
+                } label: {
+                    Image(systemName: item.pinned ? "star.fill" : "star")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .help(item.pinned ? L10n.text("unpin", model.language) : L10n.text("pin", model.language))
+
+                if ItemPreviewKind.isPreviewable(item) {
+                    Button {
+                        FloatingPreviewController.shared.show(item: item, language: model.language)
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.text("zoomPreview", model.language))
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 38)
+
+            Divider().opacity(0.25)
+
+            previewContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider().opacity(0.25)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(item.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(2)
+                HStack(spacing: 5) {
+                    if let source = item.sourceAppName, !source.isEmpty {
+                        Label(source, systemImage: "app")
+                    }
+                    Label(relativeTime, systemImage: "clock")
+                }
+                .font(.system(size: 8.5))
+                .foregroundStyle(.secondary)
+                if item.useCount > 0 {
+                    Text(model.language == .zhCN ? "已使用 \(item.useCount) 次" : "Used \(item.useCount) times")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(12)
+        }
+        .background(Color.primary.opacity(0.018))
+    }
+
+    @ViewBuilder
+    private var previewContent: some View {
+        if ItemPreviewKind.isImagePath(item.content), let image = NSImage(contentsOfFile: item.content) {
+            VStack(spacing: 10) {
+                Spacer(minLength: 10)
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .padding(.horizontal, 12)
+                if item.clipboardImage {
+                    Button(model.language == .zhCN ? "复制图片" : "Copy Image") {
+                        if clipboard.copyImageFile(item.content) {
+                            model.recordUse(item.id)
+                            model.showToast(L10n.text("copied", model.language))
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                }
+                Spacer(minLength: 10)
+            }
+        } else if item.kind == .text || item.kind == .url {
+            ScrollView {
+                Text(item.content)
+                    .font(.system(size: 10.5, design: item.kind == .text ? .monospaced : .default))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(12)
+            }
+        } else {
+            VStack(spacing: 12) {
+                Spacer()
+                if let icon = ItemActionService.icon(for: item) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 64, height: 64)
+                } else {
+                    Image(systemName: "doc")
+                        .font(.system(size: 42, weight: .light))
+                        .foregroundStyle(.secondary)
+                }
+                Text(item.content)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    .lineLimit(6)
+                    .padding(.horizontal, 14)
+                Spacer()
+            }
+        }
+    }
+
+    private var relativeTime: String {
+        let interval = max(0, Int(ShelfClock.now() - item.updatedAt))
+        if interval < 60 { return model.language == .zhCN ? "刚刚" : "now" }
+        if interval < 3600 { return model.language == .zhCN ? "\(interval / 60) 分钟前" : "\(interval / 60)m ago" }
+        if interval < 86_400 { return model.language == .zhCN ? "\(interval / 3600) 小时前" : "\(interval / 3600)h ago" }
+        return model.language == .zhCN ? "\(interval / 86_400) 天前" : "\(interval / 86_400)d ago"
     }
 }
 
