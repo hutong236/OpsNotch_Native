@@ -6,18 +6,6 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
         XCTAssertEqual(ShelfSettings().dragAssistMode, .nearby)
     }
 
-    func testMenuBarManagerDefaultsAreBackwardSafe() {
-        let settings = ShelfSettings()
-        XCTAssertFalse(settings.menuBarManagementEnabled)
-        XCTAssertEqual(settings.menuBarAutoHideSeconds, 30)
-        XCTAssertTrue(settings.menuBarStartCollapsed)
-        XCTAssertFalse(settings.menuBarAlwaysHiddenEnabled)
-        XCTAssertNil(settings.menuBarHotkey)
-        XCTAssertFalse(settings.menuBarPanelEnabled)
-        XCTAssertTrue(settings.menuBarAnimationEnabled)
-        XCTAssertEqual(settings.menuBarLastState, .hiddenExpanded)
-    }
-
     func testLegacySettingsWithoutDragAssistModeDecodeAsNearby() throws {
         let json = """
         {
@@ -35,13 +23,6 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(ShelfSettings.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.dragAssistMode, .nearby)
-        XCTAssertFalse(decoded.menuBarManagementEnabled)
-        XCTAssertEqual(decoded.menuBarAutoHideSeconds, 30)
-        XCTAssertTrue(decoded.menuBarStartCollapsed)
-        XCTAssertFalse(decoded.menuBarAlwaysHiddenEnabled)
-        XCTAssertFalse(decoded.menuBarPanelEnabled)
-        XCTAssertTrue(decoded.menuBarAnimationEnabled)
-        XCTAssertEqual(decoded.menuBarLastState, .hiddenExpanded)
     }
 
     func testSensorOnlyRoundTripsThroughCodable() throws {
@@ -54,27 +35,23 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
         XCTAssertEqual(decoded.dragAssistMode, .sensorOnly)
     }
 
-    func testMenuBarSettingsRoundTripThroughCodable() throws {
-        var settings = ShelfSettings()
-        settings.menuBarManagementEnabled = true
-        settings.menuBarAutoHideSeconds = 10
-        settings.menuBarStartCollapsed = false
-        settings.menuBarAlwaysHiddenEnabled = true
-        settings.menuBarHotkey = HotkeyShortcut(keyCode: 46, carbonModifiers: HotkeyValidation.carbonCommand)
-        settings.menuBarPanelEnabled = true
-        settings.menuBarAnimationEnabled = false
-        settings.menuBarLastState = .allExpanded
+    func testLegacyMenuBarFieldsAreIgnoredAfterFeatureRemoval() throws {
+        let json = """
+        {
+          "menu_bar_management_enabled": true,
+          "menu_bar_auto_hide_seconds": 10,
+          "menu_bar_start_collapsed": false,
+          "menu_bar_always_hidden_enabled": true,
+          "menu_bar_panel_enabled": true,
+          "menu_bar_animation_enabled": false,
+          "menu_bar_last_state": "all_expanded"
+        }
+        """
 
-        let data = try JSONEncoder().encode(settings)
-        let decoded = try JSONDecoder().decode(ShelfSettings.self, from: data)
+        let decoded = try JSONDecoder().decode(ShelfSettings.self, from: Data(json.utf8))
+        let encoded = try JSONEncoder().encode(decoded)
+        let encodedJSON = String(decoding: encoded, as: UTF8.self)
 
-        XCTAssertTrue(decoded.menuBarManagementEnabled)
-        XCTAssertEqual(decoded.menuBarAutoHideSeconds, 10)
-        XCTAssertFalse(decoded.menuBarStartCollapsed)
-        XCTAssertTrue(decoded.menuBarAlwaysHiddenEnabled)
-        XCTAssertEqual(decoded.menuBarHotkey, settings.menuBarHotkey)
-        XCTAssertTrue(decoded.menuBarPanelEnabled)
-        XCTAssertFalse(decoded.menuBarAnimationEnabled)
-        XCTAssertEqual(decoded.menuBarLastState, .allExpanded)
+        XCTAssertFalse(encodedJSON.contains("menu_bar_"))
     }
 }
