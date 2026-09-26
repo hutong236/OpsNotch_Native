@@ -5,12 +5,13 @@ public extension ShelfStoreService {
     /// 查重不再额外做一次全文件读写。内容相同则刷新已有条目的最近使用时间,
     /// 不新增条目;手动 addText/addURL 仍保持原语义,允许用户主动创建内容相同但标题不同的多个条目。
     @discardableResult
-    func captureText(_ content: String, title: String? = nil) throws -> ShelfStore {
+    func captureText(_ content: String, title: String? = nil, sourceAppName: String? = nil) throws -> ShelfStore {
         let normalized = Self.normalizedClipboardText(content)
         guard !normalized.isEmpty else { return try load() }
         return try mutate { store in
             if let index = Self.newestCaptureIndex(in: store.items, kind: .text, matches: { Self.normalizedClipboardText($0) == normalized }) {
                 store.items[index].updatedAt = ShelfClock.now()
+                if let sourceAppName, !sourceAppName.isEmpty { store.items[index].sourceAppName = sourceAppName }
                 return
             }
             let displayTitle: String
@@ -20,24 +21,50 @@ public extension ShelfStoreService {
                 let firstLine = normalized.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? "Text"
                 displayTitle = String(firstLine.prefix(48))
             }
-            store.items.append(ShelfItem(kind: .text, title: displayTitle, content: normalized))
+            store.items.append(ShelfItem(kind: .text, title: displayTitle, content: normalized, sourceAppName: sourceAppName))
         }
     }
 
     /// 拖入 http/https URL 的捕获入口:与 captureText 对称,相同 URL 上浮已有条目而非新增。
     @discardableResult
-    func captureURL(_ value: String, title: String? = nil) throws -> ShelfStore {
+    func captureURL(_ value: String, title: String? = nil, sourceAppName: String? = nil) throws -> ShelfStore {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard SafeActionValidator.isHTTPURL(trimmed) else { throw ShelfStoreError.invalidURL }
         return try mutate { store in
             if let index = Self.newestCaptureIndex(in: store.items, kind: .url, matches: { $0 == trimmed }) {
                 store.items[index].updatedAt = ShelfClock.now()
+                if let sourceAppName, !sourceAppName.isEmpty { store.items[index].sourceAppName = sourceAppName }
                 return
             }
             let fallback = URL(string: trimmed)?.host ?? trimmed
             let displayTitle = title.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
                 ?? fallback
-            store.items.append(ShelfItem(kind: .url, title: displayTitle, content: trimmed))
+            store.items.append(ShelfItem(kind: .url, title: displayTitle, content: trimmed, sourceAppName: sourceAppName))
+        }
+    }
+
+    /// 图片剪贴板捕获入口：将 PNG 数据落入 Shelf 管理目录，并标记为 clipboardImage，
+    /// 这样条目既能显示缩略图/预览，也能再次以图片而不是文件路径写回系统剪贴板。
+    @discardableResult
+    func captureImageData(_ data: Data, sourceAppName: String? = nil) throws -> ShelfStore {
+        guard !data.isEmpty else { return try load() }
+        let id = UUID()
+        return try mutate { store in
+            let parent = managedFilesURL.appendingPathComponent(id.uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+            let fileName = "clipboard-image-\(id.uuidString.prefix(8)).png"
+            let destination = parent.appendingPathComponent(fileName)
+            try data.write(to: destination, options: .atomic)
+            store.items.append(ShelfItem(
+                id: id,
+                kind: .file,
+                title: "Clipboard Image",
+                content: destination.path,
+                storageMode: .copy,
+                fileExtension: "png",
+                sourceAppName: sourceAppName,
+                clipboardImage: true
+            ))
         }
     }
 
