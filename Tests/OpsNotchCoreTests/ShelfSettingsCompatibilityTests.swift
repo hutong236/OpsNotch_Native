@@ -35,6 +35,43 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
         XCTAssertEqual(decoded.dragAssistMode, .sensorOnly)
     }
 
+    func testLegacyMenuBarFieldsAreRemovedFromPersistedStoreDuringMigration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("opsnotch-menu-bar-removal-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let json = """
+        {
+          "version": 24,
+          "items": [],
+          "settings": {
+            "temp_ttl_hours": 24,
+            "add_mode": "reference",
+            "display_target": "all",
+            "language": "zh-CN",
+            "menu_bar_management_enabled": true,
+            "menu_bar_auto_hide_seconds": 10,
+            "menu_bar_start_collapsed": false,
+            "menu_bar_always_hidden_enabled": true,
+            "menu_bar_panel_enabled": true,
+            "menu_bar_animation_enabled": false,
+            "menu_bar_last_state": "all_expanded"
+          }
+        }
+        """
+        let storeURL = root.appendingPathComponent("shelf.json")
+        try Data(json.utf8).write(to: storeURL)
+
+        let service = ShelfStoreService(rootURL: root)
+        let loaded = try service.load()
+        let rewritten = try String(contentsOf: storeURL, encoding: .utf8)
+
+        XCTAssertEqual(loaded.version, ShelfStore.currentVersion)
+        XCTAssertEqual(ShelfStore.currentVersion, 25)
+        XCTAssertFalse(rewritten.contains("menu_bar_"))
+    }
+
     func testLegacyMenuBarFieldsAreIgnoredAfterFeatureRemoval() throws {
         let json = """
         {
