@@ -7,7 +7,7 @@ enum L10n {
     static func text(_ key: String, _ language: AppLanguage) -> String {
         let zh: [String: String] = [
             "quickShelf": "快速暂存",
-            "pinned": "置顶",
+            "pinned": "收藏",
             "recent": "智能最近",
             "workingSet": "工作集",
             "workingSetAdd": "加入工作集",
@@ -80,7 +80,7 @@ enum L10n {
             "oneDay": "24 小时",
             "threeDays": "3 天",
             "sevenDays": "7 天",
-            "clipboardHint": "最新加入优先，其余按当前 App、语义、最近使用和频率智能排序",
+            "clipboardHint": "Enter 使用 · ⌘P 收藏 · ⌘D 删除 · Space 预览",
             "openShelf": "打开快速暂存区",
             "newText": "新建文字…",
             "quit": "退出 Ops Notch",
@@ -177,7 +177,7 @@ enum L10n {
         ]
         let en: [String: String] = [
             "quickShelf": "Quick Shelf",
-            "pinned": "Pinned",
+            "pinned": "Favorites",
             "recent": "Smart Recent",
             "workingSet": "Working Set",
             "workingSetAdd": "Add to Working Set",
@@ -202,7 +202,8 @@ enum L10n {
             "settings": "Settings",
             "clear": "Clear",
             "copied": "Copied",
-            "clipboardCaught": "Copied text saved",
+            "clipboardCaught": "Clipboard item saved",
+            "clipboardImageCaught": "Clipboard image saved",
             "empty": "Nothing here yet",
             "emptyHint": "Drag files or text to the notch, or copy text and touch the notch.",
             "addText": "New Text",
@@ -250,7 +251,7 @@ enum L10n {
             "oneDay": "24 hours",
             "threeDays": "3 days",
             "sevenDays": "7 days",
-            "clipboardHint": "Newest item first; the rest are ranked by app, semantics, recency and usage",
+            "clipboardHint": "Enter Use · ⌘P Favorite · ⌘D Delete · Space Preview",
             "openShelf": "Open Quick Shelf",
             "newText": "New Text…",
             "quit": "Quit Ops Notch",
