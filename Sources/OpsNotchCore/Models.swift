@@ -90,16 +90,12 @@ public struct FinderQuickPath: Codable, Equatable, Identifiable, Sendable {
         self.path = path
         self.useCount = useCount
         self.lastUsedAt = lastUsedAt
-        self.sourceAppName = sourceAppName
-        self.clipboardImage = clipboardImage
     }
 
     enum CodingKeys: String, CodingKey {
         case id, label, path
         case useCount = "use_count"
         case lastUsedAt = "last_used_at"
-        case sourceAppName = "source_app_name"
-        case clipboardImage = "clipboard_image"
     }
 
     public init(from decoder: Decoder) throws {
@@ -304,6 +300,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         self.fileExtension = fileExtension
         self.useCount = useCount
         self.lastUsedAt = lastUsedAt
+        self.sourceAppName = sourceAppName
+        self.clipboardImage = clipboardImage
     }
 
     enum CodingKeys: String, CodingKey {
@@ -315,6 +313,8 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         case fileExtension = "extension"
         case useCount = "use_count"
         case lastUsedAt = "last_used_at"
+        case sourceAppName = "source_app_name"
+        case clipboardImage = "clipboard_image"
     }
 
     public init(from decoder: Decoder) throws {
