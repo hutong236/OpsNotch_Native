@@ -103,6 +103,8 @@ final class ShelfWindowController: NSObject {
                   self.presentation == .expanded,
                   self.model.editorDraft == nil else { return event }
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Caps Lock / Fn / numeric-pad flags must not make otherwise valid shortcuts miss.
+            let normalizedModifiers = modifiers.subtracting([.capsLock, .function, .numericPad])
             switch event.keyCode {
             case 123:
                 MainActor.assumeIsolated { self.model.moveHorizontalHighlight(.left) }
@@ -123,30 +125,31 @@ final class ShelfWindowController: NSObject {
                 MainActor.assumeIsolated { self.model.escapeShelf() }
                 return nil
             case 48:
-                guard modifiers.subtracting([.capsLock, .shift]).isEmpty else { return event }
+                guard normalizedModifiers.subtracting(.shift).isEmpty else { return event }
                 if !(self.panel.firstResponder is NSTextView) {
                     MainActor.assumeIsolated { self.model.focusRequestToken = UUID() }
                 }
                 return nil
             case 35:
-                guard modifiers == .command else { return event }
-                MainActor.assumeIsolated { self.model.togglePinHighlighted() }
-                return nil
+                guard normalizedModifiers == .command else { return event }
+                let handled = MainActor.assumeIsolated { self.model.togglePinHighlighted() }
+                return handled ? nil : event
             case 2:
-                guard modifiers == .command else { return event }
-                MainActor.assumeIsolated { self.model.removeHighlighted() }
-                return nil
+                guard normalizedModifiers == .command else { return event }
+                let handled = MainActor.assumeIsolated { self.model.removeHighlighted() }
+                return handled ? nil : event
             case 18, 19, 20, 21, 22, 23:
-                guard modifiers == .command,
+                guard normalizedModifiers == .command,
                       let index = [18, 19, 20, 21, 23, 22].firstIndex(of: event.keyCode) else { return event }
                 let filters: [ShelfKindFilter] = [.all, .file, .text, .url, .application, .action]
                 MainActor.assumeIsolated { self.model.setKindFilter(to: filters[index]) }
                 return nil
             case 49:
-                guard modifiers.subtracting(.capsLock).isEmpty,
-                      !(self.panel.firstResponder is NSTextView) else { return event }
-                MainActor.assumeIsolated { self.model.quickLookHighlighted() }
-                return nil
+                guard normalizedModifiers.isEmpty else { return event }
+                // 搜索框默认始终聚焦，不能用 NSTextView 作为 Space 预览的排除条件。
+                // 有可预览条目时消费 Space；否则把 Space 继续交给搜索框正常输入。
+                let handled = MainActor.assumeIsolated { self.model.quickLookHighlighted() }
+                return handled ? nil : event
             default:
                 return event
             }

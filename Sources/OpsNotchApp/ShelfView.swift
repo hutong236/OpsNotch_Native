@@ -295,7 +295,7 @@ struct ShelfRootView: View {
 
     private var footer: some View {
         HStack {
-            Text(L10n.text("clipboardHint", model.language))
+            Text(shortcutHint)
             Spacer()
             Text(contextLabel)
         }
@@ -313,6 +313,18 @@ struct ShelfRootView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
+    }
+
+    private var shortcutHint: String {
+        var parts = [L10n.text("shortcutUse", model.language)]
+        if model.highlightedShelfItem != nil {
+            parts.append(L10n.text("shortcutPin", model.language))
+            parts.append(L10n.text("shortcutDelete", model.language))
+        }
+        if model.canPreviewHighlighted {
+            parts.append(L10n.text("shortcutPreview", model.language))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var contextLabel: String {
@@ -414,8 +426,12 @@ private struct DesktopQuickShelfRowView: View {
                     .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 1)
             }
         }
-        .onHover { hovered = $0 }
+        .onHover { isHovering in
+            hovered = isHovering
+            if isHovering { model.highlightedQuickEntryID = entry.id }
+        }
         .onTapGesture {
+            model.highlightedQuickEntryID = entry.id
             guard let command = entry.desktopCommand else { return }
             model.requestDesktopCommand?(command)
         }
@@ -444,7 +460,10 @@ private struct FinderQuickShelfRowView: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture { model.openFinderEntry(entry) }
+            .onTapGesture {
+                model.highlightedQuickEntryID = entry.id
+                model.openFinderEntry(entry)
+            }
 
             Spacer(minLength: 4)
 
@@ -474,7 +493,10 @@ private struct FinderQuickShelfRowView: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { hovered = $0 }
+        .onHover { isHovering in
+            hovered = isHovering
+            if isHovering { model.highlightedQuickEntryID = entry.id }
+        }
         .contextMenu {
             Button(L10n.text("openFolder", model.language)) { model.openFinderEntry(entry) }
             Button(L10n.text("copyPath", model.language)) {
@@ -508,7 +530,10 @@ private struct LocalQuickShelfRowView: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture { model.openLocalEntry(entry, using: clipboard) }
+            .onTapGesture {
+                model.highlightedQuickEntryID = entry.id
+                model.openLocalEntry(entry, using: clipboard)
+            }
 
             Spacer(minLength: 4)
             if hovered {
@@ -536,7 +561,10 @@ private struct LocalQuickShelfRowView: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { hovered = $0 }
+        .onHover { isHovering in
+            hovered = isHovering
+            if isHovering { model.highlightedQuickEntryID = entry.id }
+        }
         .contextMenu {
             Button(isDirectory ? L10n.text("openFolder", model.language) : L10n.text("copy", model.language)) {
                 model.openLocalEntry(entry, using: clipboard)
@@ -606,7 +634,10 @@ struct ShelfRowView: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { hovered = $0 }
+        .onHover { isHovering in
+            hovered = isHovering
+            if isHovering { model.highlightedQuickEntryID = model.quickEntryID(for: item) }
+        }
         .contextMenu {
             if item.kind == .text || item.kind == .url {
                 Button(L10n.text("copy", model.language)) {
@@ -680,6 +711,7 @@ struct ShelfRowView: View {
     }
 
     private func handleRowTap() {
+        model.highlightedQuickEntryID = model.quickEntryID(for: item)
         let flags = NSEvent.modifierFlags
         if flags.contains(.command) || flags.contains(.shift) {
             model.toggleSelection(item)

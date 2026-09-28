@@ -259,20 +259,51 @@ final class AppModel: ObservableObject {
         kindFilter = filter
     }
 
-    func quickLookHighlighted() {
-        guard let entry = highlightedQuickEntry else { return }
+    /// Space 预览：文件/目录走系统 Quick Look，文本走现有悬浮预览。
+    /// 返回是否真正处理了快捷键；未处理时调用方应把按键继续交给搜索框。
+    @discardableResult
+    func quickLookHighlighted() -> Bool {
+        guard let entry = highlightedQuickEntry else { return false }
         switch entry {
-        case .desktop:
-            return
+        case .desktop, .finder:
+            return false
         case .shelf(let item):
-            guard ItemPreviewKind.isPreviewable(item) else { return }
-            QuickLookService.shared.preview(item)
+            switch item.kind {
+            case .file, .folder:
+                guard FileManager.default.fileExists(atPath: item.content) else { return false }
+                QuickLookService.shared.preview(item)
+                return true
+            case .text:
+                guard ItemPreviewKind.isPreviewable(item) else { return false }
+                FloatingPreviewController.shared.show(item: item, language: language)
+                return true
+            case .url, .application, .action:
+                return false
+            }
         case .local(_, let title, let path, let isDirectory):
-            guard !isDirectory else { return }
+            guard !isDirectory, FileManager.default.fileExists(atPath: path) else { return false }
             let item = ShelfItem(kind: .file, title: title, content: path, storageMode: .reference)
             QuickLookService.shared.preview(item)
-        case .finder:
-            return
+            return true
+        }
+    }
+
+    var canPreviewHighlighted: Bool {
+        guard let entry = highlightedQuickEntry else { return false }
+        switch entry {
+        case .desktop, .finder:
+            return false
+        case .shelf(let item):
+            switch item.kind {
+            case .file, .folder:
+                return FileManager.default.fileExists(atPath: item.content)
+            case .text:
+                return ItemPreviewKind.isPreviewable(item)
+            case .url, .application, .action:
+                return false
+            }
+        case .local(_, _, let path, let isDirectory):
+            return !isDirectory && FileManager.default.fileExists(atPath: path)
         }
     }
 
@@ -510,15 +541,19 @@ final class AppModel: ObservableObject {
         return item
     }
 
-    func togglePinHighlighted() {
-        guard let item = highlightedShelfItem else { return }
+    @discardableResult
+    func togglePinHighlighted() -> Bool {
+        guard let item = highlightedShelfItem else { return false }
         togglePin(item)
+        return true
     }
 
-    func removeHighlighted() {
-        guard let item = highlightedShelfItem else { return }
+    @discardableResult
+    func removeHighlighted() -> Bool {
+        guard let item = highlightedShelfItem else { return false }
         remove(Set([item.id]))
         resetQuickHighlight()
+        return true
     }
 
     private var highlightedQuickEntry: QuickShelfEntry? {
