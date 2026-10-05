@@ -5,4 +5,10 @@ public enum SensorMouseEventPolicy {
     public static func ignoresMouseEvents(externalDragSessionActive: Bool) -> Bool {
         !externalDragSessionActive
     }
+
+    /// A process-wide mouse-up monitor is only useful while a recognized external drag
+    /// is in flight. Keeping it installed while idle wakes the app for every ordinary click.
+    public static func shouldMonitorGlobalMouseUp(externalDragSessionActive: Bool) -> Bool {
+        externalDragSessionActive
+    }
 }
