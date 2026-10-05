@@ -5,8 +5,6 @@ import OpsNotchCore
 
 @MainActor
 final class ClipboardManager {
-    private static let activePollIntervalNanoseconds: UInt64 = 100_000_000
-    private static let idlePollIntervalNanoseconds: UInt64 = 400_000_000
     private static let duplicateSuppressionInterval: TimeInterval = 1.0
     private static let pngPasteboardType = NSPasteboard.PasteboardType("public.png")
 
@@ -37,9 +35,13 @@ final class ClipboardManager {
         monitorTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 let visible = self?.panelVisibleProvider?() ?? false
+                let schedule = ClipboardPollingPolicy.schedule(panelVisible: visible)
                 do {
+                    // Keep the proven 100/400 ms capture cadence, but allow the kernel to
+                    // coalesce these periodic wakeups with nearby work to lower idle energy.
                     try await Task.sleep(
-                        nanoseconds: visible ? Self.activePollIntervalNanoseconds : Self.idlePollIntervalNanoseconds
+                        for: .milliseconds(schedule.intervalMilliseconds),
+                        tolerance: .milliseconds(schedule.toleranceMilliseconds)
                     )
                 } catch {
                     break
