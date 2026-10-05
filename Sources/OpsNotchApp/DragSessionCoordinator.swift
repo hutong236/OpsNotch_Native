@@ -63,20 +63,14 @@ final class DragSessionCoordinator {
     }
 
     func start() {
-        guard dragMonitor == nil, mouseUpMonitor == nil else { return }
+        guard dragMonitor == nil else { return }
         baselineChangeCount = dragPasteboard.changeCount
+        stopMouseUpMonitoring()
 
         let dragMask: NSEvent.EventTypeMask = [.leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
         dragMonitor = NSEvent.addGlobalMonitorForEvents(matching: dragMask) { [weak self] _ in
             Task { @MainActor in
                 self?.handleExternalDragEvent()
-            }
-        }
-
-        let upMask: NSEvent.EventTypeMask = [.leftMouseUp, .rightMouseUp, .otherMouseUp]
-        mouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: upMask) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleExternalMouseUp()
             }
         }
     }
@@ -86,10 +80,7 @@ final class DragSessionCoordinator {
             NSEvent.removeMonitor(dragMonitor)
             self.dragMonitor = nil
         }
-        if let mouseUpMonitor {
-            NSEvent.removeMonitor(mouseUpMonitor)
-            self.mouseUpMonitor = nil
-        }
+        stopMouseUpMonitoring()
         successResetWorkItem?.cancel()
         successResetWorkItem = nil
         overlay.hide()
@@ -190,6 +181,8 @@ final class DragSessionCoordinator {
             // 不能把仍在后台写入的 promise 当作取消；Sensor 继续保持拖拽命中直到 promise 完成。
             sessionRecognized = false
             baselineChangeCount = dragPasteboard.changeCount
+            // Promise 仍可继续异步解析，但本次鼠标手势已经结束，不再需要系统级 mouseUp 监听。
+            stopMouseUpMonitoring()
         default:
             cancelSession()
         }
@@ -308,9 +301,31 @@ final class DragSessionCoordinator {
     }
 
     private func setExternalDragActivity(_ active: Bool) {
+        if SensorMouseEventPolicy.shouldMonitorGlobalMouseUp(externalDragSessionActive: active) {
+            startMouseUpMonitoring()
+        } else {
+            stopMouseUpMonitoring()
+        }
+
         guard externalDragActivityNotified != active else { return }
         externalDragActivityNotified = active
         onExternalDragActivityChange?(active)
+    }
+
+    private func startMouseUpMonitoring() {
+        guard mouseUpMonitor == nil else { return }
+        let upMask: NSEvent.EventTypeMask = [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        mouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: upMask) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleExternalMouseUp()
+            }
+        }
+    }
+
+    private func stopMouseUpMonitoring() {
+        guard let mouseUpMonitor else { return }
+        NSEvent.removeMonitor(mouseUpMonitor)
+        self.mouseUpMonitor = nil
     }
 
     private var nearbyAssistEnabled: Bool {
