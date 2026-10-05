@@ -22,4 +22,13 @@ final class SensorMouseEventPolicyTests: XCTestCase {
 
         XCTAssertEqual(ignoresMouseEvents, [true, false, true])
     }
+
+    func testGlobalMouseUpMonitorOnlyRunsDuringExternalDragSession() {
+        XCTAssertFalse(
+            SensorMouseEventPolicy.shouldMonitorGlobalMouseUp(externalDragSessionActive: false)
+        )
+        XCTAssertTrue(
+            SensorMouseEventPolicy.shouldMonitorGlobalMouseUp(externalDragSessionActive: true)
+        )
+    }
 }
