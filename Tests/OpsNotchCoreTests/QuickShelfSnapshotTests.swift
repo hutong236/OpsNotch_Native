@@ -28,6 +28,24 @@ final class QuickShelfSnapshotTests: XCTestCase {
         XCTAssertEqual(builds, 2)
     }
 
+    func testRevisionCacheRemoveAllForcesRebuild() {
+        let cache = QuickShelfSnapshotCache<Int>()
+        var builds = 0
+
+        _ = cache.value(for: 7) {
+            builds += 1
+            return 1
+        }
+        cache.removeAll()
+        let rebuilt = cache.value(for: 7) {
+            builds += 1
+            return 2
+        }
+
+        XCTAssertEqual(rebuilt, 2)
+        XCTAssertEqual(builds, 2)
+    }
+
     func testItemSnapshotSeparatesWorkingPinnedAndRecentWithoutDuplication() {
         let now: UInt64 = 1_000_000
         let working = ShelfItem(
