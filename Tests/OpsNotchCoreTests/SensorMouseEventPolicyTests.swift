@@ -22,4 +22,14 @@ final class SensorMouseEventPolicyTests: XCTestCase {
 
         XCTAssertEqual(ignoresMouseEvents, [true, false, true])
     }
+
+    // Idle operation must not require a process-wide mouse-up wakeup.
+    func testGlobalMouseUpMonitorOnlyRunsDuringExternalDragSession() {
+        XCTAssertFalse(
+            SensorMouseEventPolicy.shouldMonitorGlobalMouseUp(externalDragSessionActive: false)
+        )
+        XCTAssertTrue(
+            SensorMouseEventPolicy.shouldMonitorGlobalMouseUp(externalDragSessionActive: true)
+        )
+    }
 }
