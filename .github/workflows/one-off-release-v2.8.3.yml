@@ -1,0 +1,57 @@
+name: One-off release v2.8.3
+
+on:
+  push:
+    branches:
+      - fix/low-power-clipboard-monitor
+    paths:
+      - '.github/workflows/one-off-release-v2.8.3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout merged main commit
+        uses: actions/checkout@v7
+        with:
+          ref: 881591296d6870e46ed1c8daaf8a02f03f7006b2
+
+      - name: Verify target commit
+        run: test "$(git rev-parse HEAD)" = "881591296d6870e46ed1c8daaf8a02f03f7006b2"
+
+      - name: Test
+        run: swift test
+
+      - name: Static checks
+        run: python3 scripts/static_checks.py
+
+      - name: Package v2.8.3
+        run: APP_VERSION=2.8.3 scripts/build_app.sh
+
+      - name: Verify packaged version and signature
+        shell: bash
+        run: |
+          PLIST="build/Ops Notch.app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "2.8.3"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "283"
+          codesign --verify --deep --strict "build/Ops Notch.app"
+
+      - name: Zip app
+        run: ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" "OpsNotch-v2.8.3-macOS.zip"
+
+      - name: Publish tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.8.3 >/dev/null 2>&1; then
+            echo "v2.8.3 already exists"
+            exit 1
+          fi
+          gh release create v2.8.3 \
+            --target 881591296d6870e46ed1c8daaf8a02f03f7006b2 \
+            --title "Ops Notch v2.8.3" \
+            --notes "Apple Silicon (arm64) 构建。降低 Ops Notch 空闲能耗：仅在真实外部拖拽期间启用全局 mouse-up 监听，并为剪贴板轮询增加 timer tolerance，在保持原有捕获频率的同时减少后台唤醒。" \
+            "OpsNotch-v2.8.3-macOS.zip"
