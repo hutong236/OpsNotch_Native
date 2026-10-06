@@ -91,4 +91,39 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
 
         XCTAssertFalse(encodedJSON.contains("menu_bar_"))
     }
+    func testLegacyV28SettingsDecodeWithStableDefaultsAndRoundTrip() throws {
+        let json = """
+        {
+          "temp_ttl_hours": 72,
+          "add_mode": "copy",
+          "display_target": "mouse",
+          "language": "en-US",
+          "finder_reveal_app_name": "gf.app",
+          "finder_default_path": "~/Downloads",
+          "finder_quick_paths": [],
+          "working_set_item_ids": [],
+          "shelf_keep_open": true
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(ShelfSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.tempTTLHours, 72)
+        XCTAssertEqual(decoded.addMode, .copy)
+        XCTAssertEqual(decoded.displayTarget, .mouse)
+        XCTAssertEqual(decoded.dragAssistMode, .nearby)
+        XCTAssertEqual(decoded.language, .enUS)
+        XCTAssertNil(decoded.hotkey)
+        XCTAssertNil(decoded.finderRevealHotkey)
+        XCTAssertEqual(decoded.finderDefaultPath, "~/Downloads")
+        XCTAssertTrue(decoded.finderQuickPaths.isEmpty)
+        XCTAssertTrue(decoded.workingSetItemIDs.isEmpty)
+        XCTAssertTrue(decoded.shelfKeepOpen)
+
+        let roundTripped = try JSONDecoder().decode(
+            ShelfSettings.self,
+            from: JSONEncoder().encode(decoded)
+        )
+        XCTAssertEqual(roundTripped, decoded)
+    }
 }
