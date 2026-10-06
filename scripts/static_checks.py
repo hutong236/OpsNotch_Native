@@ -15,6 +15,20 @@ design_system_required = [
     root / 'Sources/OpsNotchApp/DesignSystem/OpsVisualState.swift',
     root / 'Sources/OpsNotchApp/DesignSystem/OpsIconButton.swift',
 ]
+phase2_required = [
+    root / 'Sources/OpsNotchApp/Shelf/ShelfPresentationItem.swift',
+    root / 'Sources/OpsNotchApp/Shelf/ShelfPresentationAdapter.swift',
+    root / 'Sources/OpsNotchApp/Shelf/ShelfCommandBar.swift',
+    root / 'Sources/OpsNotchApp/Shelf/ShelfSectionView.swift',
+    root / 'Sources/OpsNotchApp/Shelf/ShelfRow.swift',
+    root / 'Sources/OpsNotchApp/Shelf/ShelfEmptyState.swift',
+]
+legacy_row_types = (
+    'private struct DesktopQuickShelfRowView',
+    'private struct FinderQuickShelfRowView',
+    'private struct LocalQuickShelfRowView',
+    'struct ShelfRowView',
+)
 new_ui_text = '\n'.join(
     text for path, text in files.items()
     if '/Sources/OpsNotchApp/DesignSystem/' in path.as_posix()
@@ -36,6 +50,8 @@ checks={
  '3.0 design system files': all(path.is_file() for path in design_system_required),
  'Shelf uses design tokens': all(token in shelf_view for token in ('OpsSpacing.', 'OpsRadius.', 'OpsTypography.', 'OpsControlMetrics.')),
  'no raw icon tap gestures in new UI': re.search(r'Image\\s*\\([^)]*\\)[\\s\\S]{0,220}\\.onTapGesture', new_ui_text) is None,
+ '3.0 unified shelf component files': all(path.is_file() for path in phase2_required),
+ 'legacy Quick Shelf row types removed': all(name not in shelf_view for name in legacy_row_types),
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
