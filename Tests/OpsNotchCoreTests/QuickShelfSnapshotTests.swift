@@ -90,4 +90,49 @@ final class QuickShelfSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.recent.map(\.id), [recent.id])
         XCTAssertEqual(snapshot.visibleItems.map(\.id), [working.id, pinned.id, recent.id])
     }
+    func testItemSnapshotKeepsNewestRecentFirstAndExcludesWorkingSetFromPinned() {
+        let now: UInt64 = 2_000_000
+        let workingPinned = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000211")!,
+            kind: .text,
+            title: "Working pinned",
+            content: "working",
+            pinned: true,
+            createdAt: now - 300,
+            updatedAt: now - 300
+        )
+        let olderRecent = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000212")!,
+            kind: .text,
+            title: "Older recent",
+            content: "older",
+            createdAt: now - 200,
+            updatedAt: now - 200
+        )
+        let newestRecent = ShelfItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000213")!,
+            kind: .text,
+            title: "Newest recent",
+            content: "newest",
+            createdAt: now - 1,
+            updatedAt: now - 1
+        )
+
+        let snapshot = QuickShelfItemSnapshotBuilder.build(
+            items: [olderRecent, workingPinned, newestRecent],
+            workingSetItemIDs: [workingPinned.id],
+            query: "",
+            kindFilter: .all,
+            appContext: .generic,
+            now: now
+        )
+
+        XCTAssertEqual(snapshot.working.map(\.id), [workingPinned.id])
+        XCTAssertTrue(snapshot.pinned.isEmpty)
+        XCTAssertEqual(snapshot.recent.map(\.id), [newestRecent.id, olderRecent.id])
+        XCTAssertEqual(
+            snapshot.visibleItems.map(\.id),
+            [workingPinned.id, newestRecent.id, olderRecent.id]
+        )
+    }
 }
