@@ -4,19 +4,36 @@ import Combine
 import Foundation
 import OpsNotchCore
 
+private struct QuickShelfViewSnapshot {
+    let itemSnapshot: QuickShelfItemSnapshot
+    let finderEntries: [QuickShelfEntry]
+    let desktopEntries: [QuickShelfEntry]
+    let localEntries: [QuickShelfEntry]
+    let visibleEntries: [QuickShelfEntry]
+    let entryByID: [String: QuickShelfEntry]
+}
+
 @MainActor
 final class AppModel: ObservableObject {
-    @Published private(set) var items: [ShelfItem] = []
-    @Published private(set) var settings = ShelfSettings()
-    @Published private(set) var appContext: AppContextKind = .generic
+    @Published private(set) var items: [ShelfItem] = [] {
+        didSet { invalidateQuickShelfSnapshot() }
+    }
+    @Published private(set) var settings = ShelfSettings() {
+        didSet { invalidateQuickShelfSnapshot() }
+    }
+    @Published private(set) var appContext: AppContextKind = .generic {
+        didSet { invalidateQuickShelfSnapshot() }
+    }
     @Published var query = "" {
         didSet {
+            invalidateQuickShelfSnapshot()
             resetQuickHighlight()
         }
     }
     /// 类型筛选(全部/文件/文本/URL/应用),与搜索词叠加;仅会话内有效,不落盘。
     @Published var kindFilter: ShelfKindFilter = .all {
         didSet {
+            invalidateQuickShelfSnapshot()
             resetQuickHighlight()
         }
     }
@@ -41,6 +58,8 @@ final class AppModel: ObservableObject {
 
     private var toastWorkItem: DispatchWorkItem?
     private var lastSelectionID: UUID?
+    private var quickShelfSnapshotRevision: UInt64 = 0
+    private let quickShelfSnapshotCache = QuickShelfSnapshotCache<QuickShelfViewSnapshot>()
 
     init(store: ShelfStoreService) {
         self.store = store
@@ -50,41 +69,69 @@ final class AppModel: ObservableObject {
     var language: AppLanguage { settings.language }
 
     var workingSetItems: [ShelfItem] {
-        let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-        let orderedByWorkingSet = settings.workingSetItemIDs.compactMap { byID[$0] }
-        return SmartShelfRanking.ordered(
-            orderedByWorkingSet,
-            query: query,
-            kindFilter: kindFilter,
-            appContext: appContext
-        )
+        quickShelfSnapshot.itemSnapshot.working
     }
 
     var grouped: (pinned: [ShelfItem], recent: [ShelfItem]) {
-        let workingIDs = Set(settings.workingSetItemIDs)
-        let remaining = items.filter { !workingIDs.contains($0.id) }
-        let pinned = SmartShelfRanking.ordered(
-            remaining.filter(\.pinned),
-            query: query,
-            kindFilter: kindFilter,
-            appContext: appContext
-        )
-        let recent = SmartShelfRanking.ordered(
-            remaining.filter { !$0.pinned },
-            query: query,
-            kindFilter: kindFilter,
-            appContext: appContext
-        )
-        return (pinned, recent)
+        let snapshot = quickShelfSnapshot.itemSnapshot
+        return (snapshot.pinned, snapshot.recent)
     }
 
     var visibleItems: [ShelfItem] {
-        let groups = grouped
-        return workingSetItems + groups.pinned + groups.recent
+        quickShelfSnapshot.itemSnapshot.visibleItems
     }
 
     /// Finder 快捷路径只在“全部/文件”中出现，并与 Shelf 共用搜索框。
     var visibleFinderEntries: [QuickShelfEntry] {
+        quickShelfSnapshot.finderEntries
+    }
+
+    /// 本机文件系统搜索已移除；保留空集合用于兼容现有 Quick Shelf 视图结构。
+    var visibleLocalEntries: [QuickShelfEntry] {
+        quickShelfSnapshot.localEntries
+    }
+
+    var visibleDesktopEntries: [QuickShelfEntry] {
+        quickShelfSnapshot.desktopEntries
+    }
+
+    var visibleQuickEntries: [QuickShelfEntry] {
+        quickShelfSnapshot.visibleEntries
+    }
+
+    private var quickShelfSnapshot: QuickShelfViewSnapshot {
+        quickShelfSnapshotCache.value(for: quickShelfSnapshotRevision) {
+            buildQuickShelfSnapshot()
+        }
+    }
+
+    private func buildQuickShelfSnapshot() -> QuickShelfViewSnapshot {
+        let itemSnapshot = QuickShelfItemSnapshotBuilder.build(
+            items: items,
+            workingSetItemIDs: settings.workingSetItemIDs,
+            query: query,
+            kindFilter: kindFilter,
+            appContext: appContext
+        )
+        let desktopEntries = buildVisibleDesktopEntries()
+        let finderEntries = buildVisibleFinderEntries()
+        let localEntries: [QuickShelfEntry] = []
+        let visibleEntries = desktopEntries
+            + finderEntries
+            + itemSnapshot.visibleItems.map(QuickShelfEntry.shelf)
+        let entryByID = Dictionary(uniqueKeysWithValues: visibleEntries.map { ($0.id, $0) })
+
+        return QuickShelfViewSnapshot(
+            itemSnapshot: itemSnapshot,
+            finderEntries: finderEntries,
+            desktopEntries: desktopEntries,
+            localEntries: localEntries,
+            visibleEntries: visibleEntries,
+            entryByID: entryByID
+        )
+    }
+
+    private func buildVisibleFinderEntries() -> [QuickShelfEntry] {
         guard kindFilter == .all || kindFilter == .file else { return [] }
 
         var entries: [QuickShelfEntry] = []
@@ -112,10 +159,7 @@ final class AppModel: ObservableObject {
         return entries
     }
 
-    /// 本机文件系统搜索已移除；保留空集合用于兼容现有 Quick Shelf 视图结构。
-    var visibleLocalEntries: [QuickShelfEntry] { [] }
-
-    var visibleDesktopEntries: [QuickShelfEntry] {
+    private func buildVisibleDesktopEntries() -> [QuickShelfEntry] {
         guard kindFilter == .all,
               let command = DesktopCommandParser.parse(query) else { return [] }
 
@@ -146,10 +190,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    var visibleQuickEntries: [QuickShelfEntry] {
-        visibleDesktopEntries
-            + visibleFinderEntries
-            + visibleItems.map(QuickShelfEntry.shelf)
+    private func invalidateQuickShelfSnapshot() {
+        quickShelfSnapshotRevision &+= 1
     }
 
     func quickEntryID(for item: ShelfItem) -> String {
@@ -165,6 +207,10 @@ final class AppModel: ObservableObject {
         if appContext != next {
             appContext = next
             resetQuickHighlight()
+        } else {
+            // Ranking contains time-sensitive recency. Reopening/refocusing the Shelf
+            // starts a fresh snapshot without reintroducing a periodic timer.
+            invalidateQuickShelfSnapshot()
         }
     }
 
@@ -558,7 +604,7 @@ final class AppModel: ObservableObject {
 
     private var highlightedQuickEntry: QuickShelfEntry? {
         guard let id = highlightedQuickEntryID else { return nil }
-        return visibleQuickEntries.first(where: { $0.id == id })
+        return quickShelfSnapshot.entryByID[id]
     }
 
     private func finderMatches(title: String, path: String) -> Bool {
