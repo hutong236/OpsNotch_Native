@@ -249,3 +249,21 @@ Ops Notch 不应创建任何 1420 监听端口。
 15. 普通剪贴板搜索取回与 Esc 收起继续归还原应用焦点；桌面移动后不得被旧 Shelf 回调激活回原桌面。
 
 CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_desktop_space_compatibility.c` 符号探针、`scripts/verify_desktop_window_move.m` 生产桥接的自有窗口同 Space 调用、正式 App 编译和签名打包。日志明确输出 `CROSS_SPACE_NOT_TESTED; CROSS_DISPLAY_NOT_TESTED; EXTERNAL_APP_NOT_TESTED`；外部 App 的上述操作仍需真机验收。
+
+
+## 22. Ops Notch 3.0 回归基线
+
+在 3.0 重构的每个 Phase 合并前，除上面的专项验收外，至少重复以下关键路径：
+
+1. **数据兼容**：使用 v2.8.5 生成的 `shelf.json` 启动 3.0 构建，条目、Finder 快捷目录、Working Set、语言、显示位置、常驻展开和快捷键配置必须可读；保存后不得无故丢字段或用户条目。
+2. **剪贴板语义**：外部连续复制文字/图片均可捕获；Ops Notch 自身 Copy 不回灌；文件二次取回仍以 file URL 粘贴，不退化为路径文本。
+3. **拖放**：文件、文件夹、URL、文字、File Promise 在 Sensor、已展开 Shelf 和 Drop UI 上均保持现有入柜语义；Reference 不移动原文件，Copy-in 写入受管目录。
+4. **Finder / Desktop / Workspace**：Finder 快捷目录、桌面切换、窗口移动/跟随仍走现有系统服务，不因 UI 重构改变底层动作。
+5. **焦点与键盘**：热键呼出后搜索可直接输入；方向键、Enter、Space、Esc、Tab 行为与当前验收一致；当目标横向功能区为空时，当前高亮保持不变。
+6. **多显示器 / Spaces**：触发屏幕、拔插显示器、全屏 Space、独立 Space 与窗口移动按现有章节继续验证。
+7. **Quick Look / Preview**：真实文件 Quick Look、文本浮动预览、Finder 路径不误触 Quick Look。
+8. **外观与语言**：Light / Dark、中文 / English 均可用；Phase 5 起增加 Reduce Motion 专项验收。
+9. **性能**：不得重新引入 UI polling、递归文件扫描或每次 SwiftUI `body` 重建全部排序。沿用 invalidation-driven snapshot 基线。
+10. **安全边界**：SSH、kubectl、rm 等只允许识别/显示/排序/复制，绝不自动执行。
+
+> 旧版“类型筛选 Chips / ⌘1…⌘6”验收在 Phase 4 完成前仍作为 legacy baseline；Phase 4 由 command-first 搜索验收替代后再移除。
