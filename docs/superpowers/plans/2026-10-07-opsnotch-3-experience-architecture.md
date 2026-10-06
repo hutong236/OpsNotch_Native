@@ -549,7 +549,7 @@
 - Modify: `scripts/static_checks.py`
 
 **Interfaces:**
-- Menu scope: Open Shelf, Clipboard Catch state/control if implemented by existing setting/state, Keep Shelf Open, Settings, Quit.
+- Menu scope: Open Shelf, Keep Shelf Open, Settings, Quit. Do not add a Clipboard Catch toggle in 3.0 because the current persisted settings model has no such switch; clipboard monitoring remains automatic.
 
 - [ ] **Step 1: Simplify status menu without adding a second feature surface**
 - [ ] **Step 2: Replace all new/modified direct bilingual ternaries with `L10n.text` keys**
@@ -620,7 +620,7 @@
 ### Task 20: Beta release gate
 
 **Files:**
-- Modify: release notes/changelog location already used by repository, if any.
+- Modify: `CHANGELOG.md`.
 - No product-code change unless a release blocker is found.
 
 **Interfaces:**
@@ -651,7 +651,7 @@
 ### Task 22: Final v3.0.0 release
 
 **Files:**
-- Release notes/changelog only unless a final blocker exists.
+- Modify: `CHANGELOG.md`; product code changes only if a final blocker exists.
 
 **Interfaces:**
 - Produces final `v3.0.0`.
