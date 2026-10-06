@@ -38,4 +38,24 @@ final class QuickShelfKeyboardNavigationTests: XCTestCase {
             )
         )
     }
+    func testMissingHorizontalDestinationPreservesExistingHighlightAtCallSite() {
+        let currentHighlight = "shelf:current"
+
+        let missingFinderDestination = QuickShelfKeyboardNavigation.destinationID(
+            for: .right,
+            finderEntryIDs: [],
+            recentEntryIDs: [currentHighlight]
+        )
+        let highlightAfterRight = missingFinderDestination ?? currentHighlight
+
+        let missingRecentDestination = QuickShelfKeyboardNavigation.destinationID(
+            for: .left,
+            finderEntryIDs: ["finder:default"],
+            recentEntryIDs: []
+        )
+        let highlightAfterLeft = missingRecentDestination ?? currentHighlight
+
+        XCTAssertEqual(highlightAfterRight, currentHighlight)
+        XCTAssertEqual(highlightAfterLeft, currentHighlight)
+    }
 }
