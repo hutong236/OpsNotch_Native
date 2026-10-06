@@ -29,6 +29,15 @@ public enum ShelfSemantic {
         "cat", "less", "find", "ls", "cd", "mkdir", "cp", "mv", "rm", "chmod", "chown"
     ]
 
+    /// SwiftUI 会在一次布局/重绘周期内多次读取同一条目的语义类型。
+    /// 对原始文本做有界缓存，避免反复执行 split/contains/Unicode 字符分类。
+    private static let textKindCache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 1_024
+        cache.totalCostLimit = 2 * 1_024 * 1_024
+        return cache
+    }()
+
     public static func kind(for item: ShelfItem) -> SemanticKind {
         switch item.kind {
         case .file: return .file
@@ -47,6 +56,22 @@ public enum ShelfSemantic {
     }
 
     public static func kind(forText raw: String) -> SemanticKind {
+        let cacheKey = raw as NSString
+        if let cachedRaw = textKindCache.object(forKey: cacheKey),
+           let cached = SemanticKind(rawValue: cachedRaw as String) {
+            return cached
+        }
+
+        let kind = uncachedKind(forText: raw)
+        textKindCache.setObject(
+            kind.rawValue as NSString,
+            forKey: cacheKey,
+            cost: raw.utf8.count
+        )
+        return kind
+    }
+
+    private static func uncachedKind(forText raw: String) -> SemanticKind {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return .text }
         let lower = value.lowercased()
@@ -82,7 +107,101 @@ public enum ShelfSemantic {
     }
 }
 
+private final class SmartShelfRankingCache: @unchecked Sendable {
+    private struct Entry {
+        let items: [ShelfItem]
+        let query: String
+        let kindFilter: ShelfKindFilter
+        let appContext: AppContextKind
+        let now: UInt64
+        let result: [ShelfItem]
+    }
+
+    private let lock = NSLock()
+    private var entries: [Entry] = []
+    private var hits = 0
+    private var misses = 0
+    private let limit = 12
+
+    func value(
+        for items: [ShelfItem],
+        query: String,
+        kindFilter: ShelfKindFilter,
+        appContext: AppContextKind,
+        now: UInt64
+    ) -> [ShelfItem]? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let index = entries.firstIndex(where: {
+            $0.now == now
+                && $0.query == query
+                && $0.kindFilter == kindFilter
+                && $0.appContext.rawValue == appContext.rawValue
+                && $0.items == items
+        }) else {
+            misses += 1
+            return nil
+        }
+
+        let entry = entries.remove(at: index)
+        entries.insert(entry, at: 0)
+        hits += 1
+        return entry.result
+    }
+
+    func insert(
+        _ result: [ShelfItem],
+        for items: [ShelfItem],
+        query: String,
+        kindFilter: ShelfKindFilter,
+        appContext: AppContextKind,
+        now: UInt64
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        entries.removeAll(where: {
+            $0.now == now
+                && $0.query == query
+                && $0.kindFilter == kindFilter
+                && $0.appContext.rawValue == appContext.rawValue
+                && $0.items == items
+        })
+        entries.insert(
+            Entry(
+                items: items,
+                query: query,
+                kindFilter: kindFilter,
+                appContext: appContext,
+                now: now,
+                result: result
+            ),
+            at: 0
+        )
+        if entries.count > limit {
+            entries.removeLast(entries.count - limit)
+        }
+    }
+
+    func reset() {
+        lock.lock()
+        entries.removeAll(keepingCapacity: true)
+        hits = 0
+        misses = 0
+        lock.unlock()
+    }
+
+    func stats() -> (hits: Int, misses: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (hits, misses)
+    }
+}
+
 public enum SmartShelfRanking {
+    private static let cache = SmartShelfRankingCache()
+
     public static func ordered(
         _ items: [ShelfItem],
         query: String = "",
@@ -90,8 +209,28 @@ public enum SmartShelfRanking {
         appContext: AppContextKind = .generic,
         now: UInt64 = ShelfClock.now()
     ) -> [ShelfItem] {
+        if let cached = cache.value(
+            for: items,
+            query: query,
+            kindFilter: kindFilter,
+            appContext: appContext,
+            now: now
+        ) {
+            return cached
+        }
+
         let filtered = items.filter { ShelfLogic.matches($0, query: query, kindFilter: kindFilter) }
-        guard filtered.count > 1 else { return filtered }
+        guard filtered.count > 1 else {
+            cache.insert(
+                filtered,
+                for: items,
+                query: query,
+                kindFilter: kindFilter,
+                appContext: appContext,
+                now: now
+            )
+            return filtered
+        }
 
         // “最新加入”使用 createdAt，而不是 updatedAt / lastUsedAt：
         // 编辑、复制取回或使用次数变化不能把旧条目伪装成刚加入的条目。
@@ -107,12 +246,21 @@ public enum SmartShelfRanking {
 
         var remaining = filtered
         remaining.remove(at: newestIndex)
-        return [newest] + smartOrdered(
+        let result = [newest] + smartOrdered(
             remaining,
             query: query,
             appContext: appContext,
             now: now
         )
+        cache.insert(
+            result,
+            for: items,
+            query: query,
+            kindFilter: kindFilter,
+            appContext: appContext,
+            now: now
+        )
+        return result
     }
 
     /// 最新加入条目之外的内容继续沿用原有 SmartScore 排序。
@@ -204,5 +352,13 @@ public enum SmartShelfRanking {
         case .generic:
             return 0
         }
+    }
+
+    static func _resetCacheForTesting() {
+        cache.reset()
+    }
+
+    static func _cacheStatsForTesting() -> (hits: Int, misses: Int) {
+        cache.stats()
     }
 }
