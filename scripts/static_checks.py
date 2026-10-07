@@ -116,6 +116,7 @@ checks={
  'embedded Settings use design typography': re.search(r'\.font\(\.system\(size\s*:', embedded_settings_ui_text) is None,
  'embedded Settings use semantic radii': re.search(r'RoundedRectangle\(cornerRadius\s*:\s*[0-9]', embedded_settings_ui_text) is None,
  'embedded Settings use semantic control widths': re.search(r'\.frame\(width:\s*[0-9]+', embedded_settings_ui_text) is None,
+ 'Shelf row keeps selection and focus as independent states': 'OpsRowVisualState' in new_ui_text and 'selected:' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfEntryRow.swift', '') and 'focused:' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfEntryRow.swift', ''),
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
