@@ -309,3 +309,48 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 8. **辅助功能**：开启 Reduce Motion、Increase Contrast、Reduce Transparency 分别复测 Shelf/Inspector/Settings；Reduce Motion 不出现位置或缩放动画，图标按钮可由 VoiceOver 读出用途。
 9. **多显示器与 Space**：至少双屏分别呼出、拖入、Peek/Expanded/Confirmation；面板必须留在触发屏，切换全屏 Space 后无残留透明窗口。
 10. **清理确认**：主界面无常驻类型 chips、无旧 Preview Pane、无重复 Finder/Desktop/Shelf Row 实现；旧 Workspace Quick Panel / Workspace shortcut service 已删除，桌面切换只走当前 `d` / `dN` 的 DesktopCommandIntegration。Floating Preview 是当前保留能力，不应与旧 Preview Pane 混淆；Quick Look、Finder 打开、文件 pasteboard、Clipboard Catch 与 Phase 0 回归基线一致。
+
+
+## 26. Ops Notch 3.0 Performance / Long-running QA
+
+### 自动化性能架构门禁
+
+1. 连续读取同一 revision 的 Quick Shelf snapshot 不得重复构建 derived state；单 revision 内重复 100+ 次读取仍只允许一次 build。
+2. 相同 Smart Shelf ranking 输入重复读取应命中 memoized result；只有 query / kind filter / app context / time bucket / item input 变化时才允许新 miss。
+3. `ShelfSnapshotProvider` 必须继续使用 revision-driven `QuickShelfSnapshotCache<ShelfSnapshot>`；Hover、Keyboard Focus、Selected、Pressed 等纯交互状态不得触发 ranking invalidation。
+4. `Shelf/`、`DesignSystem/`、`Settings/` 与主 `ShelfView` 不得引入 `Timer.scheduledTimer`、`Timer.publish`、`DispatchSourceTimer`、`CVDisplayLink` 等 recurring UI polling。一次性的动画/隐藏 delay 不属于 polling。
+
+### 8–24 小时真实 Mac 长稳测试
+
+在日常真实使用机器上使用 Release/CI 打包产物，测试期间不要运行 Debug profiler 持续附加。开始和结束均记录以下数据；建议至少 8 小时，最终发布前优先完成 24 小时。
+
+| 指标 | 开始 | 1h | 4h | 8h | 24h/结束 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ops Notch RSS / 实际内存 |  |  |  |  |  |
+| Idle CPU（静置 5 分钟均值） |  |  |  |  |  |
+| Energy Impact / 唤醒情况 |  |  |  |  |  |
+| 线程数 |  |  |  |  |  |
+| 打开窗口/Panel 数 |  |  |  |  |  |
+| 异常持续 wake source |  |  |  |  |  |
+
+执行过程：
+
+1. **启动基线**：启动后正常使用 5–10 分钟，完成一次 Clipboard、Finder、Quick Look、拖放、Desktop command，然后收起 Shelf 静置 5 分钟，记录 CPU / RSS / 线程数。
+2. **Idle CPU**：Shelf 隐藏且鼠标不经过 Sensor 时连续观察至少 5 分钟。不得存在持续高 CPU、持续 SwiftUI redraw 或高频 timer wake；Clipboard 自身 polling 只允许沿用既有 `changeCount` 策略。
+3. **Snapshot rebuild**：反复 Hover、↑↓ 高亮、Selected、多选、Inspector 切换时不得因纯交互状态持续重建 ranking/snapshot。只有 items、settings、query/filter、app context 等 authoritative inputs 改变时才应 invalidate。
+4. **Clipboard 压力**：连续复制至少 200 次文字/文件混合内容，再静置 10 分钟。记录 RSS 是否回落/稳定；不得随每次复制永久线性增长。
+5. **NSImage churn**：滚动大量含图片/文件图标的 Recent，反复打开/关闭 Inspector 与 Floating Preview。关闭后大图引用应可释放，内存不得持续阶梯式增长。
+6. **窗口生命周期**：反复呼出/隐藏 Shelf 500 次，Settings 打开/关闭 50 次，Quick Look/Floating Preview 多轮打开关闭。不得累积透明窗口、observer、event monitor 或 timer。
+7. **多显示器/Space**：双屏分别呼出、拖放、Confirmation、Desktop 切换至少 30 轮；检查 Panel 数量、CPU、内存没有按次数持续增长。
+8. **睡眠/唤醒**：条件允许时完成一次系统睡眠→唤醒；确认 Clipboard/Sensor/快捷键恢复，且没有重复 observer/timer 导致 CPU 或事件倍增。
+9. **结束记录**：至少 8 小时后再次静置 5 分钟，记录表格最终值，并与启动基线比较。
+
+通过标准：
+
+- 无持续高频 UI polling / redraw。
+- Idle CPU 与 v2.8.5 基线同量级，不出现持续异常占用。
+- 内存允许因 cache/最近内容短期上升，但静置后应趋于平台，不应随操作次数近似线性无限增长。
+- Window/Panel、observer、timer、event monitor 不随反复打开/关闭持续累积。
+- 无 recurring crash、卡死、剪贴板失效、快捷键重复触发或睡眠唤醒后事件倍增。
+- 若只能完成少于 8 小时的测试，**Phase 8 不得标记 COMPLETE**。
+- 最终 `v3.0.0` 发布前必须保留一份实际 8–24 小时记录；CI 通过不能替代该真机门禁。
