@@ -133,6 +133,12 @@ public struct FinderQuickPath: Codable, Equatable, Identifiable, Sendable {
 }
 
 public struct ShelfSettings: Codable, Equatable, Sendable {
+    // Explicitly retired in version 25; other future keys remain preservable.
+    static let retiredJSONKeys: Set<String> = [
+        "menu_bar_management_enabled", "menu_bar_auto_hide_seconds", "menu_bar_start_collapsed",
+        "menu_bar_always_hidden_enabled", "menu_bar_panel_enabled", "menu_bar_animation_enabled",
+        "menu_bar_last_state"
+    ]
     var unknownFields: [String: JSONValue] = [:]
 
     public var tempTTLHours: UInt64
@@ -201,7 +207,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        unknownFields = try UnknownJSONFields.decode(from: decoder, excluding: CodingKeys.self)
+        unknownFields = try UnknownJSONFields.decode(from: decoder, excluding: CodingKeys.self, retired: Self.retiredJSONKeys)
         tempTTLHours = try container.decodeIfPresent(UInt64.self, forKey: .tempTTLHours) ?? 24
         addMode = try container.decodeIfPresent(StorageMode.self, forKey: .addMode) ?? .reference
         displayTarget = try container.decodeIfPresent(DisplayTarget.self, forKey: .displayTarget) ?? .all
@@ -231,7 +237,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
     }
 
     public func encode(to encoder: Encoder) throws {
-        try UnknownJSONFields.encode(unknownFields, to: encoder, excluding: CodingKeys.self)
+        try UnknownJSONFields.encode(unknownFields, to: encoder, excluding: CodingKeys.self, retired: Self.retiredJSONKeys)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(tempTTLHours, forKey: .tempTTLHours)
         try container.encode(addMode, forKey: .addMode)

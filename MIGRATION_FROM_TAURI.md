@@ -49,3 +49,9 @@ cp -R "$HOME/Library/Application Support/lab.hutong.opsnotch" \
 不建议同时运行，因为两者默认使用同一个 `shelf.json`。
 
 迁移时先退出 V1，再启动 V2。
+
+## 未知数值与已退休字段的边界
+
+持久化入口 `ShelfStoreService` 在 Codable 解码前读取未知字段的原始数值文本，比较其精确十进制值与 Decimal 重编码结果；超过精度/范围时拒绝加载或修改，不写回文件。已知字段仍沿用原有数值归一化。直接使用通用 `JSONDecoder` 解码模型没有原始数值文本，因此仅持久化服务入口提供超精度拒绝保证；不要绕过该入口加载并覆盖用户存储。
+
+版本 25 已明确移除的七个设置键仍按原迁移规则丢弃：`menu_bar_management_enabled`、`menu_bar_auto_hide_seconds`、`menu_bar_start_collapsed`、`menu_bar_always_hidden_enabled`、`menu_bar_panel_enabled`、`menu_bar_animation_enabled`、`menu_bar_last_state`。此例外不按前缀匹配，其他未来字段继续保留。

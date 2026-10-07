@@ -66,8 +66,8 @@ private struct JSONFieldKey: CodingKey {
 }
 
 enum UnknownJSONFields {
-    static func decode<Key: CodingKey & CaseIterable>(from decoder: Decoder, excluding: Key.Type) throws -> [String: JSONValue] {
-        let known = Set(Key.allCases.map(\.stringValue))
+    static func decode<Key: CodingKey & CaseIterable>(from decoder: Decoder, excluding: Key.Type, retired: Set<String> = []) throws -> [String: JSONValue] {
+        let known = Set(Key.allCases.map(\.stringValue)).union(retired)
         let container = try decoder.container(keyedBy: JSONFieldKey.self)
         var fields: [String: JSONValue] = [:]
         for key in container.allKeys where !known.contains(key.stringValue) {
@@ -76,8 +76,8 @@ enum UnknownJSONFields {
         return fields
     }
 
-    static func encode<Key: CodingKey & CaseIterable>(_ fields: [String: JSONValue], to encoder: Encoder, excluding: Key.Type) throws {
-        let known = Set(Key.allCases.map(\.stringValue))
+    static func encode<Key: CodingKey & CaseIterable>(_ fields: [String: JSONValue], to encoder: Encoder, excluding: Key.Type, retired: Set<String> = []) throws {
+        let known = Set(Key.allCases.map(\.stringValue)).union(retired)
         var container = encoder.container(keyedBy: JSONFieldKey.self)
         // Exclude all known keys, including optionals intentionally omitted by the current value.
         for (key, value) in fields where !known.contains(key) {

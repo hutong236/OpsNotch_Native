@@ -259,6 +259,7 @@ public final class ShelfStoreService: @unchecked Sendable {
     }
 
     private func decodeCompatible(_ data: Data) throws -> ShelfStore {
+        try UnknownJSONNumberValidation.validate(data)
         do { return try decoder.decode(ShelfStore.self, from: data) }
         catch let error as UnknownJSONFieldError { throw error }
         catch { /* Try the supported legacy root-array format. */ }

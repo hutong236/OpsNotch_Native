@@ -150,7 +150,7 @@ final class ShelfUnknownFieldCompatibilityTests: XCTestCase {
     func testUnknownDecimalBeyondExactPrecisionFailsWithoutWriting() throws {
         // Foundation Decimal may accept this JSON number by silently rounding it.
         // Unknown metadata must be preserved exactly or rejected before any write.
-        let number = "0.1234567890123456789012345678901234567890123456789"
+        for number in ["0.1234567890123456789012345678901234567890123456789", "1e-200"] {
         let objects = [
             #"{"future":\#(number)}"#,
             #"{"settings":{"future":\#(number)}}"#,
@@ -169,6 +169,27 @@ final class ShelfUnknownFieldCompatibilityTests: XCTestCase {
                 XCTAssertThrowsError(try service.addText("Must not overwrite"), json)
                 XCTAssertEqual(try Data(contentsOf: service.storeURL), original)
             }
+        }
+        }
+    }
+
+    func testExactDecimalsEscapedKeysAndKnownNumericNormalizationRemainSupported() throws {
+        let json = #"{"version":25,"fut\u0075re":{"numbers":[0.12500,125e-3,1.2500e+3,-0.000],"nested":[[1.25]]},"settings":{"\u0074emp_ttl_hours":0,"menu_bar_future_setting":true},"items":[{"pinned":true,"created_at":123.4567890123456789012345678901234567890123456789,"updated_at":123.75}]}"#
+        try withService(Data(json.utf8)) { service in
+            let store = try service.load()
+            XCTAssertEqual(store.items[0].createdAt, 123)
+            XCTAssertEqual(store.items[0].updatedAt, 123)
+            _ = try service.save(store)
+            struct Probe: Decodable {
+                struct Future: Decodable { let numbers: [Decimal]; let nested: [[Decimal]] }
+                let future: Future
+            }
+            let data = try Data(contentsOf: service.storeURL)
+            let probe = try JSONDecoder().decode(Probe.self, from: data)
+            XCTAssertEqual(probe.future.numbers, [Decimal(string: "0.125")!, Decimal(string: "0.125")!, 1250, 0])
+            XCTAssertEqual(probe.future.nested, [[Decimal(string: "1.25")!]])
+            let settings = try XCTUnwrap(try jsonObject(data)["settings"] as? [String: Any])
+            XCTAssertEqual(settings["menu_bar_future_setting"] as? Bool, true)
         }
     }
 
