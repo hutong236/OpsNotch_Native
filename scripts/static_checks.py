@@ -152,6 +152,7 @@ checks={
  'presentation UI has no recurring polling timers': all(re.search(pattern, performance_ui_text) is None for pattern in recurring_polling_patterns),
  'clipboard image conversion avoids main-actor bitmap reencode': 'NSBitmapImageRep(data:' not in clipboard_manager and 'ClipboardImageNormalizer' in clipboard_manager,
  'clipboard persistence moves off main actor': 'Task.detached' in appmodel_clipboard and 'async' in appmodel_clipboard,
+ 'clipboard worker avoids chained task retention': 'pendingCaptures' in clipboard_manager and 'let previous = captureProcessingTask' not in clipboard_manager,
  'Shelf image decode moves off main actor': 'BackgroundImageDecoder.thumbnail' in shelf_row and 'Task.detached' in background_image_decoder and 'CGImageSourceCreateThumbnailAtIndex' in background_image_decoder,
  'Floating Preview caps decoded image size': 'maximumDecodedImagePixelSize' in floating_preview and 'BackgroundImageDecoder.thumbnail' in floating_preview,
 }
