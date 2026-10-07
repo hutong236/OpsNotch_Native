@@ -292,7 +292,7 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 5. 修改 Finder 默认目录、Finder 快捷路径、Finder 专用快捷键后重启 App，配置必须保持且行为与 2.8.x 一致。
 6. Clipboard 页面只展示真实存在的自动捕获状态与 Recent 清理策略；不得出现无法生效的伪开关。
 7. Workspace 页面只说明现有 Desktop 命令与窗口移动能力；不得声称存在尚未持久化的 Workspace Profile 设置。
-8. 菜单栏菜单图标、分组和禁用版本项显示正常；“退出 Ops Notch”只能通过显式菜单操作，不新增 ⌘Q 快捷键。
+8. 菜单栏菜单图标与分组显示正常；Phase 7 起不再显示只读版本项；“退出 Ops Notch”只能通过显式菜单操作，不新增 ⌘Q 快捷键。
 9. 将设置窗口缩到最小尺寸、再放大；sidebar 与详情均不得裁切关键控件，Finder/Input Method 长内容可滚动。
 10. 在浅色/深色模式和 Reduce Transparency 下检查设置页：不应出现固定白底、不可读文字或侧栏自定义重色背景。
 
@@ -301,7 +301,7 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 
 1. **主 Shelf 层级**：在浅色/深色分别展开 Shelf，标题、副标题、Command Bar、Section、Row、Inspector、Footer 的层级清晰；不存在一眼可见的旧版控件样式、固定蓝色高亮或突兀的裸字号。
 2. **交互状态**：同一条目依次验证 Default / Hover / Keyboard Focus / Selected / Pressed；鼠标与键盘高亮语言一致，主动作整行可用，图标按钮有 tooltip 与 VoiceOver label。
-3. **Drop / Peek**：拖入时 Drop Target 使用系统 accent 与统一圆角；Peek 保持轻量，不显示搜索/筛选/设置；Confirmation 与 Expanded 不混用。
+3. **Drop / Peek / Confirmation**：拖入时 Drop Target 使用系统 accent 与统一圆角；Peek 保持轻量，不显示搜索/筛选/设置；成功落放必须进入独立 Confirmation（显示“已放入抽屉 / Added to Shelf”），不能复用 Peek 或 Expanded。
 4. **Inspector 比例**：文本、图片、文件、URL 各检查一项；Inspector 不挤压列表到不可用宽度，主动作与 Row 使用同一 ActionIntent，切换条目不闪白、不跳位。
 5. **菜单栏控制中心**：菜单只保留“打开 Shelf / 常驻展开 / 设置 / 退出”四类控制（分隔线除外）；不再显示“新建文字”与只读版本项。切换“常驻展开”后菜单勾选状态与 Shelf 实际状态同步。
 6. **Settings 视觉一致性**：Sidebar、页面标题、Card、Row、Picker 宽度遵循同一 Design System；窗口缩到最小尺寸再放大时不裁切关键控件，Finder/Input Method 长内容可滚动。
