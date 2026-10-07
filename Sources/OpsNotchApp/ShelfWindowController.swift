@@ -137,7 +137,7 @@ final class ShelfWindowController: NSObject {
     }
 
     func showPeek(on screen: NSScreen) {
-        show(.confirmation, on: screen)
+        show(.peek, on: screen)
     }
 
     func showConfirmation(on screen: NSScreen) {
@@ -232,7 +232,7 @@ final class ShelfWindowController: NSObject {
 
     private func showAcceptedDropFeedback() {
         let screen = currentScreen ?? screenUnderMouse()
-        show(.peek, on: screen)
+        show(.confirmation, on: screen)
         if model.settings.shelfKeepOpen {
             // 常驻模式：成功反馈展示后重新展开并保持,不调度隐藏。
             scheduleExpanded(on: screen, delay: 0.85)
