@@ -11,5 +11,11 @@ enum OpsControlMetrics {
     static let footerHeight: CGFloat = 28
     static let editorWidth: CGFloat = 390
     static let editorTextMinimumHeight: CGFloat = 100
+    static let settingsContentMaxWidth: CGFloat = 680
+    static let settingsSidebarMinWidth: CGFloat = 150
+    static let settingsSidebarIdealWidth: CGFloat = 180
+    static let settingsSidebarMaxWidth: CGFloat = 220
+    static let settingsPickerWidth: CGFloat = 210
+    static let settingsCompactPickerWidth: CGFloat = 160
 }
 #endif
