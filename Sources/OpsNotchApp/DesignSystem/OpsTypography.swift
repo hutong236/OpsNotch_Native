@@ -4,6 +4,7 @@ import SwiftUI
 enum OpsTypography {
     static let display = Font.system(size: 20, weight: .semibold)
     static let title = Font.system(size: 16, weight: .semibold)
+    static let settingsTitle = Font.system(size: 22, weight: .semibold)
     static let heading = Font.system(size: 14, weight: .semibold)
     static let body = Font.system(size: 12)
     static let bodyStrong = Font.system(size: 12, weight: .semibold)
