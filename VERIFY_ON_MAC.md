@@ -281,3 +281,17 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 8. 打开“系统设置 → 辅助功能 → 显示 → 减弱动态效果”后重复 Drop Target → Confirmation → 隐藏：面板不得做位置/缩放移动，只允许极短淡入淡出；关闭后恢复空间过渡。
 9. 双显示器分别执行快捷键与拖放：Expanded / Drop Target / Confirmation 均留在触发屏，收起后不得残留透明窗口。
 10. Finder / Desktop / Clipboard 的主动作与焦点归还行为保持 Phase 0 基线，不因 Presentation Coordinator 或 Keyboard Controller 抽离而改变。
+
+
+## 23. Ops Notch 3.0 Settings & Menu
+
+1. 打开菜单栏 Ops Notch → 设置：窗口应为左侧 sidebar + 右侧详情，不再出现单页超长滚动设置。
+2. Sidebar 顺序固定为：通用、Shelf、剪贴板、Finder、工作区、输入法、快捷键、高级；中英文切换后各项均应正确本地化。
+3. 切换每个 Sidebar 项时窗口不应闪烁、重建或改变已编辑状态；Finder 快捷路径与输入法规则继续使用现有真实服务。
+4. 修改语言、显示位置、拖放辅助、常驻展开、文件放置方式、Recent 清理、主快捷键后关闭设置，再次打开时值必须保持。
+5. 修改 Finder 默认目录、Finder 快捷路径、Finder 专用快捷键后重启 App，配置必须保持且行为与 2.8.x 一致。
+6. Clipboard 页面只展示真实存在的自动捕获状态与 Recent 清理策略；不得出现无法生效的伪开关。
+7. Workspace 页面只说明现有 Desktop 命令与窗口移动能力；不得声称存在尚未持久化的 Workspace Profile 设置。
+8. 菜单栏菜单图标、分组和禁用版本项显示正常；“退出 Ops Notch”只能通过显式菜单操作，不新增 ⌘Q 快捷键。
+9. 将设置窗口缩到最小尺寸、再放大；sidebar 与详情均不得裁切关键控件，Finder/Input Method 长内容可滚动。
+10. 在浅色/深色模式和 Reduce Transparency 下检查设置页：不应出现固定白底、不可读文字或侧栏自定义重色背景。

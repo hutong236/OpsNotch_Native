@@ -62,24 +62,48 @@ final class StatusBarController: NSObject {
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(item(L10n.text("openShelf", model.language), #selector(openShelf)))
-        menu.addItem(item(L10n.text("newText", model.language), #selector(newText)))
+        menu.addItem(item(
+            L10n.text("openShelf", model.language),
+            symbolName: "tray.full",
+            action: #selector(openShelf)
+        ))
+        menu.addItem(item(
+            L10n.text("newText", model.language),
+            symbolName: "square.and.pencil",
+            action: #selector(newText)
+        ))
+        menu.addItem(.separator())
+        menu.addItem(item(
+            L10n.text("settings", model.language) + "…",
+            symbolName: "gearshape",
+            action: #selector(openSettings)
+        ))
         menu.addItem(.separator())
 
         let versionItem = NSMenuItem(title: "Ops Notch v\(AppVersionService.current)", action: nil, keyEquivalent: "")
+        versionItem.image = menuImage("info.circle", description: "Ops Notch")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
-        menu.addItem(.separator())
-        menu.addItem(item(L10n.text("settings", model.language) + "…", #selector(openSettings)))
-        menu.addItem(.separator())
-        menu.addItem(item(L10n.text("quit", model.language), #selector(quit)))
+
+        menu.addItem(item(
+            L10n.text("quit", model.language),
+            symbolName: "power",
+            action: #selector(quit)
+        ))
         return menu
     }
 
-    private func item(_ title: String, _ action: Selector) -> NSMenuItem {
+    private func item(_ title: String, symbolName: String, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
+        item.image = menuImage(symbolName, description: title)
         return item
+    }
+
+    private func menuImage(_ symbolName: String, description: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description)
+        image?.isTemplate = true
+        return image
     }
 
     @objc private func openShelf() {

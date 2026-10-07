@@ -23,6 +23,18 @@ phase2_required = [
     root / 'Sources/OpsNotchApp/Shelf/ShelfRow.swift',
     root / 'Sources/OpsNotchApp/Shelf/ShelfEmptyState.swift',
 ]
+phase6_settings_required = [
+    root / 'Sources/OpsNotchApp/Settings/SettingsRootView.swift',
+    root / 'Sources/OpsNotchApp/Settings/SettingsComponents.swift',
+    root / 'Sources/OpsNotchApp/Settings/GeneralSettingsView.swift',
+    root / 'Sources/OpsNotchApp/Settings/ShelfSettingsView.swift',
+    root / 'Sources/OpsNotchApp/Settings/ClipboardSettingsView.swift',
+    root / 'Sources/OpsNotchApp/Settings/FinderSettingsView.swift',
+    root / 'Sources/OpsNotchApp/Settings/WorkspaceSettingsPane.swift',
+    root / 'Sources/OpsNotchApp/Settings/ShortcutSettingsView.swift',
+    root / 'Sources/OpsNotchApp/Settings/AdvancedSettingsView.swift',
+]
+settings_controller = files.get(root / 'Sources/OpsNotchApp/SettingsWindowController.swift', '')
 legacy_row_types = (
     'private struct DesktopQuickShelfRowView',
     'private struct FinderQuickShelfRowView',
@@ -58,6 +70,9 @@ checks={
  '3.0 unified shelf component files': all(path.is_file() for path in phase2_required),
  'legacy Quick Shelf row types removed': all(name not in shelf_view for name in legacy_row_types),
  'presentation uses motion tokens': re.search(r'context\.duration\s*=\s*[0-9]', presentation_text) is None,
+ '3.0 settings pages exist': all(path.is_file() for path in phase6_settings_required),
+ 'settings controller uses sidebar root': 'SettingsRootView(' in settings_controller,
+ 'legacy monolithic SettingsView removed': 'struct SettingsView: View' not in settings_controller,
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
