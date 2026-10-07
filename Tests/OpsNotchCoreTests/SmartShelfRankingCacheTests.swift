@@ -44,4 +44,44 @@ final class SmartShelfRankingCacheTests: XCTestCase {
         XCTAssertEqual(afterSecond.hits, 1)
         XCTAssertEqual(afterSecond.misses, 1)
     }
+    func testRepeatedRankingReadsStayOneMissUntilInputsChange() {
+        SmartShelfRanking._resetCacheForTesting()
+        let now: UInt64 = 900_000
+        let items = [
+            ShelfItem(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000111")!,
+                kind: .text,
+                title: "Alpha",
+                content: "kubectl get pods",
+                createdAt: now - 10,
+                updatedAt: now - 10
+            ),
+            ShelfItem(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000112")!,
+                kind: .text,
+                title: "Beta",
+                content: "ordinary note",
+                createdAt: now - 5,
+                updatedAt: now - 5
+            )
+        ]
+
+        for _ in 0..<64 {
+            _ = SmartShelfRanking.ordered(items, query: "", appContext: .terminal, now: now)
+        }
+
+        let stable = SmartShelfRanking._cacheStatsForTesting()
+        XCTAssertEqual(stable.misses, 1)
+        XCTAssertEqual(stable.hits, 63)
+
+        _ = SmartShelfRanking.ordered(items, query: "alpha", appContext: .terminal, now: now)
+        let changedQuery = SmartShelfRanking._cacheStatsForTesting()
+        XCTAssertEqual(changedQuery.misses, 2)
+
+        _ = SmartShelfRanking.ordered(items, query: "", appContext: .terminal, now: now)
+        let originalAgain = SmartShelfRanking._cacheStatsForTesting()
+        XCTAssertEqual(originalAgain.misses, 2)
+        XCTAssertEqual(originalAgain.hits, 64)
+    }
+
 }
