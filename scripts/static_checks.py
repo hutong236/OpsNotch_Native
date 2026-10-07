@@ -84,6 +84,8 @@ migrated_ui_text = '\n'.join(
 performance_ui_text = '\n'.join(
     text for path, text in files.items()
     if path == root / 'Sources/OpsNotchApp/ShelfView.swift'
+    or path == root / 'Sources/OpsNotchApp/ShelfWindowController.swift'
+    or path == root / 'Sources/OpsNotchApp/SettingsWindowController.swift'
     or '/Sources/OpsNotchApp/Shelf/' in path.as_posix()
     or '/Sources/OpsNotchApp/DesignSystem/' in path.as_posix()
     or '/Sources/OpsNotchApp/Settings/' in path.as_posix()
@@ -91,6 +93,7 @@ performance_ui_text = '\n'.join(
 recurring_polling_patterns = (
     r'Timer\.scheduledTimer',
     r'Timer\.publish',
+    r'Timer\s*\(\s*timeInterval:',
     r'DispatchSource\.makeTimerSource',
     r'DispatchSourceTimer',
     r'CVDisplayLink',
