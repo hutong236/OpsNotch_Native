@@ -34,7 +34,7 @@ struct ClipboardSettingsView: View {
                         Text(L10n.text("never", model.language)).tag(UInt64(0))
                     }
                     .labelsHidden()
-                    .frame(width: 160)
+                    .frame(width: OpsControlMetrics.settingsCompactPickerWidth)
                 }
             }
         }

@@ -18,7 +18,7 @@ struct SettingsPage<Content: View>: View {
             VStack(alignment: .leading, spacing: OpsSpacing.large) {
                 VStack(alignment: .leading, spacing: OpsSpacing.xSmall) {
                     Text(title)
-                        .font(.title2.weight(.semibold))
+                        .font(OpsTypography.settingsTitle)
                     if let subtitle, !subtitle.isEmpty {
                         Text(subtitle)
                             .font(OpsTypography.secondary)
@@ -28,7 +28,7 @@ struct SettingsPage<Content: View>: View {
 
                 content
             }
-            .frame(maxWidth: 680, alignment: .topLeading)
+            .frame(maxWidth: OpsControlMetrics.settingsContentMaxWidth, alignment: .topLeading)
             .padding(OpsSpacing.xLarge)
         }
     }
@@ -37,6 +37,7 @@ struct SettingsPage<Content: View>: View {
 struct SettingsCard<Content: View>: View {
     let title: String?
     let content: Content
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
@@ -52,7 +53,10 @@ struct SettingsCard<Content: View>: View {
             content
         }
         .padding(OpsSpacing.large)
-        .background(.quaternary.opacity(0.28), in: RoundedRectangle(cornerRadius: OpsRadius.card, style: .continuous))
+        .background(
+            OpsSurface.settingsCard(increasedContrast: colorSchemeContrast == .increased),
+            in: RoundedRectangle(cornerRadius: OpsRadius.card, style: .continuous)
+        )
     }
 }
 

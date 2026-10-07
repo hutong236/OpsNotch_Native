@@ -269,7 +269,7 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 > Phase 4 command-first 搜索验收见第 17 节；旧类型 chips 与数字切换快捷键已移除。
 
 
-## 22. Ops Notch 3.0 Presentation & Motion
+## 23. Ops Notch 3.0 Presentation & Motion
 
 1. 使用主快捷键呼出 Shelf：直接进入 Expanded，搜索框聚焦；再次按快捷键立即收起。
 2. 拖入真实文件/文字到顶部 Sensor：进入 Drop Target；松手成功后只显示 Confirmation，不显示完整列表或 Pinned/Recent。
@@ -283,7 +283,7 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 10. Finder / Desktop / Clipboard 的主动作与焦点归还行为保持 Phase 0 基线，不因 Presentation Coordinator 或 Keyboard Controller 抽离而改变。
 
 
-## 23. Ops Notch 3.0 Settings & Menu
+## 24. Ops Notch 3.0 Settings & Menu
 
 1. 打开菜单栏 Ops Notch → 设置：窗口应为左侧 sidebar + 右侧详情，不再出现单页超长滚动设置。
 2. Sidebar 顺序固定为：通用、Shelf、剪贴板、Finder、工作区、输入法、快捷键、高级；中英文切换后各项均应正确本地化。
@@ -292,6 +292,20 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 5. 修改 Finder 默认目录、Finder 快捷路径、Finder 专用快捷键后重启 App，配置必须保持且行为与 2.8.x 一致。
 6. Clipboard 页面只展示真实存在的自动捕获状态与 Recent 清理策略；不得出现无法生效的伪开关。
 7. Workspace 页面只说明现有 Desktop 命令与窗口移动能力；不得声称存在尚未持久化的 Workspace Profile 设置。
-8. 菜单栏菜单图标、分组和禁用版本项显示正常；“退出 Ops Notch”只能通过显式菜单操作，不新增 ⌘Q 快捷键。
+8. 菜单栏菜单图标与分组显示正常；Phase 7 起不再显示只读版本项；“退出 Ops Notch”只能通过显式菜单操作，不新增 ⌘Q 快捷键。
 9. 将设置窗口缩到最小尺寸、再放大；sidebar 与详情均不得裁切关键控件，Finder/Input Method 长内容可滚动。
 10. 在浅色/深色模式和 Reduce Transparency 下检查设置页：不应出现固定白底、不可读文字或侧栏自定义重色背景。
+
+
+## 25. Ops Notch 3.0 Phase 7 Polish
+
+1. **主 Shelf 层级**：在浅色/深色分别展开 Shelf，标题、副标题、Command Bar、Section、Row、Inspector、Footer 的层级清晰；不存在一眼可见的旧版控件样式、固定蓝色高亮或突兀的裸字号。
+2. **交互状态**：同一条目依次验证 Default / Hover / Keyboard Focus / Selected / Pressed；鼠标与键盘高亮语言一致，主动作整行可用，图标按钮有 tooltip 与 VoiceOver label。
+3. **Drop / Peek / Confirmation**：拖入时 Drop Target 使用系统 accent 与统一圆角；Peek 保持轻量，不显示搜索/筛选/设置；成功落放必须进入独立 Confirmation（显示“已放入抽屉 / Added to Shelf”），不能复用 Peek 或 Expanded。
+4. **Inspector 比例**：文本、图片、文件、URL 各检查一项；Inspector 不挤压列表到不可用宽度，主动作与 Row 使用同一 ActionIntent，切换条目不闪白、不跳位。
+5. **菜单栏控制中心**：菜单只保留“打开 Shelf / 常驻展开 / 设置 / 退出”四类控制（分隔线除外）；不再显示“新建文字”与只读版本项。切换“常驻展开”后菜单勾选状态与 Shelf 实际状态同步。
+6. **Settings 视觉一致性**：Sidebar、页面标题、Card、Row、Picker 宽度遵循同一 Design System；窗口缩到最小尺寸再放大时不裁切关键控件，Finder/Input Method 长内容可滚动。
+7. **本地化完整性**：中文/English 下检查 Shelf 副标题、上下文标签、选择栏、菜单与 Settings；除 Finder、Smart、URL 等产品/技术词外，不出现中英文硬编码混排。
+8. **辅助功能**：开启 Reduce Motion、Increase Contrast、Reduce Transparency 分别复测 Shelf/Inspector/Settings；Reduce Motion 不出现位置或缩放动画，图标按钮可由 VoiceOver 读出用途。
+9. **多显示器与 Space**：至少双屏分别呼出、拖入、Peek/Expanded/Confirmation；面板必须留在触发屏，切换全屏 Space 后无残留透明窗口。
+10. **清理确认**：主界面无常驻类型 chips、无旧 Preview Pane、无重复 Finder/Desktop/Shelf Row 实现；旧 Workspace Quick Panel / Workspace shortcut service 已删除，桌面切换只走当前 `d` / `dN` 的 DesktopCommandIntegration。Floating Preview 是当前保留能力，不应与旧 Preview Pane 混淆；Quick Look、Finder 打开、文件 pasteboard、Clipboard Catch 与 Phase 0 回归基线一致。

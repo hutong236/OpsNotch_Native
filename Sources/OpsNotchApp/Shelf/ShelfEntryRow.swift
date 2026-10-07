@@ -17,9 +17,14 @@ struct ShelfEntryRow: View {
         self.entry = entry
     }
 
-    private var state: OpsVisualState {
-        if let item = entry.shelfItem, experience.selection.contains(item.id) { return .selected }
-        return experience.highlightedQuickEntryID == entry.id ? .focused : .default
+    private var state: OpsRowVisualState {
+        OpsRowVisualState(
+            selected: entry.shelfItem.map { experience.selection.contains($0.id) } ?? false,
+            focused: experience.highlightedQuickEntryID == entry.id,
+            hovered: false,
+            disabled: false,
+            dragging: false
+        )
     }
     var body: some View {
         Group {

@@ -217,7 +217,7 @@ final class ShelfWindowController: NSObject {
 
     private func promiseReceiveStarted() {
         cancelHide()
-        model.showToast(model.language == .zhCN ? "正在接收文件…" : "Receiving file…")
+        model.showToast(L10n.text("receivingFile", model.language))
     }
 
     private func acceptPromisedFiles(_ urls: [URL]) {
@@ -225,14 +225,14 @@ final class ShelfWindowController: NSObject {
         if accepted {
             showAcceptedDropFeedback()
         } else {
-            model.showToast(model.language == .zhCN ? "文件接收失败" : "Could not receive promised file")
+            model.showToast(L10n.text("promisedFileReceiveFailed", model.language))
             if !model.settings.shelfKeepOpen { scheduleHide(delay: 0.5) }
         }
     }
 
     private func showAcceptedDropFeedback() {
         let screen = currentScreen ?? screenUnderMouse()
-        show(.peek, on: screen)
+        show(.confirmation, on: screen)
         if model.settings.shelfKeepOpen {
             // 常驻模式：成功反馈展示后重新展开并保持,不调度隐藏。
             scheduleExpanded(on: screen, delay: 0.85)
@@ -390,32 +390,40 @@ final class ShelfWindowController: NSObject {
 /// 放入完成后的唯一反馈：不展示 Pinned/Recent，也不暴露完整清单。
 private struct DropSuccessFeedbackView: View {
     let language: AppLanguage
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
-    private var title: String { language == .zhCN ? "已放入抽屉" : "Added to Shelf" }
-    private var hint: String { language == .zhCN ? "已保存，可稍后从 Ops Notch 取用" : "Saved. You can retrieve it from Ops Notch later." }
+    private var title: String { L10n.text("dropSuccessTitle", language) }
+    private var hint: String { L10n.text("dropSuccessHint", language) }
+    private var increasedContrast: Bool { colorSchemeContrast == .increased }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: OpsSpacing.medium) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 24, weight: .semibold))
+                .font(OpsTypography.prominentIcon)
                 .foregroundStyle(.green)
-            VStack(alignment: .leading, spacing: 2) {
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: OpsSpacing.micro) {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(OpsTypography.bodyStrong)
                 Text(hint)
-                    .font(.system(size: 9))
+                    .font(OpsTypography.metadata)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, OpsSpacing.large)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: OpsRadius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: OpsRadius.card, style: .continuous)
+                .strokeBorder(
+                    OpsSurface.panelStroke(increasedContrast: increasedContrast),
+                    lineWidth: increasedContrast ? 1 : 0.5
+                )
         )
-        .padding(6)
+        .padding(OpsSpacing.small)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("\(title). \(hint)"))
     }
 }
 

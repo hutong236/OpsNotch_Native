@@ -11,6 +11,7 @@ struct ShelfRootView: View {
     let presentation: ShelfPresentationState
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     init(model: AppModel, clipboard: ClipboardManager, presentation: ShelfPresentationState) {
         self.model = model
@@ -40,14 +41,17 @@ struct ShelfRootView: View {
             header
             search
             if !experience.selection.isEmpty { selectionBar }
-            Divider().opacity(0.35)
+            Divider().overlay(OpsSurface.divider(increasedContrast: increasedContrast))
             workspace
-            Divider().opacity(0.35)
+            Divider().overlay(OpsSurface.divider(increasedContrast: increasedContrast))
             footer
         }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous).strokeBorder(OpsSurface.panelStroke, lineWidth: 0.5))
-        .padding(6)
+        .overlay(
+            RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous)
+                .strokeBorder(OpsSurface.panelStroke(increasedContrast: increasedContrast), lineWidth: increasedContrast ? 1 : 0.5)
+        )
+        .padding(OpsSpacing.small)
         .sheet(item: $experience.editorDraft) { draft in
             ItemEditorView(model: model, draft: draft)
         }
@@ -65,10 +69,10 @@ struct ShelfRootView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: OpsSpacing.small) {
+            VStack(alignment: .leading, spacing: OpsSpacing.micro) {
                 Text(L10n.text("quickShelf", model.language)).font(OpsTypography.heading)
-                Text(model.language == .zhCN ? "剪贴板 · 收藏 · Finder · 快速操作" : "Clipboard · Favorites · Finder · Quick Actions")
+                Text(L10n.text("quickShelfSubtitle", model.language))
                     .font(OpsTypography.shelfSubtitle)
                     .foregroundStyle(.secondary)
             }
@@ -91,13 +95,16 @@ struct ShelfRootView: View {
                 Button(L10n.text("addApp", model.language)) { model.chooseApplication() }
                 Button(L10n.text("addAction", model.language)) { experience.editorDraft = .action() }
             } label: {
-                Image(systemName: "plus").frame(width: 24, height: 24)
+                Image(systemName: "plus")
+                    .frame(width: OpsControlMetrics.minimumHitTarget, height: OpsControlMetrics.minimumHitTarget)
             }
             .menuStyle(.borderlessButton)
+            .accessibilityLabel(Text(L10n.text("add", model.language)))
+            .help(L10n.text("add", model.language))
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 9)
+        .padding(.horizontal, OpsSpacing.large)
+        .padding(.top, OpsSpacing.medium)
+        .padding(.bottom, OpsSpacing.small)
     }
 
     /// 常驻展开（图钉）开关:与条目级置顶(pin/pin.slash)区分,作用于整个 Shelf 窗口。
@@ -117,23 +124,31 @@ struct ShelfRootView: View {
     private var selectionBar: some View {
         HStack {
             Text("\(L10n.text("selected", model.language)) \(experience.selection.count)")
-                .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+                .font(OpsTypography.secondaryStrong)
+                .foregroundStyle(.secondary)
             Spacer()
             Button {
                 model.copySelected(using: clipboard)
             } label: { Label(L10n.text("copySelected", model.language), systemImage: "doc.on.doc") }
                 .buttonStyle(.borderless)
-            Button(role: .destructive) {
+            OpsIconButton(
+                systemName: "trash",
+                accessibilityLabel: L10n.text("deleteSelected", model.language),
+                destructive: true
+            ) {
                 model.remove(experience.selection)
-            } label: { Image(systemName: "trash") }
-                .buttonStyle(.borderless)
-            Button { experience.selection.removeAll() } label: { Image(systemName: "xmark") }
-                .buttonStyle(.borderless)
+            }
+            OpsIconButton(
+                systemName: "xmark",
+                accessibilityLabel: L10n.text("clearSelection", model.language)
+            ) {
+                experience.selection.removeAll()
+            }
         }
-        .font(.system(size: 10))
-        .padding(.horizontal, 13)
+        .font(OpsTypography.secondary)
+        .padding(.horizontal, OpsSpacing.medium)
         .frame(height: OpsControlMetrics.footerHeight)
-        .background(Color.accentColor.opacity(0.08))
+        .background(OpsSurface.selectionSubtle(increasedContrast: increasedContrast))
     }
 
     @ViewBuilder
@@ -146,7 +161,7 @@ struct ShelfRootView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 3) {
+                    LazyVStack(spacing: OpsSpacing.xSmall) {
                         ForEach(sections) { section in
                             ShelfSectionView(
                                 kind: section.kind,
@@ -164,7 +179,7 @@ struct ShelfRootView: View {
                         }
                     }
                     .padding(.horizontal, OpsSpacing.small)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, OpsSpacing.small)
                 }
                 .onChange(of: experience.highlightedQuickEntryID) { id in
                     guard let id else { return }
@@ -182,7 +197,7 @@ struct ShelfRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if let item = experience.focusedShelfPresentationItem {
-                Divider().opacity(0.35)
+                Divider().overlay(OpsSurface.divider(increasedContrast: increasedContrast))
                 ShelfInspectorView(item: item, language: model.language,
                                    dispatcher: ShelfItemActionDispatcher(model: model, clipboard: clipboard))
                     .frame(width: OpsControlMetrics.inspectorWidth)
@@ -201,15 +216,16 @@ struct ShelfRootView: View {
         }
         .font(OpsTypography.metadata)
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 13)
+        .padding(.horizontal, OpsSpacing.medium)
         .frame(height: OpsControlMetrics.footerHeight)
         .overlay(alignment: .top) {
             if let toast = experience.toast {
                 Text(toast)
-                    .font(.system(size: 10, weight: .medium))
-                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .font(OpsTypography.secondaryStrong)
+                    .padding(.horizontal, OpsSpacing.medium)
+                    .padding(.vertical, OpsSpacing.xSmall)
                     .background(.regularMaterial, in: Capsule())
-                    .offset(y: -36)
+                    .offset(y: -OpsControlMetrics.searchHeight)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
@@ -227,44 +243,51 @@ struct ShelfRootView: View {
         return parts.joined(separator: " · ")
     }
 
+    private var increasedContrast: Bool { colorSchemeContrast == .increased }
+
     private var contextLabel: String {
         switch experience.appContext {
-        case .finder: return "Smart · Finder"
-        case .terminal: return "Smart · Terminal"
-        case .browser: return "Smart · Browser"
+        case .finder: return L10n.text("shelfContextFinder", model.language)
+        case .terminal: return L10n.text("shelfContextTerminal", model.language)
+        case .browser: return L10n.text("shelfContextBrowser", model.language)
         case .generic: return L10n.text("unifiedFooter", model.language)
         }
     }
 
     private var dropView: some View {
-        HStack(spacing: 13) {
+        HStack(spacing: OpsSpacing.medium) {
             Image(systemName: "plus.circle.fill")
-                .font(.system(size: 27))
-                .foregroundStyle(.blue)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.text("dropTitle", model.language)).font(.system(size: 12, weight: .semibold))
-                Text(L10n.text("dropHint", model.language)).font(.system(size: 9)).foregroundStyle(.secondary)
+                .font(OpsTypography.prominentIcon)
+                .foregroundStyle(Color.accentColor)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: OpsSpacing.xSmall) {
+                Text(L10n.text("dropTitle", model.language)).font(OpsTypography.bodyStrong)
+                Text(L10n.text("dropHint", model.language)).font(OpsTypography.metadata).foregroundStyle(.secondary)
             }
             Spacer()
             Text(model.settings.addMode == .copy ? L10n.text("dropCopy", model.language) : L10n.text("dropReference", model.language))
-                .font(.system(size: 9)).foregroundStyle(.secondary)
+                .font(OpsTypography.metadata)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, OpsSpacing.large)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.blue.opacity(0.3), lineWidth: 0.5))
-        .padding(6)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous)
+                .strokeBorder(OpsSurface.dropTargetStroke(increasedContrast: increasedContrast), lineWidth: increasedContrast ? 1 : 0.5)
+        )
+        .padding(OpsSpacing.small)
     }
 
     private var peekView: some View {
         HStack {
             Image(systemName: "tray.full").foregroundStyle(.secondary)
-            Text(L10n.text("quickShelf", model.language)).font(.system(size: 11, weight: .semibold))
+            Text(L10n.text("quickShelf", model.language)).font(OpsTypography.rowTitle)
             Spacer()
-            Text("\(model.visibleItems.count)").font(.system(size: 9)).foregroundStyle(.secondary)
+            Text("\(model.visibleItems.count)").font(OpsTypography.metadata).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(6)
+        .padding(.horizontal, OpsSpacing.large)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: OpsRadius.card, style: .continuous))
+        .padding(OpsSpacing.small)
     }
 }
 
@@ -279,13 +302,16 @@ struct ItemEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        VStack(alignment: .leading, spacing: OpsSpacing.medium) {
             Text(title).font(.headline)
             TextField(L10n.text("name", model.language), text: $draft.title)
             TextEditor(text: $draft.content)
-                .font(.system(size: 11, design: .monospaced))
-                .frame(minHeight: 100)
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.secondary.opacity(0.25)))
+                .font(OpsTypography.monospacedBody)
+                .frame(minHeight: OpsControlMetrics.editorTextMinimumHeight)
+                .overlay(
+                    RoundedRectangle(cornerRadius: OpsRadius.small)
+                        .strokeBorder(.secondary.opacity(0.25))
+                )
             if draft.mode == .newAction {
                 Picker("", selection: $draft.actionKind) {
                     Text(L10n.text("safePath", model.language)).tag(SafeActionKind.openPath)
@@ -294,7 +320,7 @@ struct ItemEditorView: View {
             }
             if let hint = inlineHint {
                 Text(hint)
-                    .font(.system(size: 10))
+                    .font(OpsTypography.secondary)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -308,8 +334,8 @@ struct ItemEditorView: View {
                 .disabled(!draftIsValid)
             }
         }
-        .padding(18)
-        .frame(width: 390)
+        .padding(OpsSpacing.large)
+        .frame(width: OpsControlMetrics.editorWidth)
     }
 
     /// 草稿能否保存:新建文字/编辑要求非空,添加网址与安全操作按类型实时校验。
