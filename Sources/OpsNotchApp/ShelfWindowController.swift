@@ -6,24 +6,21 @@ import OpsNotchCore
 
 @MainActor
 final class ShelfWindowController: NSObject {
-    enum Presentation: Equatable {
-        case expanded
-        case drop
-        /// 保留 peek 枚举名兼容现有 ShelfRootView；当前语义是“放入成功反馈”。
-        case peek
-    }
-
     private let model: AppModel
     private let clipboard: ClipboardManager
     private let panel: ShelfPanel
     private let dropContainer: ShelfDropContainerView
+    private let presentationCoordinator: ShelfPresentationCoordinator
+    private let keyboardController: ShelfKeyboardController
     private var hostingView: NSHostingView<AnyView>!
     private var currentScreen: NSScreen?
     private var hideWorkItem: DispatchWorkItem?
     private var hoverExpandWorkItem: DispatchWorkItem?
     private var resignObserver: NSObjectProtocol?
     private var keyMonitor: Any?
-    private(set) var presentation: Presentation = .expanded
+    private(set) var presentation: ShelfPresentationState {
+        presentationCoordinator.state
+    }
     /// 抽屉窗口拖放入柜处理器,由 AppDelegate 注入(复用 SensorManager 的入柜逻辑)。
     var dropHandler: ((NativeDropPayload) -> Bool)?
     /// File Promise 完成后的入柜处理器。Promise 文件必须复制进 Shelf 管理目录，不能长期引用 staging。
@@ -46,6 +43,8 @@ final class ShelfWindowController: NSObject {
             defer: false
         )
         dropContainer = ShelfDropContainerView(frame: .zero)
+        presentationCoordinator = ShelfPresentationCoordinator()
+        keyboardController = ShelfKeyboardController(model: model, clipboard: clipboard)
         super.init()
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -102,51 +101,10 @@ final class ShelfWindowController: NSObject {
                   self.panel.isKeyWindow,
                   self.presentation == .expanded,
                   self.model.editorDraft == nil else { return event }
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            // Caps Lock / Fn / numeric-pad flags must not make otherwise valid shortcuts miss.
-            let normalizedModifiers = modifiers.subtracting([.capsLock, .function, .numericPad])
-            switch event.keyCode {
-            case 123:
-                MainActor.assumeIsolated { self.model.moveHorizontalHighlight(.left) }
-                return nil
-            case 124:
-                MainActor.assumeIsolated { self.model.moveHorizontalHighlight(.right) }
-                return nil
-            case 125:
-                MainActor.assumeIsolated { self.model.moveHighlight(1) }
-                return nil
-            case 126:
-                MainActor.assumeIsolated { self.model.moveHighlight(-1) }
-                return nil
-            case 36, 76:
-                MainActor.assumeIsolated { self.model.confirmHighlight(using: self.clipboard) }
-                return nil
-            case 53:
-                MainActor.assumeIsolated { self.model.escapeShelf() }
-                return nil
-            case 48:
-                guard normalizedModifiers.subtracting(.shift).isEmpty else { return event }
-                if !(self.panel.firstResponder is NSTextView) {
-                    MainActor.assumeIsolated { self.model.focusRequestToken = UUID() }
-                }
-                return nil
-            case 35:
-                guard normalizedModifiers == .command else { return event }
-                let handled = MainActor.assumeIsolated { self.model.togglePinHighlighted() }
-                return handled ? nil : event
-            case 2:
-                guard normalizedModifiers == .command else { return event }
-                let handled = MainActor.assumeIsolated { self.model.removeHighlighted() }
-                return handled ? nil : event
-            case 49:
-                guard normalizedModifiers.isEmpty,
-                      !(self.panel.firstResponder is NSTextView) else { return event }
-                // 搜索编辑器中的空格用于命令参数；编辑器外保留 Space 预览。
-                let handled = MainActor.assumeIsolated { self.model.quickLookHighlighted() }
-                return handled ? nil : event
-            default:
-                return event
+            let handled = MainActor.assumeIsolated {
+                self.keyboardController.handle(event, firstResponder: self.panel.firstResponder)
             }
+            return handled ? nil : event
         }
     }
 
@@ -175,12 +133,15 @@ final class ShelfWindowController: NSObject {
     }
 
     func showDrop(on screen: NSScreen) {
-        show(.drop, on: screen)
+        show(.dropTarget, on: screen)
     }
 
-    /// 当前用于“✓ 已放入抽屉”成功反馈。
     func showPeek(on screen: NSScreen) {
-        show(.peek, on: screen)
+        show(.confirmation, on: screen)
+    }
+
+    func showConfirmation(on screen: NSScreen) {
+        show(.confirmation, on: screen)
     }
 
     func hide() {
@@ -188,26 +149,36 @@ final class ShelfWindowController: NSObject {
         cancelScheduledExpand()
         model.focusRequestToken = nil
         onEndKeyboardSession?()
-        guard panel.isVisible else { return }
+        guard panel.isVisible else {
+            presentationCoordinator.hide()
+            return
+        }
 
-        // Drop/Success 像抽屉一样向刘海方向收回；完整 Shelf 保持立即关闭，
-        // 避免 Esc/失焦时出现拖沓感。
-        guard presentation != .expanded, let screen = currentScreen else {
+        let previousState = presentation
+        presentationCoordinator.hide()
+
+        // Expanded closes immediately for keyboard/focus responsiveness. Compact
+        // notch states may visually retract, unless Reduce Motion is enabled.
+        guard previousState != .expanded, let screen = currentScreen else {
             panel.orderOut(nil)
             notifyVisibility(false)
             return
         }
 
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let collapsed = collapsedFrame(for: screen, width: panel.frame.width)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.01 : 0.16
+            context.duration = reduceMotion
+                ? OpsMotion.duration(for: .instant, reduceMotion: true)
+                : OpsMotion.spatialDuration(for: .expressive, reduceMotion: false)
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().setFrame(collapsed, display: true)
+            if !reduceMotion {
+                panel.animator().setFrame(collapsed, display: true)
+            }
             panel.animator().alphaValue = 0
         } completionHandler: { [weak panel, weak self] in
             panel?.orderOut(nil)
             panel?.alphaValue = 1
-            // 收起动画结束后再通知,避免指示点与收回动画重叠闪烁。
             Task { @MainActor in self?.notifyVisibility(false) }
         }
     }
@@ -227,7 +198,7 @@ final class ShelfWindowController: NSObject {
     /// 全局热键呼出的切换语义:拖放会话(drop 态)忽略;面板可见即收起;
     /// 否则在鼠标所在屏展开并进入键盘流。
     func toggleSummon() {
-        guard presentation != .drop else { return }
+        guard presentation != .dropTarget else { return }
         if panel.isVisible {
             hide()
         } else {
@@ -302,7 +273,7 @@ final class ShelfWindowController: NSObject {
         hideWorkItem = nil
     }
 
-    private func show(_ state: Presentation, on screen: NSScreen) {
+    private func show(_ state: ShelfPresentationState, on screen: NSScreen) {
         cancelHide()
         cancelScheduledExpand()
         let wasVisible = panel.isVisible
@@ -312,30 +283,43 @@ final class ShelfWindowController: NSObject {
             onWillBeginKeyboardSession?()
         }
 
-        presentation = state
+        transitionPresentation(to: state)
         currentScreen = screen
         model.focusRequestToken = (state == .expanded) ? UUID() : nil
         hostingView.rootView = rootView(for: state)
 
         let targetFrame = frame(for: state, on: screen)
-        if state == .drop && !wasVisible {
-            // 真正的“抽屉向下展开”：顶部锚定在 Sensor 下沿，高度从 8pt 展开到 112pt。
-            let collapsed = collapsedFrame(for: screen, width: targetFrame.width)
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if state == .dropTarget && !wasVisible {
             panel.alphaValue = 0
-            panel.setFrame(collapsed, display: false)
+            if reduceMotion {
+                panel.setFrame(targetFrame, display: false)
+            } else {
+                panel.setFrame(collapsedFrame(for: screen, width: targetFrame.width), display: false)
+            }
             panel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.01 : 0.18
+                context.duration = reduceMotion
+                    ? OpsMotion.duration(for: .instant, reduceMotion: true)
+                    : OpsMotion.spatialDuration(for: .expressive, reduceMotion: false)
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrame(targetFrame, display: true)
+                if !reduceMotion {
+                    panel.animator().setFrame(targetFrame, display: true)
+                }
                 panel.animator().alphaValue = 1
             }
         } else if wasVisible && previousState != state && state != .expanded {
-            // Drop → Success：轻微收束，不展开完整列表。
+            if reduceMotion {
+                panel.setFrame(targetFrame, display: true)
+            }
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.01 : 0.14
+                context.duration = reduceMotion
+                    ? OpsMotion.duration(for: .instant, reduceMotion: true)
+                    : OpsMotion.spatialDuration(for: .standard, reduceMotion: false)
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrame(targetFrame, display: true)
+                if !reduceMotion {
+                    panel.animator().setFrame(targetFrame, display: true)
+                }
                 panel.animator().alphaValue = 1
             }
         } else {
@@ -350,16 +334,28 @@ final class ShelfWindowController: NSObject {
         notifyVisibility(true)
     }
 
-    private func rootView(for state: Presentation) -> AnyView {
+    private func rootView(for state: ShelfPresentationState) -> AnyView {
         switch state {
-        case .expanded, .drop:
+        case .expanded, .dropTarget, .peek:
             return AnyView(ShelfRootView(model: model, clipboard: clipboard, presentation: state))
-        case .peek:
+        case .confirmation:
             return AnyView(DropSuccessFeedbackView(language: model.language))
+        case .hidden:
+            return AnyView(EmptyView())
         }
     }
 
-    private func frame(for state: Presentation, on screen: NSScreen) -> NSRect {
+    private func transitionPresentation(to state: ShelfPresentationState) {
+        switch state {
+        case .hidden: presentationCoordinator.hide()
+        case .peek: presentationCoordinator.showPeek()
+        case .expanded: presentationCoordinator.showExpanded()
+        case .dropTarget: presentationCoordinator.showDropTarget()
+        case .confirmation: presentationCoordinator.showConfirmation()
+        }
+    }
+
+    private func frame(for state: ShelfPresentationState, on screen: NSScreen) -> NSRect {
         let size = size(for: state)
         let sensorHeight = SensorGeometry.height(for: screen)
         return NSRect(
@@ -381,11 +377,12 @@ final class ShelfWindowController: NSObject {
         )
     }
 
-    private func size(for state: Presentation) -> NSSize {
+    private func size(for state: ShelfPresentationState) -> NSSize {
         switch state {
+        case .hidden: return .zero
         case .expanded: return NSSize(width: 720, height: 560)
-        case .drop: return NSSize(width: 350, height: 112)
-        case .peek: return NSSize(width: 320, height: 68)
+        case .dropTarget: return NSSize(width: 350, height: 112)
+        case .peek, .confirmation: return NSSize(width: 320, height: 68)
         }
     }
 }
