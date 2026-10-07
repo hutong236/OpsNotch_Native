@@ -24,6 +24,7 @@ final class ClipboardManager {
     private var handledChangeCount: Int
     private var monitorTask: Task<Void, Never>?
     private var captureProcessingTask: Task<Void, Never>?
+    private var pendingCaptures: [CaptureWork] = []
     private var lastCapturedTextFingerprint: ContentFingerprint?
     private var lastCapturedTextAt: TimeInterval = 0
     private var lastCapturedFilesFingerprint: ContentFingerprint?
@@ -93,11 +94,18 @@ final class ClipboardManager {
     }
 
     private func enqueue(_ work: CaptureWork) {
-        let previous = captureProcessingTask
+        pendingCaptures.append(work)
+        startNextCaptureIfNeeded()
+    }
+
+    private func startNextCaptureIfNeeded() {
+        guard captureProcessingTask == nil, !pendingCaptures.isEmpty else { return }
+        let work = pendingCaptures.removeFirst()
         captureProcessingTask = Task { @MainActor [weak self] in
-            if let previous { await previous.value }
-            guard !Task.isCancelled, let self else { return }
+            guard let self, !Task.isCancelled else { return }
             await self.process(work)
+            self.captureProcessingTask = nil
+            self.startNextCaptureIfNeeded()
         }
     }
 
