@@ -4,15 +4,6 @@ import Combine
 import Foundation
 import OpsNotchCore
 
-private struct QuickShelfViewSnapshot {
-    let itemSnapshot: QuickShelfItemSnapshot
-    let finderEntries: [QuickShelfEntry]
-    let desktopEntries: [QuickShelfEntry]
-    let localEntries: [QuickShelfEntry]
-    let visibleEntries: [QuickShelfEntry]
-    let entryByID: [String: QuickShelfEntry]
-}
-
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var items: [ShelfItem] = [] {
@@ -21,48 +12,64 @@ final class AppModel: ObservableObject {
     @Published private(set) var settings = ShelfSettings() {
         didSet { invalidateQuickShelfSnapshot() }
     }
-    @Published private(set) var appContext: AppContextKind = .generic {
-        didSet { invalidateQuickShelfSnapshot() }
+    let experience = ShelfExperienceModel()
+    let snapshotProvider = ShelfSnapshotProvider()
+
+    // Transitional service adapters; all session storage lives in experience.
+    var appContext: AppContextKind { experience.appContext }
+    var query: String {
+        get { experience.query }
+        set { experience.query = newValue }
     }
-    @Published var query = "" {
-        didSet {
-            invalidateQuickShelfSnapshot()
-            resetQuickHighlight()
-        }
+    var kindFilter: ShelfKindFilter {
+        get { experience.kindFilter }
+        set { experience.kindFilter = newValue }
     }
-    /// 类型筛选(全部/文件/文本/URL/应用),与搜索词叠加;仅会话内有效,不落盘。
-    @Published var kindFilter: ShelfKindFilter = .all {
-        didSet {
-            invalidateQuickShelfSnapshot()
-            resetQuickHighlight()
-        }
+    var selection: Set<UUID> {
+        get { experience.selection }
+        set { experience.selection = newValue }
     }
-    @Published var selection: Set<UUID> = []
-    @Published var toast: String?
-    @Published var editorDraft: ItemDraft?
-    @Published var shelfHovered = false
-    /// 键盘流焦点请求令牌:ShelfWindowController 置为新 UUID 时,ShelfView 的搜索框应自动聚焦。
-    @Published var focusRequestToken: UUID?
-    /// Finder / Working Set / Shelf 共用的一套键盘高亮 ID。
-    @Published var highlightedQuickEntryID: String?
+    var toast: String? {
+        get { experience.toast }
+        set { experience.toast = newValue }
+    }
+    var editorDraft: ItemDraft? {
+        get { experience.editorDraft }
+        set { experience.editorDraft = newValue }
+    }
+    var shelfHovered: Bool {
+        get { experience.shelfHovered }
+        set { experience.shelfHovered = newValue }
+    }
+    var focusRequestToken: UUID? {
+        get { experience.focusRequestToken }
+        set { experience.focusRequestToken = newValue }
+    }
+    var highlightedQuickEntryID: String? {
+        get { experience.highlightedQuickEntryID }
+        set { experience.highlightedQuickEntryID = newValue }
+    }
+    var hotkeyConflict: Bool {
+        get { experience.hotkeyConflict }
+        set { experience.hotkeyConflict = newValue }
+    }
 
     let store: ShelfStoreService
     var settingsDidChange: (() -> Void)?
-    var shelfHoverChanged: ((Bool) -> Void)?
+    var shelfHoverChanged: ((Bool) -> Void)? {
+        get { experience.shelfHoverChanged }
+        set { experience.shelfHoverChanged = newValue }
+    }
     var requestHide: (() -> Void)?
     var requestDelayedHide: (() -> Void)?
     var requestOpenFinderPath: ((String, UUID?) -> Void)?
     var requestDesktopCommand: ((DesktopCommand) -> Void)?
     var hotkeyApply: ((HotkeyShortcut?) -> HotkeyError?)?
-    @Published var hotkeyConflict = false
-
-    private var toastWorkItem: DispatchWorkItem?
-    private var lastSelectionID: UUID?
-    private var quickShelfSnapshotRevision: UInt64 = 0
-    private let quickShelfSnapshotCache = QuickShelfSnapshotCache<QuickShelfViewSnapshot>()
 
     init(store: ShelfStoreService) {
         self.store = store
+        experience.snapshotInputsDidChange = { [weak self] in self?.snapshotProvider.invalidate() }
+        experience.snapshot = { [weak self] in self?.quickShelfSnapshot }
         reload()
     }
 
@@ -99,100 +106,11 @@ final class AppModel: ObservableObject {
         quickShelfSnapshot.visibleEntries
     }
 
-    private var quickShelfSnapshot: QuickShelfViewSnapshot {
-        quickShelfSnapshotCache.value(for: quickShelfSnapshotRevision) {
-            buildQuickShelfSnapshot()
-        }
+    var quickShelfSnapshot: ShelfSnapshot {
+        snapshotProvider.snapshot(items: items, settings: settings, experience: experience)
     }
 
-    private func buildQuickShelfSnapshot() -> QuickShelfViewSnapshot {
-        let itemSnapshot = QuickShelfItemSnapshotBuilder.build(
-            items: items,
-            workingSetItemIDs: settings.workingSetItemIDs,
-            query: query,
-            kindFilter: kindFilter,
-            appContext: appContext
-        )
-        let desktopEntries = buildVisibleDesktopEntries()
-        let finderEntries = buildVisibleFinderEntries()
-        let localEntries: [QuickShelfEntry] = []
-        let visibleEntries = desktopEntries
-            + finderEntries
-            + itemSnapshot.visibleItems.map(QuickShelfEntry.shelf)
-        let entryByID = Dictionary(uniqueKeysWithValues: visibleEntries.map { ($0.id, $0) })
-
-        return QuickShelfViewSnapshot(
-            itemSnapshot: itemSnapshot,
-            finderEntries: finderEntries,
-            desktopEntries: desktopEntries,
-            localEntries: localEntries,
-            visibleEntries: visibleEntries,
-            entryByID: entryByID
-        )
-    }
-
-    private func buildVisibleFinderEntries() -> [QuickShelfEntry] {
-        guard kindFilter == .all || kindFilter == .file else { return [] }
-
-        var entries: [QuickShelfEntry] = []
-        let defaultPath = expandedFinderPath(settings.finderDefaultPath)
-        let defaultTitle = L10n.text("finderDefaultPath", language)
-        if finderMatches(title: defaultTitle, path: defaultPath) {
-            entries.append(.finder(
-                id: QuickShelfEntry.finderDefaultID,
-                title: defaultTitle,
-                path: defaultPath,
-                quickPathID: nil
-            ))
-        }
-
-        for ranked in FinderQuickPathRanking.ranked(settings.finderQuickPaths) {
-            let path = expandedFinderPath(ranked.item.path)
-            guard finderMatches(title: ranked.item.label, path: path) else { continue }
-            entries.append(.finder(
-                id: QuickShelfEntry.finderID(ranked.item.id),
-                title: ranked.item.label,
-                path: path,
-                quickPathID: ranked.item.id
-            ))
-        }
-        return entries
-    }
-
-    private func buildVisibleDesktopEntries() -> [QuickShelfEntry] {
-        guard kindFilter == .all,
-              let command = DesktopCommandParser.parse(query) else { return [] }
-
-        switch command {
-        case .list:
-            let subtitle = language == .zhCN
-                ? "按 Enter 查看所有桌面"
-                : "Press Enter to view desktops"
-            return [.desktop(
-                id: QuickShelfEntry.desktopListID,
-                title: L10n.text("desktopList", language),
-                subtitle: subtitle,
-                command: command
-            )]
-        case .switchTo(let index):
-            let title = language == .zhCN
-                ? "切换到桌面 \(index)"
-                : "Switch to Desktop \(index)"
-            let subtitle = language == .zhCN
-                ? "按 Enter 执行 · d \(index)"
-                : "Press Enter · d \(index)"
-            return [.desktop(
-                id: QuickShelfEntry.desktopSwitchID(index),
-                title: title,
-                subtitle: subtitle,
-                command: command
-            )]
-        }
-    }
-
-    private func invalidateQuickShelfSnapshot() {
-        quickShelfSnapshotRevision &+= 1
-    }
+    private func invalidateQuickShelfSnapshot() { snapshotProvider.invalidate() }
 
     func quickEntryID(for item: ShelfItem) -> String {
         QuickShelfEntry.shelfID(item.id)
@@ -203,39 +121,14 @@ final class AppModel: ObservableObject {
     }
 
     func refreshSmartContext() {
-        let next = AppContextResolver.current()
-        if appContext != next {
-            appContext = next
-            resetQuickHighlight()
-        } else {
-            // Ranking contains time-sensitive recency. Reopening/refocusing the Shelf
-            // starts a fresh snapshot without reintroducing a periodic timer.
-            invalidateQuickShelfSnapshot()
-        }
+        experience.refreshContext(AppContextResolver.current())
     }
 
-    func moveHighlight(_ delta: Int) {
-        let visible = visibleQuickEntries
-        guard !visible.isEmpty else {
-            highlightedQuickEntryID = nil
-            return
-        }
-        let index = visible.firstIndex { $0.id == highlightedQuickEntryID } ?? -1
-        let next = min(max(index + delta, 0), visible.count - 1)
-        highlightedQuickEntryID = visible[next].id
-    }
+    func moveHighlight(_ delta: Int) { experience.moveHighlight(delta) }
 
     /// 左右键跨功能区跳转：← 智能最近首条；→ Finder 快捷目录首条。
     /// 目标功能区当前不可见或为空时保持原高亮，避免意外跳到其他区域。
-    func moveHorizontalHighlight(_ direction: QuickShelfHorizontalDirection) {
-        let recentEntryIDs = grouped.recent.map { quickEntryID(for: $0) }
-        guard let destinationID = QuickShelfKeyboardNavigation.destinationID(
-            for: direction,
-            finderEntryIDs: visibleFinderEntries.map(\.id),
-            recentEntryIDs: recentEntryIDs
-        ) else { return }
-        highlightedQuickEntryID = destinationID
-    }
+    func moveHorizontalHighlight(_ direction: QuickShelfHorizontalDirection) { experience.moveHorizontalHighlight(direction) }
 
     /// Enter：Finder 打开目录；Shelf 维持正确 pasteboard 语义。
     func confirmHighlight(using clipboard: ClipboardManager) {
@@ -285,17 +178,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func highlightFinderDefault() {
-        if visibleFinderEntries.contains(where: { $0.id == QuickShelfEntry.finderDefaultID }) {
-            highlightedQuickEntryID = QuickShelfEntry.finderDefaultID
-        } else {
-            resetQuickHighlight()
-        }
-    }
+    func highlightFinderDefault() { experience.highlightFinderDefault() }
 
-    func resetQuickHighlight() {
-        highlightedQuickEntryID = visibleQuickEntries.first?.id
-    }
+    func resetQuickHighlight() { experience.resetQuickHighlight() }
 
     func escapeShelf() {
         requestHide?()
@@ -394,13 +279,7 @@ final class AppModel: ObservableObject {
         updateSettings { $0.hotkey = shortcut }
     }
 
-    func showToast(_ message: String) {
-        toastWorkItem?.cancel()
-        toast = message
-        let work = DispatchWorkItem { [weak self] in self?.toast = nil }
-        toastWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.25, execute: work)
-    }
+    func showToast(_ message: String) { experience.showToast(message) }
 
     func addText(_ text: String, title: String? = nil, toast: Bool = true) {
         do {
@@ -511,27 +390,9 @@ final class AppModel: ObservableObject {
         )
     }
 
-    func toggleSelection(_ item: ShelfItem) {
-        let flags = NSEvent.modifierFlags
-        let ordered = visibleItems
-        if flags.contains(.shift), let last = lastSelectionID,
-           let a = ordered.firstIndex(where: { $0.id == last }),
-           let b = ordered.firstIndex(where: { $0.id == item.id }) {
-            let range = min(a, b)...max(a, b)
-            for index in range { selection.insert(ordered[index].id) }
-        } else if flags.contains(.command) {
-            if selection.contains(item.id) { selection.remove(item.id) } else { selection.insert(item.id) }
-            lastSelectionID = item.id
-        } else {
-            selection.removeAll()
-            lastSelectionID = nil
-        }
-    }
+    func toggleSelection(_ item: ShelfItem) { experience.toggleSelection(item) }
 
-    func selectedItems(including item: ShelfItem) -> [ShelfItem] {
-        guard selection.contains(item.id), selection.count > 1 else { return [item] }
-        return visibleItems.filter { selection.contains($0.id) }
-    }
+    func selectedItems(including item: ShelfItem) -> [ShelfItem] { experience.selectedItems(including: item) }
 
     func copySelected(using clipboard: ClipboardManager) {
         let selected = visibleItems.filter { selection.contains($0.id) }
@@ -547,10 +408,7 @@ final class AppModel: ObservableObject {
         showToast(L10n.text("copied", language))
     }
 
-    func setShelfHovered(_ hovered: Bool) {
-        shelfHovered = hovered
-        shelfHoverChanged?(hovered)
-    }
+    func setShelfHovered(_ hovered: Bool) { experience.setShelfHovered(hovered) }
 
     func chooseFiles() {
         let panel = NSOpenPanel()
@@ -607,16 +465,6 @@ final class AppModel: ObservableObject {
         return quickShelfSnapshot.entryByID[id]
     }
 
-    private func finderMatches(title: String, path: String) -> Bool {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return true }
-        return title.localizedCaseInsensitiveContains(trimmed)
-            || path.localizedCaseInsensitiveContains(trimmed)
-    }
-
-    private func expandedFinderPath(_ rawPath: String) -> String {
-        NSString(string: rawPath).expandingTildeInPath
-    }
 
     /// 模块内可见(而非 private),供同模块扩展(剪贴板/拖入捕获)直接应用 store 返回值。
     func apply(_ storeValue: ShelfStore) {

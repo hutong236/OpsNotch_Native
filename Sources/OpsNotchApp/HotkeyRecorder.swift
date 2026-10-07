@@ -149,13 +149,19 @@ struct HotkeyRecorderControl: View {
 
 struct HotkeyRecorderView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var experience: ShelfExperienceModel
+
+    init(model: AppModel) {
+        self.model = model
+        self.experience = model.experience
+    }
 
     var body: some View {
         HotkeyRecorderControl(
             language: model.language,
             shortcut: model.settings.hotkey,
-            conflict: model.hotkeyConflict,
-            onPrepare: { model.hotkeyConflict = false },
+            conflict: experience.hotkeyConflict,
+            onPrepare: { experience.hotkeyConflict = false },
             onSet: { model.setHotkey($0) }
         )
     }

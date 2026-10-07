@@ -2,6 +2,29 @@ import XCTest
 @testable import OpsNotchCore
 
 final class ShelfSettingsCompatibilityTests: XCTestCase {
+    func testSupportedSettingsSurviveUnrelatedUISettingUpdate() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+        var settings = ShelfSettings()
+        settings.tempTTLHours = 96
+        settings.addMode = .copy
+        settings.displayTarget = .mouse
+        settings.dragAssistMode = .sensorOnly
+        settings.language = .enUS
+        settings.hotkey = HotkeyShortcut(keyCode: 12, carbonModifiers: 256)
+        settings.finderRevealAppName = "Finder.app"
+        settings.finderRevealHotkey = HotkeyShortcut(keyCode: 13, carbonModifiers: 512)
+        settings.finderDefaultPath = "~/Documents"
+        settings.finderQuickPaths = [FinderQuickPath(label: "Projects", path: "~/Projects", useCount: 17, lastUsedAt: 900)]
+        let stored = try service.addText("Keep this working item")
+        settings.workingSetItemIDs = stored.items.map(\.id)
+        _ = try service.updateSettings(settings)
+        settings.shelfKeepOpen = true
+        _ = try service.updateSettings(settings)
+        XCTAssertEqual(try service.load().settings, settings)
+    }
+
     func testDragAssistDefaultsToNearby() {
         XCTAssertEqual(ShelfSettings().dragAssistMode, .nearby)
     }

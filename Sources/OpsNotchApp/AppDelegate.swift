@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         finderReveal = FinderRevealController(model: model) { [weak self] in
             guard let self else { return }
             if self.shelf.isPanelVisible {
-                self.model.highlightFinderDefault()
+                self.model.experience.highlightFinderDefault()
             } else {
                 self.shelf.toggleSummon()
             }

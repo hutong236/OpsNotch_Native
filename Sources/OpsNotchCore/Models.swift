@@ -52,6 +52,8 @@ public enum AppLanguage: String, Codable, CaseIterable, Sendable {
 /// 用户自定义全局呼出热键。keyCode 为虚拟键码,carbonModifiers 为 Carbon 修饰键位;
 /// 与注册后端无关,便于将来替换热键实现而不改持久化格式。
 public struct HotkeyShortcut: Codable, Equatable, Sendable {
+    var unknownFields: [String: JSONValue] = [:]
+
     public var keyCode: UInt32
     public var carbonModifiers: UInt32
 
@@ -59,10 +61,28 @@ public struct HotkeyShortcut: Codable, Equatable, Sendable {
         self.keyCode = keyCode
         self.carbonModifiers = carbonModifiers
     }
+
+    enum CodingKeys: String, CodingKey, CaseIterable { case keyCode, carbonModifiers }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        unknownFields = try UnknownJSONFields.decode(from: decoder, excluding: CodingKeys.self)
+        keyCode = try container.decode(UInt32.self, forKey: .keyCode)
+        carbonModifiers = try container.decode(UInt32.self, forKey: .carbonModifiers)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try UnknownJSONFields.encode(unknownFields, to: encoder, excluding: CodingKeys.self)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(keyCode, forKey: .keyCode)
+        try container.encode(carbonModifiers, forKey: .carbonModifiers)
+    }
 }
 
 /// Finder 快速路径。数组中的固定位置就是数字键绑定，动态展示排序不得改变该位置。
 public struct FinderQuickPath: Codable, Equatable, Identifiable, Sendable {
+    var unknownFields: [String: JSONValue] = [:]
+
     public var id: UUID
     public var label: String
     public var path: String
@@ -85,7 +105,7 @@ public struct FinderQuickPath: Codable, Equatable, Identifiable, Sendable {
         self.lastUsedAt = lastUsedAt
     }
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, label, path
         case useCount = "use_count"
         case lastUsedAt = "last_used_at"
@@ -93,15 +113,34 @@ public struct FinderQuickPath: Codable, Equatable, Identifiable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        unknownFields = try UnknownJSONFields.decode(from: decoder, excluding: CodingKeys.self)
         id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
         label = (try? container.decode(String.self, forKey: .label)) ?? "Folder"
         path = (try? container.decode(String.self, forKey: .path)) ?? "~"
         useCount = try container.decodeIfPresent(UInt64.self, forKey: .useCount) ?? 0
         lastUsedAt = try container.decodeIfPresent(UInt64.self, forKey: .lastUsedAt) ?? 0
     }
+
+    public func encode(to encoder: Encoder) throws {
+        try UnknownJSONFields.encode(unknownFields, to: encoder, excluding: CodingKeys.self)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(label, forKey: .label)
+        try container.encode(path, forKey: .path)
+        try container.encode(useCount, forKey: .useCount)
+        try container.encode(lastUsedAt, forKey: .lastUsedAt)
+    }
 }
 
 public struct ShelfSettings: Codable, Equatable, Sendable {
+    // Explicitly retired in version 25; other future keys remain preservable.
+    static let retiredJSONKeys: Set<String> = [
+        "menu_bar_management_enabled", "menu_bar_auto_hide_seconds", "menu_bar_start_collapsed",
+        "menu_bar_always_hidden_enabled", "menu_bar_panel_enabled", "menu_bar_animation_enabled",
+        "menu_bar_last_state"
+    ]
+    var unknownFields: [String: JSONValue] = [:]
+
     public var tempTTLHours: UInt64
     public var addMode: StorageMode
     public var displayTarget: DisplayTarget
@@ -151,7 +190,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         self.shelfKeepOpen = shelfKeepOpen
     }
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case tempTTLHours = "temp_ttl_hours"
         case addMode = "add_mode"
         case displayTarget = "display_target"
@@ -168,6 +207,7 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        unknownFields = try UnknownJSONFields.decode(from: decoder, excluding: CodingKeys.self, retired: Self.retiredJSONKeys)
         tempTTLHours = try container.decodeIfPresent(UInt64.self, forKey: .tempTTLHours) ?? 24
         addMode = try container.decodeIfPresent(StorageMode.self, forKey: .addMode) ?? .reference
         displayTarget = try container.decodeIfPresent(DisplayTarget.self, forKey: .displayTarget) ?? .all
@@ -195,9 +235,28 @@ public struct ShelfSettings: Codable, Equatable, Sendable {
         }
         return result
     }
+
+    public func encode(to encoder: Encoder) throws {
+        try UnknownJSONFields.encode(unknownFields, to: encoder, excluding: CodingKeys.self, retired: Self.retiredJSONKeys)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(tempTTLHours, forKey: .tempTTLHours)
+        try container.encode(addMode, forKey: .addMode)
+        try container.encode(displayTarget, forKey: .displayTarget)
+        try container.encode(dragAssistMode, forKey: .dragAssistMode)
+        try container.encode(language, forKey: .language)
+        try container.encodeIfPresent(hotkey, forKey: .hotkey)
+        try container.encode(finderRevealAppName, forKey: .finderRevealAppName)
+        try container.encodeIfPresent(finderRevealHotkey, forKey: .finderRevealHotkey)
+        try container.encode(finderDefaultPath, forKey: .finderDefaultPath)
+        try container.encode(finderQuickPaths, forKey: .finderQuickPaths)
+        try container.encode(workingSetItemIDs, forKey: .workingSetItemIDs)
+        try container.encode(shelfKeepOpen, forKey: .shelfKeepOpen)
+    }
 }
 
 public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
+    var unknownFields: [String: JSONValue] = [:]
+
     public var id: UUID
     public var kind: ShelfKind
     public var title: String
@@ -249,7 +308,7 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         self.clipboardImage = clipboardImage
     }
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, kind, title, content, pinned
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -264,6 +323,7 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        unknownFields = try UnknownJSONFields.decode(from: decoder, excluding: CodingKeys.self)
         if let uuid = try? container.decode(UUID.self, forKey: .id) {
             id = uuid
         } else if let raw = try? container.decode(String.self, forKey: .id), let uuid = UUID(uuidString: raw) {
@@ -297,9 +357,30 @@ public struct ShelfItem: Codable, Identifiable, Equatable, Sendable {
         if let value = try? container.decode(Double.self, forKey: key), value >= 0 { return UInt64(value) }
         return nil
     }
+
+    public func encode(to encoder: Encoder) throws {
+        try UnknownJSONFields.encode(unknownFields, to: encoder, excluding: CodingKeys.self)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(title, forKey: .title)
+        try container.encode(content, forKey: .content)
+        try container.encode(pinned, forKey: .pinned)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(storageMode, forKey: .storageMode)
+        try container.encodeIfPresent(actionKind, forKey: .actionKind)
+        try container.encodeIfPresent(fileExtension, forKey: .fileExtension)
+        try container.encode(useCount, forKey: .useCount)
+        try container.encode(lastUsedAt, forKey: .lastUsedAt)
+        try container.encodeIfPresent(sourceAppName, forKey: .sourceAppName)
+        try container.encode(clipboardImage, forKey: .clipboardImage)
+    }
 }
 
 public struct ShelfStore: Codable, Equatable, Sendable {
+    var unknownFields: [String: JSONValue] = [:]
+
     public static let currentVersion = 25
 
     public var version: Int
@@ -312,13 +393,26 @@ public struct ShelfStore: Codable, Equatable, Sendable {
         self.settings = settings
     }
 
-    enum CodingKeys: String, CodingKey { case version, items, settings }
+    enum CodingKeys: String, CodingKey, CaseIterable { case version, items, settings }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        unknownFields = try UnknownJSONFields.decode(from: decoder, excluding: CodingKeys.self)
         version = (try? container.decode(Int.self, forKey: .version)) ?? 1
-        items = (try? container.decode([ShelfItem].self, forKey: .items)) ?? []
-        settings = (try? container.decode(ShelfSettings.self, forKey: .settings)) ?? .init()
+        items = try UnknownJSONFields.preservingMetadataErrors({
+            try container.decode([ShelfItem].self, forKey: .items)
+        }, fallback: { [] })
+        settings = try UnknownJSONFields.preservingMetadataErrors({
+            try container.decode(ShelfSettings.self, forKey: .settings)
+        }, fallback: { .init() })
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try UnknownJSONFields.encode(unknownFields, to: encoder, excluding: CodingKeys.self)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(items, forKey: .items)
+        try container.encode(settings, forKey: .settings)
     }
 }
 

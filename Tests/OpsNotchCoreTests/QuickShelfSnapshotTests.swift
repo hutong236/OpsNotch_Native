@@ -28,6 +28,26 @@ final class QuickShelfSnapshotTests: XCTestCase {
         XCTAssertEqual(builds, 2)
     }
 
+    func testCachedSnapshotStaysStableUntilQueryRevisionChanges() {
+        let item = ShelfItem(kind: .text, title: "Needle", content: "needle")
+        let cache = QuickShelfSnapshotCache<QuickShelfItemSnapshot>()
+        var query = "needle"
+        var builds = 0
+        func snapshot(_ revision: UInt64) -> QuickShelfItemSnapshot {
+            cache.value(for: revision) {
+                builds += 1
+                return QuickShelfItemSnapshotBuilder.build(items: [item], workingSetItemIDs: [],
+                    query: query, kindFilter: .all, appContext: .generic, now: 1_000)
+            }
+        }
+        XCTAssertEqual(snapshot(0).visibleItems.map(\.id), [item.id])
+        query = "missing"
+        XCTAssertEqual(snapshot(0).visibleItems.map(\.id), [item.id])
+        XCTAssertEqual(builds, 1)
+        XCTAssertTrue(snapshot(1).visibleItems.isEmpty)
+        XCTAssertEqual(builds, 2)
+    }
+
     func testRevisionCacheRemoveAllForcesRebuild() {
         let cache = QuickShelfSnapshotCache<Int>()
         var builds = 0
