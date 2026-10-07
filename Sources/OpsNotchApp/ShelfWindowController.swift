@@ -18,7 +18,7 @@ final class ShelfWindowController: NSObject {
     private var hoverExpandWorkItem: DispatchWorkItem?
     private var resignObserver: NSObjectProtocol?
     private var keyMonitor: Any?
-    private(set) var presentation: ShelfPresentationState {
+    var presentation: ShelfPresentationState {
         presentationCoordinator.state
     }
     /// 抽屉窗口拖放入柜处理器,由 AppDelegate 注入(复用 SensorManager 的入柜逻辑)。
