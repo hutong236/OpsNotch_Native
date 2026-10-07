@@ -56,7 +56,11 @@ struct SettingsRootView: View {
                     .tag(Optional(section))
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 150, ideal: 180, max: 220)
+            .navigationSplitViewColumnWidth(
+                min: OpsControlMetrics.settingsSidebarMinWidth,
+                ideal: OpsControlMetrics.settingsSidebarIdealWidth,
+                max: OpsControlMetrics.settingsSidebarMaxWidth
+            )
         } detail: {
             detail
         }
