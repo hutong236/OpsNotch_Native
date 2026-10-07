@@ -62,6 +62,7 @@ drop_success_feedback = shelf_window_controller.split('private struct DropSucces
 migrated_ui_text = '\n'.join(
     text for path, text in files.items()
     if path == root / 'Sources/OpsNotchApp/ShelfView.swift'
+    or path == root / 'Sources/OpsNotchApp/ShelfWindowController.swift'
     or path == root / 'Sources/OpsNotchApp/StatusBarController.swift'
     or '/Sources/OpsNotchApp/Shelf/' in path.as_posix()
     or '/Sources/OpsNotchApp/Settings/' in path.as_posix()
