@@ -27,7 +27,8 @@ final class ShelfKeyboardController {
     nonisolated static func resolve(
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags,
-        firstResponderIsTextView: Bool
+        firstResponderIsTextView: Bool,
+        canPreviewHighlighted: Bool = false
     ) -> Command? {
         let normalized = modifiers
             .intersection(.deviceIndependentFlagsMask)
@@ -48,7 +49,11 @@ final class ShelfKeyboardController {
         case 2:
             return normalized == .command ? .remove : nil
         case 49:
-            guard normalized.isEmpty, !firstResponderIsTextView else { return nil }
+            guard normalized.isEmpty else { return nil }
+            // The command bar intentionally keeps focus while keyboard navigation moves
+            // through Shelf results. If the current highlight can be previewed, Space is
+            // Quick Look; otherwise a focused text editor still receives a normal space.
+            if firstResponderIsTextView && !canPreviewHighlighted { return nil }
             return .preview
         default:
             return nil
@@ -59,7 +64,8 @@ final class ShelfKeyboardController {
         guard let command = Self.resolve(
             keyCode: event.keyCode,
             modifiers: event.modifierFlags,
-            firstResponderIsTextView: firstResponder is NSTextView
+            firstResponderIsTextView: firstResponder is NSTextView,
+            canPreviewHighlighted: model.canPreviewHighlighted
         ) else { return false }
 
         switch command {
