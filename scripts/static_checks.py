@@ -37,6 +37,10 @@ phase6_settings_required = [
 settings_controller = files.get(root / 'Sources/OpsNotchApp/SettingsWindowController.swift', '')
 settings_root = files.get(root / 'Sources/OpsNotchApp/Settings/SettingsRootView.swift', '')
 status_bar_controller = files.get(root / 'Sources/OpsNotchApp/StatusBarController.swift', '')
+clipboard_manager = files.get(root / 'Sources/OpsNotchApp/ClipboardManager.swift', '')
+appmodel_clipboard = files.get(root / 'Sources/OpsNotchApp/AppModel+Clipboard.swift', '')
+floating_preview = files.get(root / 'Sources/OpsNotchApp/FloatingPreviewController.swift', '')
+shelf_row = files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfRow.swift', '')
 shelf_window_controller = files.get(root / 'Sources/OpsNotchApp/ShelfWindowController.swift', '')
 ops_surface = files.get(root / 'Sources/OpsNotchApp/DesignSystem/OpsSurface.swift', '')
 settings_components = files.get(root / 'Sources/OpsNotchApp/Settings/SettingsComponents.swift', '')
@@ -145,6 +149,10 @@ checks={
  'Shelf row keeps selection and focus as independent states': 'OpsRowVisualState' in new_ui_text and 'selected:' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfEntryRow.swift', '') and 'focused:' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfEntryRow.swift', ''),
  'Shelf snapshot remains revision cached': 'QuickShelfSnapshotCache<ShelfSnapshot>' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfSnapshotProvider.swift', '') and 'cache.value(for: revision)' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfSnapshotProvider.swift', ''),
  'presentation UI has no recurring polling timers': all(re.search(pattern, performance_ui_text) is None for pattern in recurring_polling_patterns),
+ 'clipboard image conversion avoids main-actor bitmap reencode': 'NSBitmapImageRep(data:' not in clipboard_manager and 'ClipboardImageNormalizer' in clipboard_manager,
+ 'clipboard persistence moves off main actor': 'Task.detached' in appmodel_clipboard and 'async' in appmodel_clipboard,
+ 'Shelf image decode moves off main actor': 'Task.detached' in shelf_row and 'CGImageSourceCreateThumbnailAtIndex' in shelf_row,
+ 'Floating Preview caps decoded image size': 'maximumDecodedImagePixelSize' in floating_preview and 'CGImageSourceCreateThumbnailAtIndex' in floating_preview,
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
