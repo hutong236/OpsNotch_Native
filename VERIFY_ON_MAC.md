@@ -267,3 +267,17 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 10. **安全边界**：SSH、kubectl、rm 等只允许识别/显示/排序/复制，绝不自动执行。
 
 > Phase 4 command-first 搜索验收见第 17 节；旧类型 chips 与数字切换快捷键已移除。
+
+
+## 22. Ops Notch 3.0 Presentation & Motion
+
+1. 使用主快捷键呼出 Shelf：直接进入 Expanded，搜索框聚焦；再次按快捷键立即收起。
+2. 拖入真实文件/文字到顶部 Sensor：进入 Drop Target；松手成功后只显示 Confirmation，不显示完整列表或 Pinned/Recent。
+3. 开启“常驻展开”后重复拖入：Confirmation 结束后恢复 Expanded；关闭常驻时 Confirmation 结束后隐藏。
+4. Drop Target 展示期间按主快捷键不得抢走拖放状态；原生拖放仍须完成。
+5. 键盘流回归：↑/↓ 连续选择，←/→ 跨区，Enter 执行主动作，Esc 收起，⌘P 收藏，⌘D 删除；无可执行目标时快捷键不得吞掉无关按键。
+6. 搜索框编辑时 Space 必须输入空格而不是 Quick Look；焦点离开搜索框且高亮可预览条目时 Space 才触发预览。
+7. Tab / Shift-Tab 在 Shelf 键盘流中保持或取回搜索框焦点；Item Editor 打开时 Tab 仍由编辑器自身处理。
+8. 打开“系统设置 → 辅助功能 → 显示 → 减弱动态效果”后重复 Drop Target → Confirmation → 隐藏：面板不得做位置/缩放移动，只允许极短淡入淡出；关闭后恢复空间过渡。
+9. 双显示器分别执行快捷键与拖放：Expanded / Drop Target / Confirmation 均留在触发屏，收起后不得残留透明窗口。
+10. Finder / Desktop / Clipboard 的主动作与焦点归还行为保持 Phase 0 基线，不因 Presentation Coordinator 或 Keyboard Controller 抽离而改变。
