@@ -15,6 +15,7 @@ struct ShelfCommandBar: View {
                 .font(OpsTypography.body)
                 .focused(focused)
                 .accessibilityLabel(Text(L10n.text("searchUnified", language)))
+                .help(L10n.text("searchCommandHelp", language))
             if !query.isEmpty {
                 OpsIconButton(systemName: "xmark.circle.fill", accessibilityLabel: L10n.text("shelfClearSearch", language)) { query = "" }
             }

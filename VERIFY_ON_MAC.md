@@ -172,18 +172,18 @@ Ops Notch 不应创建任何 1420 监听端口。
 9. 搜索框聚焦时按 `Tab`:焦点保持在搜索框不移出,面板内其他控件不因 `Tab` 获焦,键盘流不中断。
 10. 编辑弹窗打开时 `Tab`:在文本框内作为普通输入,不触发搜索框聚焦。
 
-## 17. 类型筛选
+## 17. Command-first 搜索（Phase 4）
 
-1. 面板展开后搜索框下方出现"全部 / 文件 / 文本 / URL / 应用"五个筛选位,默认"全部"。
-2. 点击"文件":仅剩 file/folder 与 openPath 类 action 条目;点击"URL":url 与 openURL 类 action 条目;Pinned/Recent 分区头与计数随筛选正确变化。
-3. `⌘1`~`⌘5` 依次切换五个筛选位,chips 选中态同步;`⇧+数字`、`⌃+数字` 不误触。
-4. 筛选或搜索变化后,键盘高亮回到过滤结果第一行;`↑`/`↓`/`Enter` 复制/`Esc` 在筛选状态下行为正常。
-5. 焦点不在搜索框时按 `Space`:高亮条目(文件/图片)弹出 Quick Look,面板保持展开、剪贴板不变。
-6. 搜索框聚焦时按 `Space`:输入空格,不触发预览。
-7. "文本"筛选下拖入一个文件:筛选自动回"全部",新文件条目出现在 Recent 顶部。
-8. "应用"筛选且无应用条目:显示"没有匹配的条目"(与清柜后的空柜提示区分)。
-9. 面板收起再展开筛选保持;重启应用后筛选恢复"全部"。
-10. 设置页切换中文/English,chips 与空态文案双语言正确。
+1. 展开面板：搜索框显示“搜索或输入命令…”，没有常驻类型 chips；搜索框帮助提示包含 `d2`、`~/Downloads`、`type:file report`、`@fav`。切换中文/English 后提示和空态双语言正确。
+2. 输入普通关键词，Shelf / Working Set / Finder 快捷路径仍按已有匹配与排名显示，条目 ID、分区计数与键盘高亮一致。
+3. 输入 `type:file report`：仅匹配 file/folder 条目和 Finder 快捷路径；safe action 不混入。输入 `type:folder report`：Shelf 仅匹配 folder；`type:text`、`type:url`、`type:application`、`type:action` 对应各自类型。残余查询保留大小写与空格。
+4. 输入 `@fav token`：仅显示匹配的 pinned 收藏，包括已在 Working Set 的收藏且不重复；未收藏的 Working Set / Recent 与 Finder 路径不混入。
+5. 输入 `d` / `d2` / `d 2`：仅显示对应 Desktop 命令；Enter 保持现有桌面列表/切换处理与能力限制。不完整/非法命令（`d0`、`d2 report`、`type:unknown report`）作为普通搜索，不执行操作。
+6. 输入 `~/Downloads` 或绝对目录（含空格）：仅显示 Finder 路径意图；Enter 走现有 Finder 安全校验和打开处理。不存在路径、非目录与无权限路径遵循现有错误提示；不得执行 shell 文本。
+7. 查询变化后高亮回到第一条可见结果；`↑` / `↓` / Enter / Esc 保持行为。查询为空后恢复普通内容；无匹配类型时显示“没有匹配的条目”。
+8. 搜索编辑器中按 Space 必须输入空格（可连续输入 `type:file quarterly report`）；焦点在编辑器外时，Space 对可预览文件/图片或文本保持现有预览，剪贴板不变。带修饰键的 Space 不触发预览。
+9. `⌘1`…`⌘6` 不再切换隐式类型状态或被 chip 快捷键消费。收起/展开保留会话查询；重启不恢复临时命令/过滤，不新增持久化字段。
+10. Enter 复制现有 Shelf 文件/文本时保持 fileURLs / 文本语义及 Clipboard Catch baseline；Finder 专用热键仍清除临时搜索/筛选后定位默认目录。
 
 ## 18. Finder 快捷路径响应速度
 
@@ -266,4 +266,4 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 9. **性能**：不得重新引入 UI polling、递归文件扫描或每次 SwiftUI `body` 重建全部排序。沿用 invalidation-driven snapshot 基线。
 10. **安全边界**：SSH、kubectl、rm 等只允许识别/显示/排序/复制，绝不自动执行。
 
-> 旧版“类型筛选 Chips / ⌘1…⌘6”验收在 Phase 4 完成前仍作为 legacy baseline；Phase 4 由 command-first 搜索验收替代后再移除。
+> Phase 4 command-first 搜索验收见第 17 节；旧类型 chips 与数字切换快捷键已移除。

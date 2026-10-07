@@ -138,16 +138,10 @@ final class ShelfWindowController: NSObject {
                 guard normalizedModifiers == .command else { return event }
                 let handled = MainActor.assumeIsolated { self.model.removeHighlighted() }
                 return handled ? nil : event
-            case 18, 19, 20, 21, 22, 23:
-                guard normalizedModifiers == .command,
-                      let index = [18, 19, 20, 21, 23, 22].firstIndex(of: event.keyCode) else { return event }
-                let filters: [ShelfKindFilter] = [.all, .file, .text, .url, .application, .action]
-                MainActor.assumeIsolated { self.model.setKindFilter(to: filters[index]) }
-                return nil
             case 49:
-                guard normalizedModifiers.isEmpty else { return event }
-                // 搜索框默认始终聚焦，不能用 NSTextView 作为 Space 预览的排除条件。
-                // 有可预览条目时消费 Space；否则把 Space 继续交给搜索框正常输入。
+                guard normalizedModifiers.isEmpty,
+                      !(self.panel.firstResponder is NSTextView) else { return event }
+                // 搜索编辑器中的空格用于命令参数；编辑器外保留 Space 预览。
                 let handled = MainActor.assumeIsolated { self.model.quickLookHighlighted() }
                 return handled ? nil : event
             default:

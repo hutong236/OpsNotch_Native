@@ -23,21 +23,29 @@ final class ShelfSnapshotProvider {
 
     func snapshot(items: [ShelfItem], settings: ShelfSettings, experience: ShelfExperienceModel) -> ShelfSnapshot {
         cache.value(for: revision) {
-            buildQuickShelfSnapshot(items: items, settings: settings, query: experience.query,
-                kindFilter: experience.kindFilter, appContext: experience.appContext)
+            buildQuickShelfSnapshot(items: items, settings: settings, scope: experience.commandSearchScope, appContext: experience.appContext)
         }
     }
 
-    private func buildQuickShelfSnapshot(items: [ShelfItem], settings: ShelfSettings, query: String, kindFilter: ShelfKindFilter, appContext: AppContextKind) -> ShelfSnapshot {
+    private func buildQuickShelfSnapshot(items: [ShelfItem], settings: ShelfSettings, scope: CommandSearchScope, appContext: AppContextKind) -> ShelfSnapshot {
         let itemSnapshot = QuickShelfItemSnapshotBuilder.build(
             items: items,
             workingSetItemIDs: settings.workingSetItemIDs,
-            query: query,
-            kindFilter: kindFilter,
-            appContext: appContext
+            query: scope.query,
+            kindFilter: scope.kindFilter,
+            appContext: appContext,
+            searchScope: scope
         )
-        let desktopEntries = buildVisibleDesktopEntries(settings: settings, query: query, kindFilter: kindFilter)
-        let finderEntries = buildVisibleFinderEntries(settings: settings, query: query, kindFilter: kindFilter)
+        let desktopEntries = buildVisibleDesktopEntries(settings: settings, intent: scope.intent)
+        let finderEntries: [QuickShelfEntry]
+        if case .finderPath(let path) = scope.intent {
+            let expanded = expandedFinderPath(path)
+            finderEntries = [.finder(id: "finder:path:\(expanded)", title: path, path: expanded, quickPathID: nil)]
+        } else if scope.includesFinderQuickPaths {
+            finderEntries = buildVisibleFinderEntries(settings: settings, query: scope.query, kindFilter: scope.kindFilter)
+        } else {
+            finderEntries = []
+        }
         let localEntries: [QuickShelfEntry] = []
         let visibleEntries = desktopEntries
             + finderEntries
@@ -86,9 +94,13 @@ final class ShelfSnapshotProvider {
         return entries
     }
 
-    private func buildVisibleDesktopEntries(settings: ShelfSettings, query: String, kindFilter: ShelfKindFilter) -> [QuickShelfEntry] {
-        guard kindFilter == .all,
-              let command = DesktopCommandParser.parse(query) else { return [] }
+    private func buildVisibleDesktopEntries(settings: ShelfSettings, intent: CommandIntent?) -> [QuickShelfEntry] {
+        let command: DesktopCommand
+        switch intent {
+        case .desktopList: command = .list
+        case .desktopSwitch(let index): command = .switchTo(index: index)
+        default: return []
+        }
 
         switch command {
         case .list:

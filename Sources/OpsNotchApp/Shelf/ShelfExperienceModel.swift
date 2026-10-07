@@ -24,6 +24,10 @@ final class ShelfExperienceModel: ObservableObject {
             resetQuickHighlight()
         }
     }
+    var commandSearchScope: CommandSearchScope {
+        CommandSearchScope(query: query, kindFilter: kindFilter)
+    }
+
     @Published var selection: Set<UUID> = []
     @Published var toast: String?
     @Published var editorDraft: ItemDraft?

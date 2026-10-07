@@ -48,8 +48,11 @@ public enum QuickShelfItemSnapshotBuilder {
         query: String,
         kindFilter: ShelfKindFilter,
         appContext: AppContextKind,
-        now: UInt64 = ShelfClock.now()
+        now: UInt64 = ShelfClock.now(),
+        searchScope: CommandSearchScope? = nil
     ) -> QuickShelfItemSnapshot {
+        let scope = searchScope ?? CommandSearchScope(query: query, kindFilter: kindFilter)
+        let items = items.filter { scope.includes($0) }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         let orderedByWorkingSet = workingSetItemIDs.compactMap { byID[$0] }
         let workingIDs = Set(workingSetItemIDs)
@@ -57,22 +60,22 @@ public enum QuickShelfItemSnapshotBuilder {
 
         let working = SmartShelfRanking.ordered(
             orderedByWorkingSet,
-            query: query,
-            kindFilter: kindFilter,
+            query: scope.query,
+            kindFilter: scope.kindFilter,
             appContext: appContext,
             now: now
         )
         let pinned = SmartShelfRanking.ordered(
             remaining.filter(\.pinned),
-            query: query,
-            kindFilter: kindFilter,
+            query: scope.query,
+            kindFilter: scope.kindFilter,
             appContext: appContext,
             now: now
         )
         let recent = SmartShelfRanking.ordered(
             remaining.filter { !$0.pinned },
-            query: query,
-            kindFilter: kindFilter,
+            query: scope.query,
+            kindFilter: scope.kindFilter,
             appContext: appContext,
             now: now
         )

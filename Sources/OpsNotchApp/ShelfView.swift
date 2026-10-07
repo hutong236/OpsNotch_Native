@@ -34,7 +34,6 @@ struct ShelfRootView: View {
         VStack(spacing: 0) {
             header
             search
-            filterChips
             if !experience.selection.isEmpty { selectionBar }
             Divider().opacity(0.35)
             workspace
@@ -108,41 +107,6 @@ struct ShelfRootView: View {
         ShelfCommandBar(query: $experience.query, language: model.language, focused: $searchFocused)
             .padding(.horizontal, OpsSpacing.medium)
             .padding(.bottom, OpsSpacing.small)
-    }
-
-    private var filterChips: some View {
-        HStack(spacing: 6) {
-            ForEach(filterChipsData, id: \.0) { filter, title in
-                Button {
-                    experience.kindFilter = filter
-                } label: {
-                    Text(title)
-                        .font(.system(size: 10, weight: experience.kindFilter == filter ? .semibold : .regular))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3)
-                        .background(
-                            experience.kindFilter == filter ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.05),
-                            in: Capsule()
-                        )
-                        .foregroundStyle(experience.kindFilter == filter ? Color.accentColor : Color.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
-    }
-
-    private var filterChipsData: [(ShelfKindFilter, String)] {
-        [
-            (.all, L10n.text("filterAll", model.language)),
-            (.file, L10n.text("filterFile", model.language)),
-            (.text, L10n.text("filterText", model.language)),
-            (.url, L10n.text("filterURL", model.language)),
-            (.application, L10n.text("filterApp", model.language)),
-            (.action, L10n.text("filterAction", model.language)),
-        ]
     }
 
     private var selectionBar: some View {
