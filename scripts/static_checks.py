@@ -35,7 +35,7 @@ checks={
  'no global shortcut plugin': 'global-shortcut' not in all_text.lower(),
  '3.0 design system files': all(path.is_file() for path in design_system_required),
  'Shelf uses design tokens': all(token in shelf_view for token in ('OpsSpacing.', 'OpsRadius.', 'OpsTypography.', 'OpsControlMetrics.')),
- 'no raw icon tap gestures in new UI': re.search(r'Image\\s*\\([^)]*\\)[\\s\\S]{0,220}\\.onTapGesture', new_ui_text) is None,
+ 'no raw icon tap gestures in new UI': re.search(r'Image\s*\([^)]*\)[\s\S]{0,220}\.onTapGesture', new_ui_text) is None,
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)

@@ -20,12 +20,8 @@ struct OpsIconButton: View {
                     minHeight: OpsControlMetrics.minimumHitTarget
                 )
                 .contentShape(Rectangle())
-                .background(
-                    hovered ? OpsSurface.hover : Color.clear,
-                    in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous)
-                )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OpsIconButtonStyle(hovered: hovered))
         .foregroundStyle(foregroundColor)
         .accessibilityLabel(Text(accessibilityLabel))
         .help(helpText ?? accessibilityLabel)
@@ -36,6 +32,26 @@ struct OpsIconButton: View {
         if destructive { return .red }
         if selected { return .accentColor }
         return .secondary
+    }
+}
+
+private struct OpsIconButtonStyle: ButtonStyle {
+    let hovered: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                background(isPressed: configuration.isPressed),
+                in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous)
+            )
+            .opacity(isEnabled ? 1 : 0.45)
+    }
+
+    private func background(isPressed: Bool) -> Color {
+        guard isEnabled else { return .clear }
+        if isPressed { return OpsSurface.hoverStrong }
+        return hovered ? OpsSurface.hover : .clear
     }
 }
 #endif

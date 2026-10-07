@@ -57,7 +57,7 @@ struct ShelfRootView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.text("quickShelf", model.language)).font(OpsTypography.heading)
                 Text(model.language == .zhCN ? "剪贴板 · 收藏 · Finder · 快速操作" : "Clipboard · Favorites · Finder · Quick Actions")
-                    .font(OpsTypography.metadata)
+                    .font(OpsTypography.shelfSubtitle)
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -422,10 +422,10 @@ private struct DesktopQuickShelfRowView: View {
         .padding(.horizontal, 8)
         .frame(height: OpsControlMetrics.compactRowHeight)
         .contentShape(Rectangle())
-        .background(hovered ? OpsSurface.hover : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous))
+        .background(hovered ? OpsSurface.hover : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
         .overlay {
             if highlighted {
-                RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous)
+                RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous)
                     .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 1)
             }
         }
@@ -486,12 +486,12 @@ private struct FinderQuickShelfRowView: View {
         }
         .padding(.horizontal, 8)
         .frame(height: OpsControlMetrics.compactRowHeight)
-        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous))
+        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
         .overlay {
             if highlighted {
-                RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous)
+                RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous)
                     .strokeBorder(OpsSurface.focusStroke, lineWidth: 1)
-                    .background(OpsSurface.focused, in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous))
+                    .background(OpsSurface.focused, in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
                     .allowsHitTesting(false)
             }
         }
@@ -554,12 +554,12 @@ private struct LocalQuickShelfRowView: View {
         }
         .padding(.horizontal, 8)
         .frame(height: OpsControlMetrics.compactRowHeight)
-        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous))
+        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
         .overlay {
             if highlighted {
-                RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous)
+                RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous)
                     .strokeBorder(.white.opacity(0.55), lineWidth: 1)
-                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous))
+                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
                     .allowsHitTesting(false)
             }
         }
@@ -626,13 +626,13 @@ struct ShelfRowView: View {
                 : hovered
                     ? OpsSurface.hoverStrong
                     : OpsSurface.card,
-            in: RoundedRectangle(cornerRadius: OpsRadius.card, style: .continuous)
+            in: RoundedRectangle(cornerRadius: OpsRadius.shelfRow, style: .continuous)
         )
         .overlay {
             if highlighted && !selected {
-                RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous)
+                RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous)
                     .strokeBorder(.white.opacity(0.55), lineWidth: 1)
-                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous))
+                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
                     .allowsHitTesting(false)
             }
         }
@@ -684,7 +684,7 @@ struct ShelfRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(item.title)
-                        .font(OpsTypography.bodyStrong)
+                        .font(OpsTypography.rowTitle)
                         .lineLimit(1)
                     if item.pinned {
                         Image(systemName: "star.fill")
