@@ -27,10 +27,41 @@ final class ShelfKeyboardControllerTests: XCTestCase {
         XCTAssertNil(ShelfKeyboardController.resolve(keyCode: 48, modifiers: [.control], firstResponderIsTextView: false))
     }
 
-    func testSpacePreviewsOnlyOutsideTextResponder() {
-        XCTAssertEqual(ShelfKeyboardController.resolve(keyCode: 49, modifiers: [], firstResponderIsTextView: false), .preview)
-        XCTAssertNil(ShelfKeyboardController.resolve(keyCode: 49, modifiers: [], firstResponderIsTextView: true))
-        XCTAssertNil(ShelfKeyboardController.resolve(keyCode: 49, modifiers: [.command], firstResponderIsTextView: false))
+    func testSpacePreviewsHighlightedItemEvenWhenSearchFieldHasFocus() {
+        XCTAssertEqual(
+            ShelfKeyboardController.resolve(
+                keyCode: 49,
+                modifiers: [],
+                firstResponderIsTextView: true,
+                canPreviewHighlighted: true
+            ),
+            .preview
+        )
+        XCTAssertNil(
+            ShelfKeyboardController.resolve(
+                keyCode: 49,
+                modifiers: [],
+                firstResponderIsTextView: true,
+                canPreviewHighlighted: false
+            )
+        )
+        XCTAssertEqual(
+            ShelfKeyboardController.resolve(
+                keyCode: 49,
+                modifiers: [],
+                firstResponderIsTextView: false,
+                canPreviewHighlighted: false
+            ),
+            .preview
+        )
+        XCTAssertNil(
+            ShelfKeyboardController.resolve(
+                keyCode: 49,
+                modifiers: [.command],
+                firstResponderIsTextView: false,
+                canPreviewHighlighted: true
+            )
+        )
     }
 
     func testCapsLockFunctionAndNumericPadDoNotBreakValidShortcuts() {
