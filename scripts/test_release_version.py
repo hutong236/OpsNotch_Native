@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import importlib.util
 import pathlib
+import subprocess
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -41,6 +43,29 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertEqual(values["prerelease"], "true")
         self.assertEqual(values["stage"], "rc")
         self.assertEqual(values["stage_number"], "2")
+
+    def test_github_output_contains_tag_and_numeric_bundle_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = pathlib.Path(tmp) / "github_output"
+            subprocess.run(
+                [
+                    "python3",
+                    str(ROOT / "scripts" / "release_version.py"),
+                    "3.0.0-beta.1",
+                    "--github-output",
+                    str(output),
+                ],
+                check=True,
+            )
+            values = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual(values["tag"], "v3.0.0-beta.1")
+            self.assertEqual(values["tag_version"], "3.0.0-beta.1")
+            self.assertEqual(values["app_version"], "3.0.0")
+            self.assertEqual(values["app_build"], "300")
+            self.assertEqual(values["prerelease"], "true")
 
     def test_invalid_versions_are_rejected(self):
         invalid = [
