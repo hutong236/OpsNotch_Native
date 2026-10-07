@@ -19,7 +19,7 @@ struct ShelfRootView: View {
             }
         }
         .onHover { model.setShelfHovered($0) }
-        .animation(.easeOut(duration: 0.16), value: presentation)
+        .animation(OpsMotion.quick, value: presentation)
     }
 
     private var expanded: some View {
@@ -33,8 +33,8 @@ struct ShelfRootView: View {
             Divider().opacity(0.35)
             footer
         }
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous).strokeBorder(OpsSurface.panelStroke, lineWidth: 0.5))
         .padding(6)
         .sheet(item: $model.editorDraft) { draft in
             ItemEditorView(model: model, draft: draft)
@@ -55,18 +55,21 @@ struct ShelfRootView: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.text("quickShelf", model.language)).font(.system(size: 14, weight: .semibold))
+                Text(L10n.text("quickShelf", model.language)).font(OpsTypography.heading)
                 Text(model.language == .zhCN ? "剪贴板 · 收藏 · Finder · 快速操作" : "Clipboard · Favorites · Finder · Quick Actions")
-                    .font(.system(size: 9.5))
+                    .font(OpsTypography.shelfSubtitle)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Image(systemName: model.settings.shelfKeepOpen ? "pin.fill" : "pin")
-                .foregroundStyle(model.settings.shelfKeepOpen ? Color.accentColor : Color.secondary)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-                .onTapGesture { toggleKeepOpen() }
-                .help(L10n.text(model.settings.shelfKeepOpen ? "keepShelfOpenOff" : "keepShelfOpenOn", model.language))
+            OpsIconButton(
+                systemName: model.settings.shelfKeepOpen ? "pin.fill" : "pin",
+                accessibilityLabel: L10n.text(
+                    model.settings.shelfKeepOpen ? "keepShelfOpenOff" : "keepShelfOpenOn",
+                    model.language
+                ),
+                selected: model.settings.shelfKeepOpen,
+                action: toggleKeepOpen
+            )
             Menu {
                 Button(L10n.text("addText", model.language)) { model.editorDraft = .text() }
                 Button(L10n.text("addFile", model.language)) { model.chooseFiles() }
@@ -98,7 +101,7 @@ struct ShelfRootView: View {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField(L10n.text("searchUnified", model.language), text: $model.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(OpsTypography.body)
                 .focused($searchFocused)
             if !model.query.isEmpty {
                 Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -106,13 +109,13 @@ struct ShelfRootView: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: 36)
-        .background(.primary.opacity(0.075), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(height: OpsControlMetrics.searchHeight)
+        .background(.primary.opacity(0.075), in: RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous)
                 .strokeBorder(searchFocused ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.05), lineWidth: 0.7)
         )
-        .padding(.horizontal, 12)
+        .padding(.horizontal, OpsSpacing.medium)
         .padding(.bottom, 9)
     }
 
@@ -169,7 +172,7 @@ struct ShelfRootView: View {
         }
         .font(.system(size: 10))
         .padding(.horizontal, 13)
-        .frame(height: 28)
+        .frame(height: OpsControlMetrics.footerHeight)
         .background(Color.accentColor.opacity(0.08))
     }
 
@@ -266,7 +269,7 @@ struct ShelfRootView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, OpsSpacing.small)
                     .padding(.vertical, 7)
                 }
                 .onChange(of: model.highlightedQuickEntryID) { id in
@@ -287,7 +290,7 @@ struct ShelfRootView: View {
             if let item = model.highlightedShelfItem {
                 Divider().opacity(0.35)
                 ClipboardPreviewPane(model: model, clipboard: clipboard, item: item)
-                    .frame(width: 258)
+                    .frame(width: OpsControlMetrics.inspectorWidth)
                     .transition(.opacity)
             }
         }
@@ -299,10 +302,10 @@ struct ShelfRootView: View {
             Spacer()
             Text(contextLabel)
         }
-        .font(.system(size: 9))
+        .font(OpsTypography.metadata)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 13)
-        .frame(height: 28)
+        .frame(height: OpsControlMetrics.footerHeight)
         .overlay(alignment: .top) {
             if let toast = model.toast {
                 Text(toast)
@@ -349,7 +352,7 @@ struct ShelfRootView: View {
             Text(model.settings.addMode == .copy ? L10n.text("dropCopy", model.language) : L10n.text("dropReference", model.language))
                 .font(.system(size: 9)).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, OpsSpacing.large)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.blue.opacity(0.3), lineWidth: 0.5))
         .padding(6)
@@ -417,12 +420,12 @@ private struct DesktopQuickShelfRowView: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 8)
-        .frame(height: 42)
+        .frame(height: OpsControlMetrics.compactRowHeight)
         .contentShape(Rectangle())
-        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(hovered ? OpsSurface.hover : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
         .overlay {
             if highlighted {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous)
                     .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 1)
             }
         }
@@ -482,13 +485,13 @@ private struct FinderQuickShelfRowView: View {
             }
         }
         .padding(.horizontal, 8)
-        .frame(height: 42)
-        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .frame(height: OpsControlMetrics.compactRowHeight)
+        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
         .overlay {
             if highlighted {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(.white.opacity(0.55), lineWidth: 1)
-                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous)
+                    .strokeBorder(OpsSurface.focusStroke, lineWidth: 1)
+                    .background(OpsSurface.focused, in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
                     .allowsHitTesting(false)
             }
         }
@@ -550,13 +553,13 @@ private struct LocalQuickShelfRowView: View {
             }
         }
         .padding(.horizontal, 8)
-        .frame(height: 42)
-        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .frame(height: OpsControlMetrics.compactRowHeight)
+        .background(hovered ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
         .overlay {
             if highlighted {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous)
                     .strokeBorder(.white.opacity(0.55), lineWidth: 1)
-                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
                     .allowsHitTesting(false)
             }
         }
@@ -616,20 +619,20 @@ struct ShelfRowView: View {
                 .help(L10n.text("dragHandle", model.language))
         }
         .padding(.horizontal, 9)
-        .frame(height: 58)
+        .frame(height: OpsControlMetrics.rowHeight)
         .background(
             selected
-                ? Color.accentColor.opacity(0.13)
+                ? OpsSurface.selected
                 : hovered
-                    ? Color.primary.opacity(0.075)
-                    : Color.primary.opacity(0.028),
-            in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    ? OpsSurface.hoverStrong
+                    : OpsSurface.card,
+            in: RoundedRectangle(cornerRadius: OpsRadius.shelfRow, style: .continuous)
         )
         .overlay {
             if highlighted && !selected {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous)
                     .strokeBorder(.white.opacity(0.55), lineWidth: 1)
-                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .background(Color.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: OpsRadius.compactRow, style: .continuous))
                     .allowsHitTesting(false)
             }
         }
@@ -681,7 +684,7 @@ struct ShelfRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(item.title)
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(OpsTypography.rowTitle)
                         .lineLimit(1)
                     if item.pinned {
                         Image(systemName: "star.fill")
@@ -913,7 +916,7 @@ private struct ClipboardPreviewPane: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: OpsRadius.control, style: .continuous))
                     .padding(.horizontal, 12)
                 if item.clipboardImage {
                     Button(model.language == .zhCN ? "复制图片" : "Copy Image") {
