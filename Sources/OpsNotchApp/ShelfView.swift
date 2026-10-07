@@ -11,6 +11,7 @@ struct ShelfRootView: View {
     let presentation: ShelfPresentationState
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     init(model: AppModel, clipboard: ClipboardManager, presentation: ShelfPresentationState) {
         self.model = model
@@ -40,13 +41,16 @@ struct ShelfRootView: View {
             header
             search
             if !experience.selection.isEmpty { selectionBar }
-            Divider().overlay(OpsSurface.divider)
+            Divider().overlay(OpsSurface.divider(increasedContrast: increasedContrast))
             workspace
-            Divider().overlay(OpsSurface.divider)
+            Divider().overlay(OpsSurface.divider(increasedContrast: increasedContrast))
             footer
         }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous).strokeBorder(OpsSurface.panelStroke, lineWidth: 0.5))
+        .overlay(
+            RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous)
+                .strokeBorder(OpsSurface.panelStroke(increasedContrast: increasedContrast), lineWidth: increasedContrast ? 1 : 0.5)
+        )
         .padding(OpsSpacing.small)
         .sheet(item: $experience.editorDraft) { draft in
             ItemEditorView(model: model, draft: draft)
@@ -144,7 +148,7 @@ struct ShelfRootView: View {
         .font(OpsTypography.secondary)
         .padding(.horizontal, OpsSpacing.medium)
         .frame(height: OpsControlMetrics.footerHeight)
-        .background(OpsSurface.selectionSubtle)
+        .background(OpsSurface.selectionSubtle(increasedContrast: increasedContrast))
     }
 
     @ViewBuilder
@@ -193,7 +197,7 @@ struct ShelfRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if let item = experience.focusedShelfPresentationItem {
-                Divider().overlay(OpsSurface.divider)
+                Divider().overlay(OpsSurface.divider(increasedContrast: increasedContrast))
                 ShelfInspectorView(item: item, language: model.language,
                                    dispatcher: ShelfItemActionDispatcher(model: model, clipboard: clipboard))
                     .frame(width: OpsControlMetrics.inspectorWidth)
@@ -239,6 +243,8 @@ struct ShelfRootView: View {
         return parts.joined(separator: " · ")
     }
 
+    private var increasedContrast: Bool { colorSchemeContrast == .increased }
+
     private var contextLabel: String {
         switch experience.appContext {
         case .finder: return L10n.text("shelfContextFinder", model.language)
@@ -267,7 +273,7 @@ struct ShelfRootView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous)
-                .strokeBorder(OpsSurface.dropTargetStroke, lineWidth: 0.5)
+                .strokeBorder(OpsSurface.dropTargetStroke(increasedContrast: increasedContrast), lineWidth: increasedContrast ? 1 : 0.5)
         )
         .padding(OpsSpacing.small)
     }
