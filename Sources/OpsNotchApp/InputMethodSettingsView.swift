@@ -11,13 +11,13 @@ struct InputMethodSettingsView: View {
     private var isChinese: Bool { model.language == .zhCN }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: OpsSpacing.medium) {
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: OpsSpacing.xSmall) {
                     Text(isChinese ? "按 App 自动切换输入法" : "Switch input method per app")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(OpsTypography.bodyStrong)
                     Text(isChinese ? "切换到不同应用时自动使用对应输入法。" : "Automatically select an input method when the active app changes.")
-                        .font(.system(size: 10))
+                        .font(OpsTypography.secondary)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -30,10 +30,10 @@ struct InputMethodSettingsView: View {
 
             if manager.rules.isEmpty {
                 Text(isChinese ? "尚未添加应用规则。未配置的 App 会保持当前输入法。" : "No app rules yet. Unconfigured apps keep the current input method.")
-                    .font(.system(size: 11))
+                    .font(OpsTypography.body)
                     .foregroundStyle(.secondary)
             } else {
-                VStack(spacing: 10) {
+                VStack(spacing: OpsSpacing.medium) {
                     ForEach(manager.rules) { rule in
                         ruleRow(rule)
                         if rule.id != manager.rules.last?.id { Divider() }
@@ -58,13 +58,13 @@ struct InputMethodSettingsView: View {
 
     @ViewBuilder
     private func ruleRow(_ rule: InputMethodRule) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: OpsSpacing.small) {
+            HStack(spacing: OpsSpacing.small) {
                 Image(systemName: "app.fill")
                     .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(rule.appName).font(.system(size: 12, weight: .medium))
-                    Text(rule.bundleID).font(.system(size: 9)).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: OpsSpacing.micro) {
+                    Text(rule.appName).font(OpsTypography.bodyStrong)
+                    Text(rule.bundleID).font(OpsTypography.metadata).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button(role: .destructive) {
@@ -82,7 +82,7 @@ struct InputMethodSettingsView: View {
                     Text(isChinese ? "保持当前" : "Keep Current").tag(InputMethodRuleMode.keep)
                 }
                 .labelsHidden()
-                .frame(width: 130)
+                .frame(width: OpsControlMetrics.settingsInputModePickerWidth)
 
                 if rule.mode == .fixed {
                     Picker("", selection: sourceBinding(rule)) {
@@ -95,11 +95,11 @@ struct InputMethodSettingsView: View {
                     .frame(maxWidth: .infinity)
                 } else if rule.mode == .remember {
                     Text(isChinese ? "切回此 App 时恢复本次会话中最后使用的输入法" : "Restores the last input method used by this app in the current session")
-                        .font(.system(size: 10))
+                        .font(OpsTypography.secondary)
                         .foregroundStyle(.secondary)
                 } else {
                     Text(isChinese ? "不主动改变输入法" : "Does not change the input method")
-                        .font(.system(size: 10))
+                        .font(OpsTypography.secondary)
                         .foregroundStyle(.secondary)
                 }
             }
