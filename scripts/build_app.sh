@@ -19,15 +19,21 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$BIN_DIR/OpsNotch" "$CONTENTS/MacOS/OpsNotch"
 cp "$ROOT/Info.plist" "$CONTENTS/Info.plist"
 
-# 版本号注入：APP_VERSION 环境变量覆盖产物版本；未设置时保留仓库根 Info.plist 的默认值
+# 版本号注入：Git prerelease tag 与 macOS Bundle 版本分离。
+# APP_VERSION 必须保持 numeric x.y.z；APP_BUILD 默认沿用旧的去点规则，也可由 release parser 显式传入。
 if [[ -n "${APP_VERSION:-}" ]]; then
   if ! [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "APP_VERSION must be semver x.y.z (got: $APP_VERSION). Pre-release tags go directly in the root Info.plist."
+    echo "APP_VERSION must be numeric semver x.y.z (got: $APP_VERSION)."
+    exit 1
+  fi
+  APP_BUILD_VALUE="${APP_BUILD:-${APP_VERSION//./}}"
+  if ! [[ "$APP_BUILD_VALUE" =~ ^[0-9]+$ ]]; then
+    echo "APP_BUILD must contain digits only (got: $APP_BUILD_VALUE)."
     exit 1
   fi
   PLIST="$CONTENTS/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$PLIST"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${APP_VERSION//./}" "$PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD_VALUE" "$PLIST"
 fi
 
 if command -v iconutil >/dev/null 2>&1; then
