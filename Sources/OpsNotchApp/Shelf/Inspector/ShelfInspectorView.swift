@@ -10,12 +10,15 @@ struct ShelfInspectorView: View {
     let dispatcher: ShelfItemActionDispatcher
     @State private var resource: NSImage?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
         VStack(alignment: .leading, spacing: OpsSpacing.small) {
             Text(L10n.text("shelfInspector", language)).font(OpsTypography.heading)
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider().opacity(0.25)
+            Divider().overlay(
+                OpsSurface.divider(increasedContrast: colorSchemeContrast == .increased)
+            )
             Text(item.title).font(OpsTypography.rowTitle).lineLimit(3)
             if let semanticLabel {
                 Text(semanticLabel).font(OpsTypography.metadata).foregroundStyle(.secondary)
