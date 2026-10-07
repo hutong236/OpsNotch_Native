@@ -308,4 +308,4 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 7. **本地化完整性**：中文/English 下检查 Shelf 副标题、上下文标签、选择栏、菜单与 Settings；除 Finder、Smart、URL 等产品/技术词外，不出现中英文硬编码混排。
 8. **辅助功能**：开启 Reduce Motion、Increase Contrast、Reduce Transparency 分别复测 Shelf/Inspector/Settings；Reduce Motion 不出现位置或缩放动画，图标按钮可由 VoiceOver 读出用途。
 9. **多显示器与 Space**：至少双屏分别呼出、拖入、Peek/Expanded/Confirmation；面板必须留在触发屏，切换全屏 Space 后无残留透明窗口。
-10. **清理确认**：主界面无常驻类型 chips、无旧 Preview Pane、无重复 Finder/Desktop/Shelf Row 实现；Quick Look、Finder 打开、文件 pasteboard、Clipboard Catch 与 Phase 0 回归基线一致。
+10. **清理确认**：主界面无常驻类型 chips、无旧 Preview Pane、无重复 Finder/Desktop/Shelf Row 实现；旧 Workspace Quick Panel / Workspace shortcut service 已删除，桌面切换只走当前 `d` / `dN` 的 DesktopCommandIntegration。Floating Preview 是当前保留能力，不应与旧 Preview Pane 混淆；Quick Look、Finder 打开、文件 pasteboard、Clipboard Catch 与 Phase 0 回归基线一致。
