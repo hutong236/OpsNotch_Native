@@ -6,9 +6,17 @@ import OpsNotchCore
 
 struct ShelfRootView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var experience: ShelfExperienceModel
     let clipboard: ClipboardManager
     let presentation: ShelfWindowController.Presentation
     @FocusState private var searchFocused: Bool
+
+    init(model: AppModel, clipboard: ClipboardManager, presentation: ShelfWindowController.Presentation) {
+        self.model = model
+        self.experience = model.experience
+        self.clipboard = clipboard
+        self.presentation = presentation
+    }
 
     var body: some View {
         Group {
@@ -18,7 +26,7 @@ struct ShelfRootView: View {
             case .peek: peekView
             }
         }
-        .onHover { model.setShelfHovered($0) }
+        .onHover { experience.setShelfHovered($0) }
         .animation(OpsMotion.quick, value: presentation)
     }
 
@@ -27,7 +35,7 @@ struct ShelfRootView: View {
             header
             search
             filterChips
-            if !model.selection.isEmpty { selectionBar }
+            if !experience.selection.isEmpty { selectionBar }
             Divider().opacity(0.35)
             workspace
             Divider().opacity(0.35)
@@ -36,10 +44,10 @@ struct ShelfRootView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: OpsRadius.panel, style: .continuous).strokeBorder(OpsSurface.panelStroke, lineWidth: 0.5))
         .padding(6)
-        .sheet(item: $model.editorDraft) { draft in
+        .sheet(item: $experience.editorDraft) { draft in
             ItemEditorView(model: model, draft: draft)
         }
-        .onReceive(model.$focusRequestToken) { token in
+        .onReceive(experience.$focusRequestToken) { token in
             guard token != nil else { return }
             model.refreshSmartContext()
             if searchFocused {
@@ -48,7 +56,7 @@ struct ShelfRootView: View {
             } else {
                 searchFocused = true
             }
-            model.resetQuickHighlight()
+            experience.resetQuickHighlight()
         }
     }
 
@@ -71,13 +79,13 @@ struct ShelfRootView: View {
                 action: toggleKeepOpen
             )
             Menu {
-                Button(L10n.text("addText", model.language)) { model.editorDraft = .text() }
+                Button(L10n.text("addText", model.language)) { experience.editorDraft = .text() }
                 Button(L10n.text("addFile", model.language)) { model.chooseFiles() }
                 Button(L10n.text("addFolder", model.language)) { model.chooseFolder() }
                 Divider()
-                Button(L10n.text("addURL", model.language)) { model.editorDraft = .url() }
+                Button(L10n.text("addURL", model.language)) { experience.editorDraft = .url() }
                 Button(L10n.text("addApp", model.language)) { model.chooseApplication() }
-                Button(L10n.text("addAction", model.language)) { model.editorDraft = .action() }
+                Button(L10n.text("addAction", model.language)) { experience.editorDraft = .action() }
             } label: {
                 Image(systemName: "plus").frame(width: 24, height: 24)
             }
@@ -97,7 +105,7 @@ struct ShelfRootView: View {
     }
 
     private var search: some View {
-        ShelfCommandBar(query: $model.query, language: model.language, focused: $searchFocused)
+        ShelfCommandBar(query: $experience.query, language: model.language, focused: $searchFocused)
             .padding(.horizontal, OpsSpacing.medium)
             .padding(.bottom, OpsSpacing.small)
     }
@@ -106,17 +114,17 @@ struct ShelfRootView: View {
         HStack(spacing: 6) {
             ForEach(filterChipsData, id: \.0) { filter, title in
                 Button {
-                    model.setKindFilter(to: filter)
+                    experience.kindFilter = filter
                 } label: {
                     Text(title)
-                        .font(.system(size: 10, weight: model.kindFilter == filter ? .semibold : .regular))
+                        .font(.system(size: 10, weight: experience.kindFilter == filter ? .semibold : .regular))
                         .padding(.horizontal, 9)
                         .padding(.vertical, 3)
                         .background(
-                            model.kindFilter == filter ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.05),
+                            experience.kindFilter == filter ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.05),
                             in: Capsule()
                         )
-                        .foregroundStyle(model.kindFilter == filter ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(experience.kindFilter == filter ? Color.accentColor : Color.secondary)
                 }
                 .buttonStyle(.plain)
             }
@@ -139,7 +147,7 @@ struct ShelfRootView: View {
 
     private var selectionBar: some View {
         HStack {
-            Text("\(L10n.text("selected", model.language)) \(model.selection.count)")
+            Text("\(L10n.text("selected", model.language)) \(experience.selection.count)")
                 .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
             Spacer()
             Button {
@@ -147,10 +155,10 @@ struct ShelfRootView: View {
             } label: { Label(L10n.text("copySelected", model.language), systemImage: "doc.on.doc") }
                 .buttonStyle(.borderless)
             Button(role: .destructive) {
-                model.remove(model.selection)
+                model.remove(experience.selection)
             } label: { Image(systemName: "trash") }
                 .buttonStyle(.borderless)
-            Button { model.selection.removeAll() } label: { Image(systemName: "xmark") }
+            Button { experience.selection.removeAll() } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
         }
         .font(.system(size: 10))
@@ -174,7 +182,7 @@ struct ShelfRootView: View {
             && localEntries.isEmpty
 
         if isEmpty {
-            ShelfEmptyState(filtered: !model.query.isEmpty || model.kindFilter != .all, language: model.language)
+            ShelfEmptyState(filtered: !experience.query.isEmpty || experience.kindFilter != .all, language: model.language)
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -240,7 +248,7 @@ struct ShelfRootView: View {
                     .padding(.horizontal, OpsSpacing.small)
                     .padding(.vertical, 7)
                 }
-                .onChange(of: model.highlightedQuickEntryID) { id in
+                .onChange(of: experience.highlightedQuickEntryID) { id in
                     guard let id else { return }
                     DispatchQueue.main.async {
                         proxy.scrollTo(id)
@@ -275,7 +283,7 @@ struct ShelfRootView: View {
         .padding(.horizontal, 13)
         .frame(height: OpsControlMetrics.footerHeight)
         .overlay(alignment: .top) {
-            if let toast = model.toast {
+            if let toast = experience.toast {
                 Text(toast)
                     .font(.system(size: 10, weight: .medium))
                     .padding(.horizontal, 10).padding(.vertical, 5)
@@ -299,7 +307,7 @@ struct ShelfRootView: View {
     }
 
     private var contextLabel: String {
-        switch model.appContext {
+        switch experience.appContext {
         case .finder: return "Smart · Finder"
         case .terminal: return "Smart · Terminal"
         case .browser: return "Smart · Browser"
