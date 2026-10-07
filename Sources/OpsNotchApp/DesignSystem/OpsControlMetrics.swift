@@ -9,5 +9,7 @@ enum OpsControlMetrics {
     static let iconSize: CGFloat = 14
     static let inspectorWidth: CGFloat = 258
     static let footerHeight: CGFloat = 28
+    static let editorWidth: CGFloat = 390
+    static let editorTextMinimumHeight: CGFloat = 100
 }
 #endif
