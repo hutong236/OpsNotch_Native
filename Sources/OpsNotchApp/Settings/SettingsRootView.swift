@@ -47,13 +47,13 @@ struct SettingsRootView: View {
     @ObservedObject var finderReveal: FinderRevealController
     @ObservedObject var inputMethodManager: InputMethodManager
 
-    @State private var selection: OpsSettingsSection? = .general
+    @State private var selection: OpsSettingsSection = .general
 
     var body: some View {
         NavigationSplitView {
             List(OpsSettingsSection.allCases, selection: $selection) { section in
                 Label(L10n.text(section.localizationKey, model.language), systemImage: section.symbolName)
-                    .tag(Optional(section))
+                    .tag(section)
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(
@@ -68,7 +68,7 @@ struct SettingsRootView: View {
 
     @ViewBuilder
     private var detail: some View {
-        switch selection ?? .general {
+        switch selection {
         case .general:
             GeneralSettingsView(model: model, loginItem: loginItem)
         case .shelf:
