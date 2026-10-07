@@ -125,16 +125,24 @@ private struct ShelfRowButtonStyle: ButtonStyle {
     let state: OpsVisualState
     let hovered: Bool
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(background(pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: OpsRadius.shelfRow))
             .overlay(RoundedRectangle(cornerRadius: OpsRadius.shelfRow)
-                .strokeBorder(state == .focused || state == .dragging ? Color.accentColor : .clear, lineWidth: 1))
+                .strokeBorder(
+                    state == .focused || state == .dragging
+                        ? OpsSurface.focusStroke(increasedContrast: increasedContrast)
+                        : .clear,
+                    lineWidth: increasedContrast ? 1.5 : 1
+                ))
             .opacity(isEnabled ? 1 : 0.45)
     }
+    private var increasedContrast: Bool { colorSchemeContrast == .increased }
+
     private func background(pressed: Bool) -> Color {
         if pressed || state == .pressed { return OpsSurface.focused }
-        if state == .selected || state == .dragging { return OpsSurface.selected }
+        if state == .selected || state == .dragging { return OpsSurface.selected(increasedContrast: increasedContrast) }
         if hovered || state == .hovered { return OpsSurface.hoverStrong }
         if state == .focused { return OpsSurface.focused }
         return OpsSurface.card
