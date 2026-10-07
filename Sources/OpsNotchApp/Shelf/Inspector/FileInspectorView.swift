@@ -14,7 +14,8 @@ struct FileInspectorView: View {
                     if let image { Image(nsImage: image).resizable().aspectRatio(contentMode: .fit) }
                     else { Image(systemName: symbol).font(OpsTypography.title).foregroundStyle(.secondary) }
                 }
-                .frame(width: 64, height: 64).accessibilityHidden(true)
+                .frame(width: OpsControlMetrics.inspectorPreviewSize, height: OpsControlMetrics.inspectorPreviewSize)
+                .accessibilityHidden(true)
                 Text(path).font(OpsTypography.shelfSubtitle).foregroundStyle(.secondary)
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
             }
