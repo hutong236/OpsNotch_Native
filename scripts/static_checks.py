@@ -35,6 +35,7 @@ phase6_settings_required = [
     root / 'Sources/OpsNotchApp/Settings/AdvancedSettingsView.swift',
 ]
 settings_controller = files.get(root / 'Sources/OpsNotchApp/SettingsWindowController.swift', '')
+status_bar_controller = files.get(root / 'Sources/OpsNotchApp/StatusBarController.swift', '')
 legacy_row_types = (
     'private struct DesktopQuickShelfRowView',
     'private struct FinderQuickShelfRowView',
@@ -83,6 +84,8 @@ checks={
  '3.0 migrated UI has no inline language ternaries': re.search(r'language\s*==\s*\.zhCN\s*\?', migrated_ui_text) is None,
  'Shelf shell has no raw point-size fonts': re.search(r'\.font\(\.system\(size\s*:', shelf_view) is None,
  'Shelf shell has no numeric RoundedRectangle radii': re.search(r'RoundedRectangle\(cornerRadius\s*:\s*[0-9]', shelf_view) is None,
+ 'status menu exposes Keep Shelf Open': 'toggleKeepShelfOpen' in status_bar_controller and 'keepShelfOpen' in status_bar_controller,
+ 'status menu stays a concise control center': '#selector(newText)' not in status_bar_controller and 'versionItem' not in status_bar_controller,
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
