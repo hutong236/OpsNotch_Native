@@ -7,6 +7,7 @@ enum L10n {
     static func text(_ key: String, _ language: AppLanguage) -> String {
         let zh: [String: String] = [
             "quickShelf": "快速暂存",
+            "quickShelfSubtitle": "剪贴板 · 收藏 · Finder · 快速操作",
             "shelfInspector": "条目详情",
             "shelfSourceDesktop": "桌面",
             "shelfSourceFinder": "Finder / 本地路径",
@@ -207,6 +208,7 @@ enum L10n {
         ]
         let en: [String: String] = [
             "quickShelf": "Quick Shelf",
+            "quickShelfSubtitle": "Clipboard · Favorites · Finder · Quick Actions",
             "shelfInspector": "Item details",
             "shelfSourceDesktop": "Desktop",
             "shelfSourceFinder": "Finder / Local path",
