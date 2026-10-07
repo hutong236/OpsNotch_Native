@@ -7,7 +7,7 @@ import OpsNotchCore
 /// A source-neutral row. System interactions and selection are supplied by the host.
 struct ShelfRow: View {
     let item: ShelfPresentationItem
-    let visualState: OpsVisualState
+    let visualState: OpsRowVisualState
     let onPrimaryAction: () -> Void
     let onSecondaryAction: (ShelfPresentationItem.Action) -> Void
     var additionalActionsLabel: String
@@ -25,7 +25,7 @@ struct ShelfRow: View {
     var body: some View {
         Button(action: onPrimaryAction) {
             HStack(spacing: OpsSpacing.small) {
-                if visualState == .selected {
+                if visualState.selected {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
                 }
                 icon.frame(width: OpsSpacing.xxLarge, height: OpsSpacing.xxLarge)
@@ -48,14 +48,24 @@ struct ShelfRow: View {
             .frame(maxWidth: .infinity, minHeight: OpsControlMetrics.rowHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(ShelfRowButtonStyle(state: visualState, hovered: hovered))
+        .buttonStyle(ShelfRowButtonStyle(state: resolvedVisualState))
         .accessibilityLabel(Text(item.accessibilityLabel))
         .accessibilityHint(Text(item.accessibilityHint))
         .overlay(alignment: .trailing) { accessories.padding(.trailing, OpsSpacing.xSmall) }
         .contextMenu { actionMenu }
-        .disabled(visualState == .disabled)
+        .disabled(visualState.disabled)
         .onHover { hovered = $0 }
         .task(id: resourceKey) { resource = ShelfRowImageCache.shared.image(for: item) }
+    }
+
+    private var resolvedVisualState: OpsRowVisualState {
+        OpsRowVisualState(
+            selected: visualState.selected,
+            focused: visualState.focused,
+            hovered: visualState.hovered || hovered,
+            disabled: visualState.disabled,
+            dragging: visualState.dragging
+        )
     }
 
     private var trailingSpace: CGFloat {
@@ -76,7 +86,7 @@ struct ShelfRow: View {
 
     private var accessories: some View {
         HStack(spacing: OpsSpacing.micro) {
-            if hovered || visualState == .focused || visualState == .selected {
+            if resolvedVisualState.showsAccessories {
                 if let first = item.secondaryActions.first {
                     OpsIconButton(systemName: first.symbolName, accessibilityLabel: first.title) { onSecondaryAction(first) }
                 }
@@ -122,30 +132,44 @@ private struct ShelfBadge: View {
 }
 
 private struct ShelfRowButtonStyle: ButtonStyle {
-    let state: OpsVisualState
-    let hovered: Bool
+    let state: OpsRowVisualState
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(background(pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: OpsRadius.shelfRow))
-            .overlay(RoundedRectangle(cornerRadius: OpsRadius.shelfRow)
-                .strokeBorder(
-                    state == .focused || state == .dragging
-                        ? OpsSurface.focusStroke(increasedContrast: increasedContrast)
-                        : .clear,
-                    lineWidth: increasedContrast ? 1.5 : 1
-                ))
+            .background(
+                background(pressed: configuration.isPressed),
+                in: RoundedRectangle(cornerRadius: OpsRadius.shelfRow)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: OpsRadius.shelfRow)
+                    .strokeBorder(
+                        state.showsFocusRing
+                            ? OpsSurface.focusStroke(increasedContrast: increasedContrast)
+                            : .clear,
+                        lineWidth: increasedContrast ? 1.5 : 1
+                    )
+            )
             .opacity(isEnabled ? 1 : 0.45)
     }
+
     private var increasedContrast: Bool { colorSchemeContrast == .increased }
 
     private func background(pressed: Bool) -> Color {
-        if pressed || state == .pressed { return OpsSurface.focused }
-        if state == .selected || state == .dragging { return OpsSurface.selected(increasedContrast: increasedContrast) }
-        if hovered || state == .hovered { return OpsSurface.hoverStrong }
-        if state == .focused { return OpsSurface.focused }
-        return OpsSurface.card
+        if pressed { return OpsSurface.focused }
+        switch state.backgroundState {
+        case .dragging, .selected:
+            return OpsSurface.selected(increasedContrast: increasedContrast)
+        case .hovered:
+            return OpsSurface.hoverStrong
+        case .focused, .pressed:
+            return OpsSurface.focused
+        case .disabled:
+            return .clear
+        case .default:
+            return OpsSurface.card
+        }
     }
 }
 
