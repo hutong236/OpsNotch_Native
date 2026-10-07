@@ -51,9 +51,10 @@ final class ShelfSnapshotProvider {
         if case .finderPath(let path) = scope.intent {
             let expanded = expandedFinderPath(path)
             finderEntries = [.finder(id: "finder:path:\(expanded)", title: path, path: expanded, quickPathID: nil)]
-        } else if scope.includesFinderQuickPaths && (appContext == .finder
-            || scope.intent != nil || scope.kindFilter != .all
-            || !scope.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+        } else if scope.includesFinderQuickPaths {
+            // Finder quick paths are a first-class Shelf source, not a context-only source.
+            // Keep them visible in the default Smart Shelf so an empty Shelf still exposes
+            // the configured default directory and saved shortcuts.
             finderEntries = buildVisibleFinderEntries(settings: settings, query: scope.query, kindFilter: scope.kindFilter)
         } else {
             finderEntries = []
