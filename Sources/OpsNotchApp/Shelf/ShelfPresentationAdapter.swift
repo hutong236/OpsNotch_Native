@@ -112,9 +112,10 @@ enum ShelfPresentationAdapter {
         metadata.append(ShelfRelativeTime.text(updatedAt: item.updatedAt, now: ShelfClock.now(), language: language))
         if let ext = item.fileExtension, !ext.isEmpty { metadata.append(ext.uppercased()) }
         if item.pinned { metadata.append(L10n.text("pinned", language)) }
+        let primaryIntent: Item.ActionIntent = item.kind == .file ? .copyShelfItem(item.id) : .useShelfItem(item.id)
         return make(entry, icon: icon, thumbnail: thumbnail, title: item.title, subtitle: subtitle,
                     metadata: metadata, kind: kind, badge: badge(kind, shelfKind: item.kind, language: language),
-                    primary: .init(intent: .useShelfItem(item.id), title: copies ? L10n.text("copy", language) : L10n.text("presentationOpen", language), symbolName: copies ? "doc.on.doc" : "arrow.up.forward"),
+                    primary: .init(intent: primaryIntent, title: copies || item.kind == .file ? L10n.text("copy", language) : L10n.text("presentationOpen", language), symbolName: copies || item.kind == .file ? "doc.on.doc" : "arrow.up.forward"),
                     secondary: secondary, preview: preview, quickLookPath: (item.kind == .file || item.kind == .folder) ? item.content : nil, inspector: .shelfItem(item.id))
     }
 
