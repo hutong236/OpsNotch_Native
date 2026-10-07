@@ -30,7 +30,7 @@ phase6_settings_required = [
     root / 'Sources/OpsNotchApp/Settings/ShelfSettingsView.swift',
     root / 'Sources/OpsNotchApp/Settings/ClipboardSettingsView.swift',
     root / 'Sources/OpsNotchApp/Settings/FinderSettingsView.swift',
-    root / 'Sources/OpsNotchApp/Settings/WorkspaceSettingsView.swift',
+    root / 'Sources/OpsNotchApp/Settings/WorkspaceSettingsPane.swift',
     root / 'Sources/OpsNotchApp/Settings/ShortcutSettingsView.swift',
     root / 'Sources/OpsNotchApp/Settings/AdvancedSettingsView.swift',
 ]
