@@ -54,13 +54,16 @@ final class QuickShelfSnapshotTests: XCTestCase {
             builds += 1
             return 42
         }
-        let second = cache.value(for: 1) {
-            builds += 1
-            return 99
+        var repeatedValues: [Int] = []
+        for _ in 0..<128 {
+            repeatedValues.append(cache.value(for: 1) {
+                builds += 1
+                return 99
+            })
         }
 
         XCTAssertEqual(first, 42)
-        XCTAssertEqual(second, 42)
+        XCTAssertTrue(repeatedValues.allSatisfy { $0 == 42 })
         XCTAssertEqual(builds, 1)
 
         let third = cache.value(for: 2) {
@@ -86,7 +89,9 @@ final class QuickShelfSnapshotTests: XCTestCase {
         }
         XCTAssertEqual(snapshot(0).visibleItems.map(\.id), [item.id])
         query = "missing"
-        XCTAssertEqual(snapshot(0).visibleItems.map(\.id), [item.id])
+        for _ in 0..<64 {
+            XCTAssertEqual(snapshot(0).visibleItems.map(\.id), [item.id])
+        }
         XCTAssertEqual(builds, 1)
         XCTAssertTrue(snapshot(1).visibleItems.isEmpty)
         XCTAssertEqual(builds, 2)
