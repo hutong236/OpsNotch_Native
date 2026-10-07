@@ -28,7 +28,7 @@ enum ShelfPresentationAdapter {
                 action = .init(intent: .desktop(command), title: L10n.text("presentationSwitchDesktop", language), symbolName: "rectangle.3.group")
             }
             return make(entry, icon: .symbol("rectangle.3.group"), title: title, subtitle: subtitle,
-                        primary: action, preview: .unavailable, inspector: .desktop(command))
+                        metadata: [L10n.text("shelfSourceDesktop", language)], primary: action, preview: .unavailable, inspector: .desktop(command))
         case .finder(_, let title, let path, let quickPathID):
             return pathItem(entry, title: title, path: path, isDirectory: true,
                             primary: .init(intent: .openFinder(path: path, quickPathID: quickPathID),
@@ -56,7 +56,7 @@ enum ShelfPresentationAdapter {
         if preview != .unavailable { actions.append(.init(intent: .quickLook(path: path), title: L10n.text("quickLook", language), symbolName: "eye")) }
         return make(entry, icon: .file(path: path, fallbackSymbol: isDirectory ? "folder" : "doc"),
                     thumbnail: image ? .imageFile(path: path) : nil, title: title, subtitle: path,
-                    kind: isDirectory ? .folder : .file, primary: primary, secondary: actions,
+                    metadata: [L10n.text("shelfSourceFinder", language)], kind: isDirectory ? .folder : .file, primary: primary, secondary: actions,
                     preview: preview, quickLookPath: isDirectory ? nil : path, inspector: .path(path))
     }
 
@@ -87,7 +87,7 @@ enum ShelfPresentationAdapter {
             icon = .symbol(symbol(kind)); thumbnail = nil; preview = .unavailable
             subtitle = item.content; copies = false
         case .action:
-            icon = .symbol(symbol(kind)); thumbnail = nil; preview = .unavailable; copies = false
+            icon = .symbol(symbol(kind)); thumbnail = nil; preview = .text(item.content); copies = false
             switch item.actionKind {
             case .openPath: subtitle = L10n.text("presentationLocalPath", language)
             case .openURL: subtitle = "HTTP/HTTPS"

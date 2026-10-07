@@ -51,6 +51,11 @@ final class ShelfExperienceModel: ObservableObject {
     private var visibleItems: [ShelfItem] { snapshot?()?.visibleShelfItems ?? [] }
     private var recentItems: [ShelfItem] { snapshot?()?.itemSnapshot.recent ?? [] }
 
+    var focusedShelfPresentationItem: ShelfPresentationItem? {
+        guard let id = highlightedQuickEntryID else { return nil }
+        return snapshot?()?.presentationByID[id]
+    }
+
     /// A new context session refreshes time-sensitive recency without periodic work.
     /// Ordinary highlight, selection and focus changes do not start a new session.
     func refreshContext(_ next: AppContextKind) {

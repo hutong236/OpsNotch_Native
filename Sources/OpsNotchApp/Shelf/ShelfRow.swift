@@ -143,28 +143,29 @@ private struct ShelfRowButtonStyle: ButtonStyle {
 
 /// Bounded resources, requested from task lifecycle rather than SwiftUI body evaluation.
 @MainActor
-private final class ShelfRowImageCache {
+final class ShelfRowImageCache {
     static let shared = ShelfRowImageCache()
     private let cache = NSCache<NSString, NSImage>()
     private init() { cache.countLimit = 128; cache.totalCostLimit = 32 * 1024 * 1024 }
-    func image(for item: ShelfPresentationItem) -> NSImage? {
+    func image(for item: ShelfPresentationItem, maximumPixelSize: Int = 96) -> NSImage? {
         let key: String
         let path: String
         let thumbnail: Bool
         if case .imageFile(let value) = item.thumbnail {
-            path = value; key = "image:\(value)"; thumbnail = true
+            path = value; key = "image:\(maximumPixelSize):\(value)"; thumbnail = true
         } else if case .file(let value, _) = item.icon {
             path = value; key = "icon:\(value)"; thumbnail = false
         } else { return nil }
         if let cached = cache.object(forKey: key as NSString) { return cached }
         // Decode only a small thumbnail instead of retaining full clipboard images.
         let image: NSImage
-        if thumbnail, let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
-           let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 96,
-            kCGImageSourceCreateThumbnailWithTransform: true
-           ] as CFDictionary) {
+        if thumbnail {
+            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
+                    kCGImageSourceCreateThumbnailWithTransform: true
+                  ] as CFDictionary) else { return nil }
             image = NSImage(cgImage: cgImage, size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
         } else { image = NSWorkspace.shared.icon(forFile: path) }
         let cost = image.representations.reduce(0) { total, representation in
