@@ -48,7 +48,7 @@ final class ShelfExperienceModel: ObservableObject {
 
     private var visibleQuickEntries: [QuickShelfEntry] { snapshot?()?.visibleEntries ?? [] }
     private var visibleFinderEntries: [QuickShelfEntry] { snapshot?()?.finderEntries ?? [] }
-    private var visibleItems: [ShelfItem] { snapshot?()?.itemSnapshot.visibleItems ?? [] }
+    private var visibleItems: [ShelfItem] { snapshot?()?.visibleShelfItems ?? [] }
     private var recentItems: [ShelfItem] { snapshot?()?.itemSnapshot.recent ?? [] }
 
     /// A new context session refreshes time-sensitive recency without periodic work.

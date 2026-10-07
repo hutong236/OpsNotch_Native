@@ -15,6 +15,7 @@ struct ShelfSnapshot {
     let desktopEntries: [QuickShelfEntry]
     let localEntries: [QuickShelfEntry]
     let visibleEntries: [QuickShelfEntry]
+    let visibleShelfItems: [ShelfItem]
     let presentationItems: [ShelfPresentationItem]
     let presentationByID: [String: ShelfPresentationItem]
     let entryByID: [String: QuickShelfEntry]
@@ -73,6 +74,7 @@ final class ShelfSnapshotProvider {
             desktopEntries: desktopEntries,
             localEntries: localEntries,
             visibleEntries: visibleEntries,
+            visibleShelfItems: visibleEntries.compactMap(\.shelfItem),
             presentationItems: presentationItems,
             presentationByID: Dictionary(uniqueKeysWithValues: presentationItems.map { ($0.id, $0) }),
             entryByID: entryByID
