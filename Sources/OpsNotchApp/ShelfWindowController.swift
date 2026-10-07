@@ -137,7 +137,7 @@ final class ShelfWindowController: NSObject {
     }
 
     func showPeek(on screen: NSScreen) {
-        show(.confirmation, on: screen)
+        show(.peek, on: screen)
     }
 
     func showConfirmation(on screen: NSScreen) {
