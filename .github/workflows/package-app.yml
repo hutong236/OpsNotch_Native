@@ -2,7 +2,7 @@ name: macOS 打包
 
 # 触发时机:
 # 1. 推送到 main -> 构建 + 上传 Artifact(开发版构建,从 Actions 页下载)
-# 2. 推送 v* 标签 -> 构建 + 创建正式 GitHub Release 附带 zip
+# 2. 推送 v* 标签 -> 构建 + 创建 GitHub Release 附带 zip
 # 3. 手动触发(Actions 页面 Run workflow)-> 构建 + 上传 Artifact
 # 纯文档改动(*.md、openspec/ 等)不触发,节省构建时间。
 on:
@@ -33,6 +33,9 @@ jobs:
       - name: Swift version
         run: swift --version
 
+      - name: Release version parser tests
+        run: python3 scripts/test_release_version.py
+
       - name: Core tests
         run: swift test
 
@@ -45,22 +48,24 @@ jobs:
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             RELEASE_VERSION="${GITHUB_REF#refs/tags/v}"
-            if ! [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Invalid release tag: ${GITHUB_REF}"
-              exit 1
-            fi
             echo "is_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+            python3 scripts/release_version.py "$RELEASE_VERSION" --github-output "$GITHUB_OUTPUT"
           else
             echo "is_release=false" >> "$GITHUB_OUTPUT"
-            echo "version=" >> "$GITHUB_OUTPUT"
+            echo "tag_version=" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "app_version=" >> "$GITHUB_OUTPUT"
+            echo "app_build=" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "stage=development" >> "$GITHUB_OUTPUT"
+            echo "stage_number=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Package app
         shell: bash
         run: |
           if [[ "${{ steps.version.outputs.is_release }}" == "true" ]]; then
-            APP_VERSION="${{ steps.version.outputs.version }}" scripts/build_app.sh
+            APP_VERSION="${{ steps.version.outputs.app_version }}"             APP_BUILD="${{ steps.version.outputs.app_build }}"               scripts/build_app.sh
           else
             scripts/build_app.sh
           fi
@@ -73,15 +78,15 @@ jobs:
           ACTUAL_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
 
           if [[ "${{ steps.version.outputs.is_release }}" == "true" ]]; then
-            EXPECTED_VERSION="${{ steps.version.outputs.version }}"
-            EXPECTED_BUILD="${EXPECTED_VERSION//./}"
+            EXPECTED_VERSION="${{ steps.version.outputs.app_version }}"
+            EXPECTED_BUILD="${{ steps.version.outputs.app_build }}"
 
-            echo "Tag version:      $EXPECTED_VERSION"
+            echo "Tag version:      ${{ steps.version.outputs.tag_version }}"
             echo "Packaged version: $ACTUAL_VERSION"
             echo "Packaged build:   $ACTUAL_BUILD"
 
             if [[ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]]; then
-              echo "Version mismatch: tag=$EXPECTED_VERSION app=$ACTUAL_VERSION"
+              echo "Version mismatch: expected=$EXPECTED_VERSION app=$ACTUAL_VERSION"
               exit 1
             fi
             if [[ "$ACTUAL_BUILD" != "$EXPECTED_BUILD" ]]; then
@@ -100,11 +105,10 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ steps.version.outputs.is_release }}" == "true" ]]; then
-            NAME="OpsNotch-v${{ steps.version.outputs.version }}-macOS"
+            NAME="OpsNotch-v${{ steps.version.outputs.tag_version }}-macOS"
           else
             NAME="OpsNotch-dev-$(date +%Y%m%d)-${GITHUB_SHA::7}-macOS"
           fi
-          # ditto 保留签名与元数据,解压后 app 仍有效
           ditto -c -k --sequesterRsrc --keepParent "build/Ops Notch.app" "$NAME.zip"
           echo "zip_name=$NAME" >> "$GITHUB_OUTPUT"
 
@@ -115,16 +119,17 @@ jobs:
           path: ${{ steps.zip.outputs.zip_name }}.zip
           if-no-files-found: error
 
-      # 正式版:推送 v* 标签 -> 创建带 zip 的 Release
       - name: Create release (仅标签触发)
         if: steps.version.outputs.is_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          TAG="v${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          PRERELEASE_FLAG=()
+          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+            PRERELEASE_FLAG+=(--prerelease)
+          fi
+
           gh release delete "$TAG" --yes 2>/dev/null || true
-          gh release create "$TAG" \
-            --title "Ops Notch $TAG" \
-            --notes "Apple Silicon (arm64) 构建。下载 zip 解压后,首次打开请右键 App -> 打开(Ad-hoc 签名未公证)。" \
-            --generate-notes \
-            "${{ steps.zip.outputs.zip_name }}.zip"
+          gh release create "$TAG"             --title "Ops Notch $TAG"             --notes "Apple Silicon (arm64) 构建。下载 zip 解压后，首次打开请右键 App -> 打开（Ad-hoc 签名未公证）。"             --generate-notes             "${PRERELEASE_FLAG[@]}"             "${{ steps.zip.outputs.zip_name }}.zip"
