@@ -147,6 +147,37 @@ final class ShelfUnknownFieldCompatibilityTests: XCTestCase {
         }
     }
 
+    func testKnownKeysRemainAuthoritativeEvenIfMetadataContainsCollisions() throws {
+        var store = ShelfStore(items: [ShelfItem(kind: .text, title: "Current", content: "Current")])
+        store.unknownFields["version"] = .integer(-1)
+        store.settings.unknownFields["hotkey"] = .object(["keyCode": .integer(40)])
+        store.settings.unknownFields["finder_reveal_hotkey"] = .object([:])
+        store.items[0].unknownFields["title"] = .string("Stale")
+        for key in ["storage_mode", "action_kind", "extension", "source_app_name"] {
+            store.items[0].unknownFields[key] = .string("Stale")
+        }
+        let object = try jsonObject(JSONEncoder().encode(store))
+        XCTAssertEqual(object["version"] as? Int, ShelfStore.currentVersion)
+        let settings = try XCTUnwrap(object["settings"] as? [String: Any])
+        XCTAssertNil(settings["hotkey"])
+        XCTAssertNil(settings["finder_reveal_hotkey"])
+        let items = try XCTUnwrap(object["items"] as? [[String: Any]])
+        XCTAssertEqual(items[0]["title"] as? String, "Current")
+        for key in ["storage_mode", "action_kind", "extension", "source_app_name"] {
+            XCTAssertNil(items[0][key])
+        }
+    }
+
+    func testEncodingUnsupportedMetadataDoesNotReplaceOriginalData() throws {
+        try withService(fixture()) { service in
+            let original = try Data(contentsOf: service.storeURL)
+            var store = try service.load()
+            store.settings.unknownFields["unsupported"] = .decimal(.nan)
+            XCTAssertThrowsError(try service.save(store))
+            XCTAssertEqual(try Data(contentsOf: service.storeURL), original)
+        }
+    }
+
     private func item(_ id: UUID, kind: String = "text", pinned: Bool = true, timestamp: UInt64 = 100) -> String {
         #"{"id":"\#(id.uuidString)","kind":"\#(kind)","title":"Original","content":"legacy content","pinned":\#(pinned),"created_at":\#(timestamp),"updated_at":\#(timestamp),"storage_mode":"reference","action_kind":"open_path","extension":"txt","source_app_name":"Example","future":\#(payload)}"#
     }

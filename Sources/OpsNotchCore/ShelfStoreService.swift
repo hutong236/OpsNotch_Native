@@ -259,10 +259,14 @@ public final class ShelfStoreService: @unchecked Sendable {
     }
 
     private func decodeCompatible(_ data: Data) throws -> ShelfStore {
-        if let current = try? decoder.decode(ShelfStore.self, from: data) { return current }
-        if let legacyItems = try? decoder.decode([ShelfItem].self, from: data) {
+        do { return try decoder.decode(ShelfStore.self, from: data) }
+        catch let error as UnknownJSONFieldError { throw error }
+        catch { /* Try the supported legacy root-array format. */ }
+        do {
+            let legacyItems = try decoder.decode([ShelfItem].self, from: data)
             return ShelfStore(version: 1, items: legacyItems, settings: .init())
-        }
+        } catch let error as UnknownJSONFieldError { throw error }
+        catch { /* Neither supported format decoded. */ }
         throw ShelfStoreError.invalidStore
     }
 
