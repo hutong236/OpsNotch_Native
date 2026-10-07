@@ -36,6 +36,12 @@ phase6_settings_required = [
 ]
 settings_controller = files.get(root / 'Sources/OpsNotchApp/SettingsWindowController.swift', '')
 status_bar_controller = files.get(root / 'Sources/OpsNotchApp/StatusBarController.swift', '')
+shelf_window_controller = files.get(root / 'Sources/OpsNotchApp/ShelfWindowController.swift', '')
+ops_surface = files.get(root / 'Sources/OpsNotchApp/DesignSystem/OpsSurface.swift', '')
+legacy_phase7_ui_paths = [
+    root / 'Sources/OpsNotchApp/FinderQuickLauncherWindowController.swift',
+    root / 'Sources/OpsNotchApp/WorkspaceSettingsView.swift',
+]
 legacy_row_types = (
     'private struct DesktopQuickShelfRowView',
     'private struct FinderQuickShelfRowView',
@@ -52,6 +58,7 @@ presentation_text = '\n'.join(
     if path == root / 'Sources/OpsNotchApp/ShelfWindowController.swift'
     or '/Sources/OpsNotchApp/Shelf/Presentation/' in path.as_posix()
 )
+drop_success_feedback = shelf_window_controller.split('private struct DropSuccessFeedbackView', 1)[1].split('final class ShelfPanel', 1)[0] if 'private struct DropSuccessFeedbackView' in shelf_window_controller else ''
 migrated_ui_text = '\n'.join(
     text for path, text in files.items()
     if path == root / 'Sources/OpsNotchApp/ShelfView.swift'
@@ -86,6 +93,11 @@ checks={
  'Shelf shell has no numeric RoundedRectangle radii': re.search(r'RoundedRectangle\(cornerRadius\s*:\s*[0-9]', shelf_view) is None,
  'status menu exposes Keep Shelf Open': 'toggleKeepShelfOpen' in status_bar_controller and 'keepShelfOpen' in status_bar_controller,
  'status menu stays a concise control center': '#selector(newText)' not in status_bar_controller and 'versionItem' not in status_bar_controller,
+ 'legacy Phase 7 standalone UI paths removed': all(not path.exists() for path in legacy_phase7_ui_paths),
+ 'drop success uses confirmation presentation state': re.search(r'private func showAcceptedDropFeedback\(\)\s*\{[\s\S]{0,320}show\(\.confirmation,\s*on:\s*screen\)', shelf_window_controller) is not None,
+ 'drop success feedback has no raw point-size fonts': re.search(r'\.font\(\.system\(size\s*:', drop_success_feedback) is None,
+ 'drop success feedback has no numeric RoundedRectangle radii': re.search(r'RoundedRectangle\(cornerRadius\s*:\s*[0-9]', drop_success_feedback) is None,
+ 'Shelf surfaces expose increased-contrast metrics': all(name in ops_surface for name in ('panelStrokeOpacity', 'focusStrokeOpacity', 'selectedOpacity', 'dropTargetStrokeOpacity')),
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
