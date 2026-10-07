@@ -20,6 +20,10 @@ final class OpsSurfaceContrastTests: XCTestCase {
             OpsSurface.dropTargetStrokeOpacity(increasedContrast: true),
             OpsSurface.dropTargetStrokeOpacity(increasedContrast: false)
         )
+        XCTAssertGreaterThan(
+            OpsSurface.settingsCardOpacity(increasedContrast: true),
+            OpsSurface.settingsCardOpacity(increasedContrast: false)
+        )
     }
 }
 #endif
