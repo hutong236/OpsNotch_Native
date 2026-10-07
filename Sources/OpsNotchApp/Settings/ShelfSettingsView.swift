@@ -21,7 +21,7 @@ struct ShelfSettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(width: 210)
+                    .frame(width: OpsControlMetrics.settingsPickerWidth)
                 }
 
                 Divider()
@@ -47,7 +47,7 @@ struct ShelfSettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(width: 210)
+                    .frame(width: OpsControlMetrics.settingsPickerWidth)
                 }
             }
         }
