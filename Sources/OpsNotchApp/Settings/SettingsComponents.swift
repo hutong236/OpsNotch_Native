@@ -18,7 +18,7 @@ struct SettingsPage<Content: View>: View {
             VStack(alignment: .leading, spacing: OpsSpacing.large) {
                 VStack(alignment: .leading, spacing: OpsSpacing.xSmall) {
                     Text(title)
-                        .font(.title2.weight(.semibold))
+                        .font(OpsTypography.settingsTitle)
                     if let subtitle, !subtitle.isEmpty {
                         Text(subtitle)
                             .font(OpsTypography.secondary)
@@ -28,7 +28,7 @@ struct SettingsPage<Content: View>: View {
 
                 content
             }
-            .frame(maxWidth: 680, alignment: .topLeading)
+            .frame(maxWidth: OpsControlMetrics.settingsContentMaxWidth, alignment: .topLeading)
             .padding(OpsSpacing.xLarge)
         }
     }
