@@ -5,7 +5,7 @@ import OpsNotchCore
 struct SettingsPage<Content: View>: View {
     let title: String
     let subtitle: String?
-    @ViewBuilder let content: Content
+    let content: Content
 
     init(title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
@@ -36,7 +36,7 @@ struct SettingsPage<Content: View>: View {
 
 struct SettingsCard<Content: View>: View {
     let title: String?
-    @ViewBuilder let content: Content
+    let content: Content
 
     init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
@@ -59,7 +59,7 @@ struct SettingsCard<Content: View>: View {
 struct SettingsRow<Content: View>: View {
     let title: String
     let detail: String?
-    @ViewBuilder let content: Content
+    let content: Content
 
     init(_ title: String, detail: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
