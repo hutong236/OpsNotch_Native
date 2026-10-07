@@ -2,6 +2,33 @@ import XCTest
 @testable import OpsNotchCore
 
 final class QuickShelfKeyboardNavigationTests: XCTestCase {
+    func testSectionBoundaryTargetsIgnoreOtherSectionOrder() {
+        // Each direction enters its destination at the first rendered row,
+        // even when the other section has a different length/order.
+        for finderIDs in [["finder:last"], ["finder:first", "finder:last"]] {
+            for recentIDs in [["shelf:last"], ["shelf:first", "shelf:last"]] {
+                XCTAssertEqual(QuickShelfKeyboardNavigation.destinationID(
+                    for: .right, finderEntryIDs: finderIDs, recentEntryIDs: recentIDs), finderIDs.first)
+                XCTAssertEqual(QuickShelfKeyboardNavigation.destinationID(
+                    for: .left, finderEntryIDs: finderIDs, recentEntryIDs: recentIDs), recentIDs.first)
+            }
+        }
+    }
+
+    func testBothEmptySectionsHaveNoDestinationInEitherDirection() {
+        for direction in [QuickShelfHorizontalDirection.left, .right] {
+            XCTAssertNil(QuickShelfKeyboardNavigation.destinationID(
+                for: direction, finderEntryIDs: [], recentEntryIDs: []))
+        }
+    }
+
+    func testEmptySourceSectionDoesNotBlockNonemptyDestination() {
+        XCTAssertEqual(QuickShelfKeyboardNavigation.destinationID(
+            for: .right, finderEntryIDs: ["finder:only"], recentEntryIDs: []), "finder:only")
+        XCTAssertEqual(QuickShelfKeyboardNavigation.destinationID(
+            for: .left, finderEntryIDs: [], recentEntryIDs: ["shelf:only"]), "shelf:only")
+    }
+
     func testRightTargetsFirstVisibleFinderEntry() {
         let target = QuickShelfKeyboardNavigation.destinationID(
             for: .right,
