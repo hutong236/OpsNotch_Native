@@ -35,6 +35,7 @@ phase6_settings_required = [
     root / 'Sources/OpsNotchApp/Settings/AdvancedSettingsView.swift',
 ]
 settings_controller = files.get(root / 'Sources/OpsNotchApp/SettingsWindowController.swift', '')
+settings_root = files.get(root / 'Sources/OpsNotchApp/Settings/SettingsRootView.swift', '')
 status_bar_controller = files.get(root / 'Sources/OpsNotchApp/StatusBarController.swift', '')
 shelf_window_controller = files.get(root / 'Sources/OpsNotchApp/ShelfWindowController.swift', '')
 ops_surface = files.get(root / 'Sources/OpsNotchApp/DesignSystem/OpsSurface.swift', '')
@@ -119,6 +120,7 @@ checks={
  'presentation uses motion tokens': re.search(r'context\.duration\s*=\s*[0-9]', presentation_text) is None,
  '3.0 settings pages exist': all(path.is_file() for path in phase6_settings_required),
  'settings controller uses sidebar root': 'SettingsRootView(' in settings_controller,
+ 'settings sidebar uses nonoptional typed selection': '@State private var selection: OpsSettingsSection = .general' in settings_root and '.tag(section)' in settings_root and '.tag(Optional(section))' not in settings_root,
  'legacy monolithic SettingsView removed': 'struct SettingsView: View' not in settings_controller,
  '3.0 migrated UI has no inline language ternaries': re.search(r'language\s*==\s*\.zhCN\s*\?', migrated_ui_text) is None,
  'Shelf shell has no raw point-size fonts': re.search(r'\.font\(\.system\(size\s*:', shelf_view) is None,
