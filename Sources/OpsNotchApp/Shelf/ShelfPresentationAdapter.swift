@@ -28,7 +28,7 @@ enum ShelfPresentationAdapter {
                 action = .init(intent: .desktop(command), title: L10n.text("presentationSwitchDesktop", language), symbolName: "rectangle.3.group")
             }
             return make(entry, icon: .symbol("rectangle.3.group"), title: title, subtitle: subtitle,
-                        primary: action, preview: .unavailable, inspector: .desktop(command))
+                        metadata: [L10n.text("shelfSourceDesktop", language)], primary: action, preview: .unavailable, inspector: .desktop(command))
         case .finder(_, let title, let path, let quickPathID):
             return pathItem(entry, title: title, path: path, isDirectory: true,
                             primary: .init(intent: .openFinder(path: path, quickPathID: quickPathID),
@@ -56,7 +56,7 @@ enum ShelfPresentationAdapter {
         if preview != .unavailable { actions.append(.init(intent: .quickLook(path: path), title: L10n.text("quickLook", language), symbolName: "eye")) }
         return make(entry, icon: .file(path: path, fallbackSymbol: isDirectory ? "folder" : "doc"),
                     thumbnail: image ? .imageFile(path: path) : nil, title: title, subtitle: path,
-                    kind: isDirectory ? .folder : .file, primary: primary, secondary: actions,
+                    metadata: [L10n.text("shelfSourceFinder", language)], kind: isDirectory ? .folder : .file, primary: primary, secondary: actions,
                     preview: preview, quickLookPath: isDirectory ? nil : path, inspector: .path(path))
     }
 
@@ -87,7 +87,7 @@ enum ShelfPresentationAdapter {
             icon = .symbol(symbol(kind)); thumbnail = nil; preview = .unavailable
             subtitle = item.content; copies = false
         case .action:
-            icon = .symbol(symbol(kind)); thumbnail = nil; preview = .unavailable; copies = false
+            icon = .symbol(symbol(kind)); thumbnail = nil; preview = .text(item.content); copies = false
             switch item.actionKind {
             case .openPath: subtitle = L10n.text("presentationLocalPath", language)
             case .openURL: subtitle = "HTTP/HTTPS"
@@ -112,9 +112,10 @@ enum ShelfPresentationAdapter {
         metadata.append(ShelfRelativeTime.text(updatedAt: item.updatedAt, now: ShelfClock.now(), language: language))
         if let ext = item.fileExtension, !ext.isEmpty { metadata.append(ext.uppercased()) }
         if item.pinned { metadata.append(L10n.text("pinned", language)) }
+        let primaryIntent: Item.ActionIntent = item.kind == .file ? .copyShelfItem(item.id) : .useShelfItem(item.id)
         return make(entry, icon: icon, thumbnail: thumbnail, title: item.title, subtitle: subtitle,
                     metadata: metadata, kind: kind, badge: badge(kind, shelfKind: item.kind, language: language),
-                    primary: .init(intent: .useShelfItem(item.id), title: copies ? L10n.text("copy", language) : L10n.text("presentationOpen", language), symbolName: copies ? "doc.on.doc" : "arrow.up.forward"),
+                    primary: .init(intent: primaryIntent, title: copies || item.kind == .file ? L10n.text("copy", language) : L10n.text("presentationOpen", language), symbolName: copies || item.kind == .file ? "doc.on.doc" : "arrow.up.forward"),
                     secondary: secondary, preview: preview, quickLookPath: (item.kind == .file || item.kind == .folder) ? item.content : nil, inspector: .shelfItem(item.id))
     }
 

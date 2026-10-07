@@ -2,6 +2,50 @@ import XCTest
 @testable import OpsNotchCore
 
 final class QuickShelfSnapshotTests: XCTestCase {
+    func testCommandQueriesFilterBeforeRankingAndKeepStableIDs() {
+        let file = ShelfItem(kind: .file, title: "Report", content: "/tmp/report")
+        let folder = ShelfItem(kind: .folder, title: "Report folder", content: "/tmp/reports")
+        let favorite = ShelfItem(kind: .text, title: "Report token", content: "token", pinned: true)
+        let recent = ShelfItem(kind: .text, title: "Report token", content: "token")
+        let items = [file, folder, favorite, recent]
+        func result(_ query: String, filter: ShelfKindFilter = .all) -> Set<UUID> {
+            Set(QuickShelfItemSnapshotBuilder.build(items: items, workingSetItemIDs: [favorite.id],
+                query: query, kindFilter: filter, appContext: .generic, now: 1_000).visibleItems.map(\.id))
+        }
+        XCTAssertEqual(result("type:file report", filter: .text), [file.id, folder.id])
+        XCTAssertEqual(result("type:folder report"), [folder.id])
+        XCTAssertEqual(result("@fav token"), [favorite.id])
+        XCTAssertEqual(result("report"), Set(items.map(\.id)))
+        XCTAssertTrue(result("type:unknown report").isEmpty)
+        for query in ["d", "d2", "~/Downloads", "/tmp/report"] {
+            XCTAssertTrue(result(query).isEmpty, query)
+        }
+    }
+
+    func testLegacyDesktopAliasesResolveAtCommandFirstScopeBoundary() {
+        let aliases: [(String, CommandIntent)] = [
+            ("desktop", .desktopList), (" 桌面 ", .desktopList),
+            ("DESKTOP 3", .desktopSwitch(index: 3)), ("桌面 4", .desktopSwitch(index: 4))
+        ]
+        for (query, intent) in aliases {
+            let literalMatch = ShelfItem(kind: .text, title: query, content: query)
+            let scope = CommandSearchScope(query: query, kindFilter: .text)
+            XCTAssertEqual(scope.intent, intent, query)
+            XCTAssertFalse(scope.includesFinderQuickPaths, query)
+            let snapshot = QuickShelfItemSnapshotBuilder.build(items: [literalMatch],
+                workingSetItemIDs: [], query: query, kindFilter: .text, appContext: .generic, now: 1_000)
+            XCTAssertTrue(snapshot.visibleItems.isEmpty, query)
+        }
+        for query in ["desktop app", "desktop2", "桌面4", "desktop 0", "桌面 01", "desktop 2 report", "docker"] {
+            let literalMatch = ShelfItem(kind: .text, title: query, content: query)
+            let scope = CommandSearchScope(query: query, kindFilter: .all)
+            XCTAssertNil(scope.intent, query)
+            let snapshot = QuickShelfItemSnapshotBuilder.build(items: [literalMatch],
+                workingSetItemIDs: [], query: query, kindFilter: .all, appContext: .generic, now: 1_000)
+            XCTAssertEqual(snapshot.visibleItems.map(\.id), [literalMatch.id], query)
+        }
+    }
+
     func testRevisionCacheBuildsOncePerRevision() {
         let cache = QuickShelfSnapshotCache<Int>()
         var builds = 0

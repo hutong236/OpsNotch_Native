@@ -1,12 +1,26 @@
 #if os(macOS)
 import SwiftUI
+import OpsNotchCore
 
 /// Section heading shared by all source groups; grouping changes belong to the snapshot layer.
 struct ShelfSectionView: View {
-    let title: String
+    let kind: ShelfSectionKind
+    let language: AppLanguage
     let count: Int
     var action: String? = nil
     var onAction: (() -> Void)? = nil
+
+    private var title: String {
+        let key: String
+        switch kind {
+        case .context: key = "shelfSectionContext"
+        case .now: key = "shelfSectionNow"
+        case .favorites: key = "shelfSectionFavorites"
+        case .recent: key = "shelfSectionRecent"
+        case .results: key = "shelfSectionResults"
+        }
+        return L10n.text(key, language)
+    }
 
     var body: some View {
         HStack(spacing: OpsSpacing.small) {

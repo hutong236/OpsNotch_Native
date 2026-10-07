@@ -31,7 +31,8 @@ public enum CommandResolver {
             return .typeFilter(kind: kind, query: residual)
         }
 
-        if token == "d" {
+        // Keep the established named aliases on the same strict resolver path.
+        if token == "d" || token == "desktop" || token == "桌面" {
             return residual.isEmpty ? .desktopList : desktopSwitch(residual)
         }
         if token.hasPrefix("d"), residual.isEmpty {

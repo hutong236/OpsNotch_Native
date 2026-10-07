@@ -85,7 +85,7 @@ final class AppModel: ObservableObject {
     }
 
     var visibleItems: [ShelfItem] {
-        quickShelfSnapshot.itemSnapshot.visibleItems
+        quickShelfSnapshot.visibleShelfItems
     }
 
     /// Finder 快捷路径只在“全部/文件”中出现，并与 Shelf 共用搜索框。
