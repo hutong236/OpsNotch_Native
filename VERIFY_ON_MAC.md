@@ -178,7 +178,7 @@ Ops Notch 不应创建任何 1420 监听端口。
 2. 输入普通关键词，Shelf / Working Set / Finder 快捷路径仍按已有匹配与排名显示，条目 ID、分区计数与键盘高亮一致。
 3. 输入 `type:file report`：仅匹配 file/folder 条目和 Finder 快捷路径；safe action 不混入。输入 `type:folder report`：Shelf 仅匹配 folder；`type:text`、`type:url`、`type:application`、`type:action` 对应各自类型。残余查询保留大小写与空格。
 4. 输入 `@fav token`：仅显示匹配的 pinned 收藏，包括已在 Working Set 的收藏且不重复；未收藏的 Working Set / Recent 与 Finder 路径不混入。
-5. 输入 `d` / `d2` / `d 2`：仅显示对应 Desktop 命令；Enter 保持现有桌面列表/切换处理与能力限制。不完整/非法命令（`d0`、`d2 report`、`type:unknown report`）作为普通搜索，不执行操作。
+5. 输入 `d` / `d2` / `d 2`，以及已有别名 `desktop` / `桌面` / `desktop 3` / `桌面 4`：仅显示对应 Desktop 命令（大小写与额外空白兼容）；Enter 保持现有桌面列表/切换处理与能力限制。不完整/非法命令（`d0`、`d2 report`、`desktop app`、`desktop2`、`桌面 01`、`type:unknown report`）作为普通搜索，不执行操作。
 6. 输入 `~/Downloads` 或绝对目录（含空格）：仅显示 Finder 路径意图；Enter 走现有 Finder 安全校验和打开处理。不存在路径、非目录与无权限路径遵循现有错误提示；不得执行 shell 文本。
 7. 查询变化后高亮回到第一条可见结果；`↑` / `↓` / Enter / Esc 保持行为。查询为空后恢复普通内容；无匹配类型时显示“没有匹配的条目”。
 8. 搜索编辑器中按 Space 必须输入空格（可连续输入 `type:file quarterly report`）；焦点在编辑器外时，Space 对可预览文件/图片或文本保持现有预览，剪贴板不变。带修饰键的 Space 不触发预览。
