@@ -24,7 +24,7 @@ final class ShelfKeyboardController {
         self.clipboard = clipboard
     }
 
-    static func resolve(
+    nonisolated static func resolve(
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags,
         firstResponderIsTextView: Bool
