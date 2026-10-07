@@ -147,6 +147,31 @@ final class ShelfUnknownFieldCompatibilityTests: XCTestCase {
         }
     }
 
+    func testUnknownDecimalBeyondExactPrecisionFailsWithoutWriting() throws {
+        // Foundation Decimal may accept this JSON number by silently rounding it.
+        // Unknown metadata must be preserved exactly or rejected before any write.
+        let number = "0.1234567890123456789012345678901234567890123456789"
+        let objects = [
+            #"{"future":\#(number)}"#,
+            #"{"settings":{"future":\#(number)}}"#,
+            #"{"items":[{"future":\#(number)}]}"#,
+            #"{"settings":{"hotkey":{"keyCode":40,"carbonModifiers":256,"future":\#(number)}}}"#,
+            #"{"settings":{"finder_reveal_hotkey":{"keyCode":40,"carbonModifiers":256,"future":\#(number)}}}"#,
+            #"{"settings":{"finder_quick_paths":[{"future":\#(number)}]}}"#,
+            #"{"future":{"nested":[true,{"number":\#(number)}]}}"#,
+            #"[{"kind":"command","future":[null,\#(number)]}]"#
+        ]
+        for json in objects {
+            let original = Data(json.utf8)
+            try withService(original) { service in
+                XCTAssertThrowsError(try service.load(), json)
+                XCTAssertEqual(try Data(contentsOf: service.storeURL), original)
+                XCTAssertThrowsError(try service.addText("Must not overwrite"), json)
+                XCTAssertEqual(try Data(contentsOf: service.storeURL), original)
+            }
+        }
+    }
+
     func testKnownKeysRemainAuthoritativeEvenIfMetadataContainsCollisions() throws {
         var store = ShelfStore(items: [ShelfItem(kind: .text, title: "Current", content: "Current")])
         store.unknownFields["version"] = .integer(-1)
