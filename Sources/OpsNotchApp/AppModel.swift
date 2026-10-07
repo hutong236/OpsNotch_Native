@@ -196,8 +196,13 @@ final class AppModel: ObservableObject {
     func quickLookHighlighted() -> Bool {
         guard let entry = highlightedQuickEntry else { return false }
         switch entry {
-        case .desktop, .finder:
+        case .desktop:
             return false
+        case .finder(_, let title, let path, _):
+            guard FileManager.default.fileExists(atPath: path) else { return false }
+            let item = ShelfItem(kind: .folder, title: title, content: path, storageMode: .reference)
+            QuickLookService.shared.preview(item)
+            return true
         case .shelf(let item):
             switch item.kind {
             case .file, .folder:
@@ -212,8 +217,13 @@ final class AppModel: ObservableObject {
                 return false
             }
         case .local(_, let title, let path, let isDirectory):
-            guard !isDirectory, FileManager.default.fileExists(atPath: path) else { return false }
-            let item = ShelfItem(kind: .file, title: title, content: path, storageMode: .reference)
+            guard FileManager.default.fileExists(atPath: path) else { return false }
+            let item = ShelfItem(
+                kind: isDirectory ? .folder : .file,
+                title: title,
+                content: path,
+                storageMode: .reference
+            )
             QuickLookService.shared.preview(item)
             return true
         }
@@ -222,8 +232,10 @@ final class AppModel: ObservableObject {
     var canPreviewHighlighted: Bool {
         guard let entry = highlightedQuickEntry else { return false }
         switch entry {
-        case .desktop, .finder:
+        case .desktop:
             return false
+        case .finder(_, _, let path, _):
+            return FileManager.default.fileExists(atPath: path)
         case .shelf(let item):
             switch item.kind {
             case .file, .folder:
@@ -233,8 +245,8 @@ final class AppModel: ObservableObject {
             case .url, .application, .action:
                 return false
             }
-        case .local(_, _, let path, let isDirectory):
-            return !isDirectory && FileManager.default.fileExists(atPath: path)
+        case .local(_, _, let path, _):
+            return FileManager.default.fileExists(atPath: path)
         }
     }
 
