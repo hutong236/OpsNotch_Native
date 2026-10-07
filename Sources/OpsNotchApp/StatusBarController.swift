@@ -1,8 +1,17 @@
 #if os(macOS)
 import AppKit
 
+enum StatusMenuEntry: Equatable {
+    case openShelf
+    case keepShelfOpen
+    case settings
+    case quit
+}
+
 @MainActor
 final class StatusBarController: NSObject {
+    static let menuLayout: [StatusMenuEntry] = [.openShelf, .keepShelfOpen, .settings, .quit]
+
     private let model: AppModel
     private let shelf: ShelfWindowController
     private let sensors: SensorManager
@@ -62,34 +71,40 @@ final class StatusBarController: NSObject {
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(item(
-            L10n.text("openShelf", model.language),
-            symbolName: "tray.full",
-            action: #selector(openShelf)
-        ))
-        menu.addItem(item(
-            L10n.text("newText", model.language),
-            symbolName: "square.and.pencil",
-            action: #selector(newText)
-        ))
-        menu.addItem(.separator())
-        menu.addItem(item(
-            L10n.text("settings", model.language) + "…",
-            symbolName: "gearshape",
-            action: #selector(openSettings)
-        ))
-        menu.addItem(.separator())
 
-        let versionItem = NSMenuItem(title: "Ops Notch v\(AppVersionService.current)", action: nil, keyEquivalent: "")
-        versionItem.image = menuImage("info.circle", description: "Ops Notch")
-        versionItem.isEnabled = false
-        menu.addItem(versionItem)
+        for entry in Self.menuLayout {
+            switch entry {
+            case .openShelf:
+                menu.addItem(item(
+                    L10n.text("openShelf", model.language),
+                    symbolName: "tray.full",
+                    action: #selector(openShelf)
+                ))
+            case .keepShelfOpen:
+                let keepOpen = item(
+                    L10n.text("keepShelfOpen", model.language),
+                    symbolName: "pin",
+                    action: #selector(toggleKeepShelfOpen)
+                )
+                keepOpen.state = model.settings.shelfKeepOpen ? .on : .off
+                menu.addItem(keepOpen)
+            case .settings:
+                menu.addItem(.separator())
+                menu.addItem(item(
+                    L10n.text("settings", model.language) + "…",
+                    symbolName: "gearshape",
+                    action: #selector(openSettings)
+                ))
+            case .quit:
+                menu.addItem(.separator())
+                menu.addItem(item(
+                    L10n.text("quit", model.language),
+                    symbolName: "power",
+                    action: #selector(quit)
+                ))
+            }
+        }
 
-        menu.addItem(item(
-            L10n.text("quit", model.language),
-            symbolName: "power",
-            action: #selector(quit)
-        ))
         return menu
     }
 
@@ -110,9 +125,15 @@ final class StatusBarController: NSObject {
         if let screen = sensors.preferredScreen() { shelf.showExpanded(on: screen) }
     }
 
-    @objc private func newText() {
-        if let screen = sensors.preferredScreen() { shelf.showExpanded(on: screen) }
-        model.editorDraft = .text()
+    @objc private func toggleKeepShelfOpen() {
+        let turningOn = !model.settings.shelfKeepOpen
+        model.updateSettings { $0.shelfKeepOpen = turningOn }
+
+        if turningOn {
+            if let screen = sensors.preferredScreen() { shelf.showExpanded(on: screen) }
+        } else if shelf.isPanelVisible {
+            shelf.hide()
+        }
     }
 
     @objc private func openSettings() { settings.show() }
