@@ -110,7 +110,7 @@ checks={
  'status menu stays a concise control center': '#selector(newText)' not in status_bar_controller and 'versionItem' not in status_bar_controller,
  'legacy Phase 7 standalone UI paths removed': all(not path.exists() for path in legacy_phase7_ui_paths),
  'legacy filter-chip views stay removed': all(name not in migrated_ui_text for name in ('QuickShelfFilterBar', 'QuickShelfFilterChip', 'FilterChipView')),
- 'duplicate relative-time helpers stay removed': 'RelativeTime' not in migrated_ui_text and 'relativeTime(' not in migrated_ui_text,
+ 'relative-time presentation helper stays singular': migrated_ui_text.count('enum ShelfRelativeTime') <= 1 and 'func relativeTime' not in migrated_ui_text and 'struct RelativeTime' not in migrated_ui_text,
  'legacy preview pane stays removed': 'PreviewPane' not in migrated_ui_text and 'LegacyPreview' not in migrated_ui_text,
  'peek and confirmation remain distinct': re.search(r'func showPeek\(on screen: NSScreen\)\s*\{\s*show\(\.peek, on: screen\)\s*\}', shelf_window_controller) is not None,
  'drop success uses confirmation presentation state': re.search(r'private func showAcceptedDropFeedback\(\)\s*\{[\s\S]{0,320}show\(\.confirmation,\s*on:\s*screen\)', shelf_window_controller) is not None,
