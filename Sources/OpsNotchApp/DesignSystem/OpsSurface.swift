@@ -26,6 +26,10 @@ enum OpsSurface {
         increasedContrast ? 0.58 : 0.30
     }
 
+    static func settingsCardOpacity(increasedContrast: Bool) -> Double {
+        increasedContrast ? 0.075 : 0.035
+    }
+
     static func panelStroke(increasedContrast: Bool) -> Color {
         Color.primary.opacity(panelStrokeOpacity(increasedContrast: increasedContrast))
     }
@@ -50,6 +54,10 @@ enum OpsSurface {
         Color.accentColor.opacity(dropTargetStrokeOpacity(increasedContrast: increasedContrast))
     }
 
+    static func settingsCard(increasedContrast: Bool) -> Color {
+        Color.primary.opacity(settingsCardOpacity(increasedContrast: increasedContrast))
+    }
+
     // Compatibility defaults for surfaces that do not yet need an environment-aware override.
     static var panelStroke: Color { panelStroke(increasedContrast: false) }
     static var card: Color { Color.primary.opacity(0.028) }
@@ -61,5 +69,6 @@ enum OpsSurface {
     static var selectionSubtle: Color { selectionSubtle(increasedContrast: false) }
     static var divider: Color { divider(increasedContrast: false) }
     static var dropTargetStroke: Color { dropTargetStroke(increasedContrast: false) }
+    static var settingsCard: Color { settingsCard(increasedContrast: false) }
 }
 #endif
