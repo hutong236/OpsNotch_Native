@@ -49,7 +49,7 @@ checks={
  'no global shortcut plugin': 'global-shortcut' not in all_text.lower(),
  '3.0 design system files': all(path.is_file() for path in design_system_required),
  'Shelf uses design tokens': all(token in shelf_view for token in ('OpsSpacing.', 'OpsRadius.', 'OpsTypography.', 'OpsControlMetrics.')),
- 'no raw icon tap gestures in new UI': re.search(r'Image\\s*\\([^)]*\\)[\\s\\S]{0,220}\\.onTapGesture', new_ui_text) is None,
+ 'no raw icon tap gestures in new UI': re.search(r'Image\s*\([^)]*\)[\s\S]{0,220}\.onTapGesture', new_ui_text) is None,
  '3.0 unified shelf component files': all(path.is_file() for path in phase2_required),
  'legacy Quick Shelf row types removed': all(name not in shelf_view for name in legacy_row_types),
 }
