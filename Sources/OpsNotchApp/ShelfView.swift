@@ -68,7 +68,7 @@ struct ShelfRootView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.text("quickShelf", model.language)).font(OpsTypography.heading)
-                Text(model.language == .zhCN ? "剪贴板 · 收藏 · Finder · 快速操作" : "Clipboard · Favorites · Finder · Quick Actions")
+                Text(L10n.text("quickShelfSubtitle", model.language))
                     .font(OpsTypography.shelfSubtitle)
                     .foregroundStyle(.secondary)
             }
