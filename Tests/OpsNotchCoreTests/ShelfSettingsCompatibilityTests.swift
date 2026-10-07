@@ -149,4 +149,34 @@ final class ShelfSettingsCompatibilityTests: XCTestCase {
         )
         XCTAssertEqual(roundTripped, decoded)
     }
+    func testThreePointOhSettingsNavigationPreservesPersistedFieldSet() throws {
+        var settings = ShelfSettings()
+        settings.tempTTLHours = 168
+        settings.addMode = .copy
+        settings.displayTarget = .primary
+        settings.dragAssistMode = .sensorOnly
+        settings.language = .enUS
+        settings.hotkey = HotkeyShortcut(keyCode: 31, carbonModifiers: 768)
+        settings.finderRevealHotkey = HotkeyShortcut(keyCode: 3, carbonModifiers: 256)
+        settings.finderDefaultPath = "~/Projects"
+        settings.finderQuickPaths = [FinderQuickPath(label: "Ops", path: "~/Projects/Ops")]
+        settings.workingSetItemIDs = [UUID()]
+        settings.shelfKeepOpen = true
+
+        let data = try JSONEncoder().encode(settings)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(
+            Set(object.keys),
+            Set([
+                "temp_ttl_hours", "add_mode", "display_target", "drag_assist_mode",
+                "language", "hotkey", "finder_reveal_app_name", "finder_reveal_hotkey",
+                "finder_default_path", "finder_quick_paths", "working_set_item_ids",
+                "shelf_keep_open"
+            ])
+        )
+
+        let decoded = try JSONDecoder().decode(ShelfSettings.self, from: data)
+        XCTAssertEqual(decoded, settings)
+    }
+
 }
