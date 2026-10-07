@@ -133,17 +133,8 @@ struct ShelfRootView: View {
 
     @ViewBuilder
     private var content: some View {
-        let groups = model.grouped
-        let desktopEntries = model.visibleDesktopEntries
-        let working = model.workingSetItems
-        let finderEntries = model.visibleFinderEntries
-        let localEntries = model.visibleLocalEntries
-        let isEmpty = desktopEntries.isEmpty
-            && finderEntries.isEmpty
-            && working.isEmpty
-            && groups.pinned.isEmpty
-            && groups.recent.isEmpty
-            && localEntries.isEmpty
+        let sections = model.quickShelfSnapshot.sections
+        let isEmpty = sections.isEmpty
 
         if isEmpty {
             ShelfEmptyState(filtered: !experience.query.isEmpty || experience.kindFilter != .all, language: model.language)
@@ -151,59 +142,17 @@ struct ShelfRootView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 3) {
-                        if !desktopEntries.isEmpty {
-                            ShelfSectionView(title: L10n.text("desktop", model.language), count: desktopEntries.count)
-                            ForEach(desktopEntries) { entry in
-                                ShelfEntryRow(model: model, clipboard: clipboard, entry: entry)
-                                    .id(entry.id)
-                            }
-                        }
-
-                        if !finderEntries.isEmpty {
-                            ShelfSectionView(title: L10n.text("finderQuickPaths", model.language), count: finderEntries.count)
-                            ForEach(finderEntries) { entry in
-                                ShelfEntryRow(model: model, clipboard: clipboard, entry: entry)
-                                    .id(entry.id)
-                            }
-                        }
-
-                        if !working.isEmpty {
+                        ForEach(sections) { section in
                             ShelfSectionView(
-                                title: L10n.text("workingSet", model.language),
-                                count: working.count,
-                                action: L10n.text("clear", model.language),
-                                onAction: model.clearWorkingSet
+                                kind: section.kind,
+                                language: model.language,
+                                count: section.entries.count,
+                                action: section.kind == .now || section.kind == .recent
+                                    ? L10n.text("clear", model.language) : nil,
+                                onAction: section.kind == .now ? model.clearWorkingSet
+                                    : section.kind == .recent ? model.clearRecent : nil
                             )
-                            ForEach(working) { item in
-                                ShelfEntryRow(model: model, clipboard: clipboard, entry: .shelf(item))
-                                    .id(model.quickEntryID(for: item))
-                            }
-                        }
-
-                        if !groups.pinned.isEmpty {
-                            ShelfSectionView(title: L10n.text("pinned", model.language), count: groups.pinned.count)
-                            ForEach(groups.pinned) { item in
-                                ShelfEntryRow(model: model, clipboard: clipboard, entry: .shelf(item))
-                                    .id(model.quickEntryID(for: item))
-                            }
-                        }
-
-                        if !groups.recent.isEmpty {
-                            ShelfSectionView(
-                                title: L10n.text("recent", model.language),
-                                count: groups.recent.count,
-                                action: L10n.text("clear", model.language),
-                                onAction: model.clearRecent
-                            )
-                            ForEach(groups.recent) { item in
-                                ShelfEntryRow(model: model, clipboard: clipboard, entry: .shelf(item))
-                                    .id(model.quickEntryID(for: item))
-                            }
-                        }
-
-                        if !localEntries.isEmpty {
-                            ShelfSectionView(title: L10n.text("localResults", model.language), count: localEntries.count)
-                            ForEach(localEntries) { entry in
+                            ForEach(section.entries) { entry in
                                 ShelfEntryRow(model: model, clipboard: clipboard, entry: entry)
                                     .id(entry.id)
                             }
