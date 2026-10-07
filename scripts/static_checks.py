@@ -38,6 +38,11 @@ settings_controller = files.get(root / 'Sources/OpsNotchApp/SettingsWindowContro
 status_bar_controller = files.get(root / 'Sources/OpsNotchApp/StatusBarController.swift', '')
 shelf_window_controller = files.get(root / 'Sources/OpsNotchApp/ShelfWindowController.swift', '')
 ops_surface = files.get(root / 'Sources/OpsNotchApp/DesignSystem/OpsSurface.swift', '')
+settings_components = files.get(root / 'Sources/OpsNotchApp/Settings/SettingsComponents.swift', '')
+inspector_ui_text = '\n'.join(
+    text for path, text in files.items()
+    if '/Sources/OpsNotchApp/Shelf/Inspector/' in path.as_posix()
+)
 legacy_phase7_ui_paths = [
     root / 'Sources/OpsNotchApp/FinderQuickLauncherWindowController.swift',
     root / 'Sources/OpsNotchApp/WorkspaceSettingsView.swift',
@@ -99,6 +104,9 @@ checks={
  'drop success feedback has no raw point-size fonts': re.search(r'\.font\(\.system\(size\s*:', drop_success_feedback) is None,
  'drop success feedback has no numeric RoundedRectangle radii': re.search(r'RoundedRectangle\(cornerRadius\s*:\s*[0-9]', drop_success_feedback) is None,
  'Shelf surfaces expose increased-contrast metrics': all(name in ops_surface for name in ('panelStrokeOpacity', 'focusStrokeOpacity', 'selectedOpacity', 'dropTargetStrokeOpacity')),
+ 'Inspector uses semantic divider surface': 'Divider().opacity(' not in inspector_ui_text,
+ 'Inspector preview size uses control metrics': re.search(r'\.frame\(width:\s*[0-9]+,\s*height:\s*[0-9]+\)', inspector_ui_text) is None,
+ 'Settings card uses semantic surface token': '.quaternary.opacity(' not in settings_components and 'OpsSurface.settingsCard' in settings_components,
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
