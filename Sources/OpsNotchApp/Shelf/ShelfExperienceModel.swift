@@ -95,8 +95,7 @@ final class ShelfExperienceModel: ObservableObject {
         highlightedQuickEntryID = visibleQuickEntries.first?.id
     }
 
-    func toggleSelection(_ item: ShelfItem) {
-        let flags = NSEvent.modifierFlags
+    func toggleSelection(_ item: ShelfItem, flags: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
         let ordered = visibleItems
         if flags.contains(.shift), let last = lastSelectionID,
            let a = ordered.firstIndex(where: { $0.id == last }),

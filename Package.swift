@@ -27,6 +27,11 @@ let package = Package(
             path: "Sources/OpsNotchApp"
         ),
         .testTarget(
+            name: "OpsNotchAppTests",
+            dependencies: ["OpsNotchApp", "OpsNotchCore"],
+            path: "Tests/OpsNotchAppTests"
+        ),
+        .testTarget(
             name: "OpsNotchCoreTests",
             dependencies: ["OpsNotchCore"],
             path: "Tests/OpsNotchCoreTests"
