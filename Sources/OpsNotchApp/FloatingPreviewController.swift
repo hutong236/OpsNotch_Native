@@ -10,6 +10,7 @@ final class FloatingPreviewController: NSObject {
     static let shared = FloatingPreviewController()
     static let fontSizes: [CGFloat] = [13, 16, 20, 26, 34, 44]
     static let defaultFontSize: CGFloat = fontSizes[2]
+    static let maximumDecodedImagePixelSize = 4096
 
     enum Payload {
         case text(title: String, text: String)
@@ -384,6 +385,7 @@ private struct ZoomableImageContainer: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         private var loadedURL: URL?
+        private var loadTask: Task<Void, Never>?
         var lastResetToken = 0
         var lastZoomToken = 0
         var onLoad: ((CGSize) -> Void)?
@@ -395,17 +397,29 @@ private struct ZoomableImageContainer: NSViewRepresentable {
 
         func load(url: URL, into view: ZoomableImageView) {
             loadedURL = url
-            let target = view
-            Task.detached(priority: .userInitiated) {
-                let image = NSImage(contentsOf: url)
-                let pixelSize = image.flatMap { img -> CGSize? in
-                    img.representations.first.map { CGSize(width: CGFloat($0.pixelsWide), height: CGFloat($0.pixelsHigh)) }
-                }
-                await MainActor.run {
-                    guard target.window != nil || target.superview != nil else { return }
-                    target.setImage(image)
-                    if let pixelSize { self.onLoad?(pixelSize) }
-                }
+            loadTask?.cancel()
+            let maximumPixelSize = FloatingPreviewController.maximumDecodedImagePixelSize
+            loadTask = Task { @MainActor [weak self, weak view] in
+                guard let decoded = await BackgroundImageDecoder.thumbnail(
+                    at: url,
+                    maximumPixelSize: maximumPixelSize
+                ) else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.loadedURL == url,
+                      let view,
+                      view.window != nil || view.superview != nil
+                else { return }
+
+                let image = NSImage(
+                    cgImage: decoded.cgImage,
+                    size: NSSize(
+                        width: CGFloat(decoded.cgImage.width),
+                        height: CGFloat(decoded.cgImage.height)
+                    )
+                )
+                view.setImage(image)
+                self.onLoad?(decoded.originalPixelSize)
             }
         }
     }
