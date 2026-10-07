@@ -81,6 +81,23 @@ migrated_ui_text = '\n'.join(
     or '/Sources/OpsNotchApp/Shelf/' in path.as_posix()
     or '/Sources/OpsNotchApp/Settings/' in path.as_posix()
 )
+performance_ui_text = '\n'.join(
+    text for path, text in files.items()
+    if path == root / 'Sources/OpsNotchApp/ShelfView.swift'
+    or path == root / 'Sources/OpsNotchApp/ShelfWindowController.swift'
+    or path == root / 'Sources/OpsNotchApp/SettingsWindowController.swift'
+    or '/Sources/OpsNotchApp/Shelf/' in path.as_posix()
+    or '/Sources/OpsNotchApp/DesignSystem/' in path.as_posix()
+    or '/Sources/OpsNotchApp/Settings/' in path.as_posix()
+)
+recurring_polling_patterns = (
+    r'Timer\.scheduledTimer',
+    r'Timer\.publish',
+    r'Timer\s*\(\s*timeInterval:',
+    r'DispatchSource\.makeTimerSource',
+    r'DispatchSourceTimer',
+    r'CVDisplayLink',
+)
 checks={
  'no Tauri': 'tauri' not in all_text.lower(),
  'no React': 'react' not in all_text.lower(),
@@ -124,6 +141,8 @@ checks={
  'embedded Settings use semantic radii': re.search(r'RoundedRectangle\(cornerRadius\s*:\s*[0-9]', embedded_settings_ui_text) is None,
  'embedded Settings use semantic control widths': re.search(r'\.frame\(width:\s*[0-9]+', embedded_settings_ui_text) is None,
  'Shelf row keeps selection and focus as independent states': 'OpsRowVisualState' in new_ui_text and 'selected:' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfEntryRow.swift', '') and 'focused:' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfEntryRow.swift', ''),
+ 'Shelf snapshot remains revision cached': 'QuickShelfSnapshotCache<ShelfSnapshot>' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfSnapshotProvider.swift', '') and 'cache.value(for: revision)' in files.get(root / 'Sources/OpsNotchApp/Shelf/ShelfSnapshotProvider.swift', ''),
+ 'presentation UI has no recurring polling timers': all(re.search(pattern, performance_ui_text) is None for pattern in recurring_polling_patterns),
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
