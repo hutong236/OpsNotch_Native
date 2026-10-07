@@ -257,6 +257,50 @@ final class SmartShelfRankingTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.id), [newestContentMatch.id, exact.id, prefixCommand.id])
     }
 
+    func testEveryQueryTierOutranksMaximumContextAndUsageAfterNewestSlot() {
+        let now: UInt64 = 1_000_000
+        let strongerMatches: [(String, String)] = [
+            ("prod", "plain note"),
+            ("prod runbook", "plain note"),
+            ("runbook prod reference", "plain note")
+        ]
+        let weakerMatches: [(String, String)] = [
+            ("prod helper", "kubectl get pods"),
+            ("helper prod reference", "kubectl get pods"),
+            ("helper", "kubectl get pods prod")
+        ]
+        for context in [AppContextKind.generic, .finder, .terminal, .browser] {
+            for index in strongerMatches.indices {
+                let stronger = ShelfItem(kind: .text, title: strongerMatches[index].0,
+                    content: strongerMatches[index].1, createdAt: 1, updatedAt: 1)
+                let weaker = ShelfItem(kind: .text, title: weakerMatches[index].0,
+                    content: weakerMatches[index].1, pinned: true, createdAt: now - 100,
+                    updatedAt: now, useCount: UInt64.max, lastUsedAt: now)
+                let newest = ShelfItem(kind: .text, title: "Newest",
+                    content: "notes about prod", createdAt: now, updatedAt: now)
+                let ranked = SmartShelfRanking.ordered([weaker, stronger, newest],
+                    query: "  PROD  ", appContext: context, now: now)
+                XCTAssertEqual(ranked.map(\.id), [newest.id, stronger.id, weaker.id],
+                    "query tier \(index), context \(context)")
+            }
+        }
+    }
+
+    func testContextAffinityOrdersTailWithoutChangingPinsOrIdentity() {
+        let now: UInt64 = 1_000_000
+        let command = ShelfItem(kind: .text, title: "Command", content: "kubectl get pods",
+            pinned: true, createdAt: now - 100, updatedAt: now - 100)
+        let note = ShelfItem(kind: .text, title: "Note", content: "ordinary note",
+            createdAt: now - 100, updatedAt: now - 100)
+        let newest = ShelfItem(kind: .text, title: "Newest", content: "new note",
+            createdAt: now, updatedAt: now)
+        let ranked = SmartShelfRanking.ordered([note, command, newest],
+            appContext: .terminal, now: now)
+        XCTAssertEqual(ranked, [newest, command, note])
+        XCTAssertEqual(Set(ranked.map(\.id)).count, 3)
+        XCTAssertTrue(ranked[1].pinned)
+    }
+
     func testUsageFrequencyContributesToRanking() {
         let now: UInt64 = 40_000
         let frequent = ShelfItem(
