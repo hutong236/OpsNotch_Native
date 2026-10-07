@@ -34,6 +34,11 @@ new_ui_text = '\n'.join(
     if '/Sources/OpsNotchApp/DesignSystem/' in path.as_posix()
     or '/Sources/OpsNotchApp/Shelf/' in path.as_posix()
 )
+presentation_text = '\n'.join(
+    text for path, text in files.items()
+    if path == root / 'Sources/OpsNotchApp/ShelfWindowController.swift'
+    or '/Sources/OpsNotchApp/Shelf/Presentation/' in path.as_posix()
+)
 checks={
  'no Tauri': 'tauri' not in all_text.lower(),
  'no React': 'react' not in all_text.lower(),
@@ -52,6 +57,7 @@ checks={
  'no raw icon tap gestures in new UI': re.search(r'Image\s*\([^)]*\)[\s\S]{0,220}\.onTapGesture', new_ui_text) is None,
  '3.0 unified shelf component files': all(path.is_file() for path in phase2_required),
  'legacy Quick Shelf row types removed': all(name not in shelf_view for name in legacy_row_types),
+ 'presentation uses motion tokens': re.search(r'context\.duration\s*=\s*[0-9]', presentation_text) is None,
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)

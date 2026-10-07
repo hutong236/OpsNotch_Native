@@ -158,7 +158,7 @@ final class SensorManager {
 
     private func showAcceptedDropFeedback(on screen: NSScreen) {
         // 放入后只显示成功反馈，不再展开完整 Shelf。
-        shelf.showPeek(on: screen)
+        shelf.showConfirmation(on: screen)
         if model.settings.shelfKeepOpen {
             // 常驻模式：成功反馈展示后重新展开并保持,不调度自动隐藏。
             shelf.scheduleExpanded(on: screen, delay: 0.85)

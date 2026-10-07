@@ -8,11 +8,11 @@ struct ShelfRootView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var experience: ShelfExperienceModel
     let clipboard: ClipboardManager
-    let presentation: ShelfWindowController.Presentation
+    let presentation: ShelfPresentationState
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: AppModel, clipboard: ClipboardManager, presentation: ShelfWindowController.Presentation) {
+    init(model: AppModel, clipboard: ClipboardManager, presentation: ShelfPresentationState) {
         self.model = model
         self.experience = model.experience
         self.clipboard = clipboard
@@ -23,12 +23,16 @@ struct ShelfRootView: View {
         Group {
             switch presentation {
             case .expanded: expanded
-            case .drop: dropView
+            case .dropTarget: dropView
             case .peek: peekView
+            case .confirmation, .hidden: EmptyView()
             }
         }
         .onHover { experience.setShelfHovered($0) }
-        .animation(OpsMotion.quick, value: presentation)
+        .animation(
+            .easeOut(duration: OpsMotion.duration(for: .quick, reduceMotion: reduceMotion)),
+            value: presentation
+        )
     }
 
     private var expanded: some View {
