@@ -22,6 +22,30 @@ final class QuickShelfSnapshotTests: XCTestCase {
         }
     }
 
+    func testLegacyDesktopAliasesResolveAtCommandFirstScopeBoundary() {
+        let aliases: [(String, CommandIntent)] = [
+            ("desktop", .desktopList), (" 桌面 ", .desktopList),
+            ("DESKTOP 3", .desktopSwitch(index: 3)), ("桌面 4", .desktopSwitch(index: 4))
+        ]
+        for (query, intent) in aliases {
+            let literalMatch = ShelfItem(kind: .text, title: query, content: query)
+            let scope = CommandSearchScope(query: query, kindFilter: .text)
+            XCTAssertEqual(scope.intent, intent, query)
+            XCTAssertFalse(scope.includesFinderQuickPaths, query)
+            let snapshot = QuickShelfItemSnapshotBuilder.build(items: [literalMatch],
+                workingSetItemIDs: [], query: query, kindFilter: .text, appContext: .generic, now: 1_000)
+            XCTAssertTrue(snapshot.visibleItems.isEmpty, query)
+        }
+        for query in ["desktop app", "desktop2", "桌面4", "desktop 0", "桌面 01", "desktop 2 report", "docker"] {
+            let literalMatch = ShelfItem(kind: .text, title: query, content: query)
+            let scope = CommandSearchScope(query: query, kindFilter: .all)
+            XCTAssertNil(scope.intent, query)
+            let snapshot = QuickShelfItemSnapshotBuilder.build(items: [literalMatch],
+                workingSetItemIDs: [], query: query, kindFilter: .all, appContext: .generic, now: 1_000)
+            XCTAssertEqual(snapshot.visibleItems.map(\.id), [literalMatch.id], query)
+        }
+    }
+
     func testRevisionCacheBuildsOncePerRevision() {
         let cache = QuickShelfSnapshotCache<Int>()
         var builds = 0
