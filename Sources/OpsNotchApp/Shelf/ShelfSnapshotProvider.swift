@@ -158,9 +158,7 @@ final class ShelfSnapshotProvider {
 
         switch command {
         case .list:
-            let subtitle = settings.language == .zhCN
-                ? "按 Enter 查看所有桌面"
-                : "Press Enter to view desktops"
+            let subtitle = L10n.text("desktopCommandListHint", settings.language)
             return [.desktop(
                 id: QuickShelfEntry.desktopListID,
                 title: L10n.text("desktopList", settings.language),
@@ -168,12 +166,14 @@ final class ShelfSnapshotProvider {
                 command: command
             )]
         case .switchTo(let index):
-            let title = settings.language == .zhCN
-                ? "切换到桌面 \(index)"
-                : "Switch to Desktop \(index)"
-            let subtitle = settings.language == .zhCN
-                ? "按 Enter 执行 · d \(index)"
-                : "Press Enter · d \(index)"
+            let title = String(
+                format: L10n.text("desktopCommandSwitchTitle", settings.language),
+                index
+            )
+            let subtitle = String(
+                format: L10n.text("desktopCommandSwitchHint", settings.language),
+                index
+            )
             return [.desktop(
                 id: QuickShelfEntry.desktopSwitchID(index),
                 title: title,
