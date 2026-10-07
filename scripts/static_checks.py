@@ -51,14 +51,14 @@ presentation_text = '\n'.join(
     if path == root / 'Sources/OpsNotchApp/ShelfWindowController.swift'
     or '/Sources/OpsNotchApp/Shelf/Presentation/' in path.as_posix()
 )
+localized_ui_paths = [
+    root / 'Sources/OpsNotchApp/ShelfView.swift',
+    root / 'Sources/OpsNotchApp/StatusBarController.swift',
+]
+localized_ui_paths += sorted((root / 'Sources/OpsNotchApp/Shelf').rglob('*.swift'))
+localized_ui_paths += sorted((root / 'Sources/OpsNotchApp/Settings').rglob('*.swift'))
 localized_ui_text = '\n'.join(
-    text for path, text in files.items()
-    if path in {
-        root / 'Sources/OpsNotchApp/ShelfView.swift',
-        root / 'Sources/OpsNotchApp/StatusBarController.swift',
-    }
-    or '/Sources/OpsNotchApp/Shelf/' in path.as_posix()
-    or '/Sources/OpsNotchApp/Settings/' in path.as_posix()
+    path.read_text(errors='ignore') for path in localized_ui_paths if path.is_file()
 )
 checks={
  'no Tauri': 'tauri' not in all_text.lower(),
