@@ -67,11 +67,13 @@ final class StatusBarController: NSObject {
             symbolName: "tray.full",
             action: #selector(openShelf)
         ))
-        menu.addItem(item(
-            L10n.text("newText", model.language),
-            symbolName: "square.and.pencil",
-            action: #selector(newText)
-        ))
+        let keepOpenItem = item(
+            L10n.text("keepShelfOpen", model.language),
+            symbolName: model.settings.shelfKeepOpen ? "pin.fill" : "pin",
+            action: #selector(toggleKeepShelfOpen)
+        )
+        keepOpenItem.state = model.settings.shelfKeepOpen ? .on : .off
+        menu.addItem(keepOpenItem)
         menu.addItem(.separator())
         menu.addItem(item(
             L10n.text("settings", model.language) + "…",
@@ -79,12 +81,6 @@ final class StatusBarController: NSObject {
             action: #selector(openSettings)
         ))
         menu.addItem(.separator())
-
-        let versionItem = NSMenuItem(title: "Ops Notch v\(AppVersionService.current)", action: nil, keyEquivalent: "")
-        versionItem.image = menuImage("info.circle", description: "Ops Notch")
-        versionItem.isEnabled = false
-        menu.addItem(versionItem)
-
         menu.addItem(item(
             L10n.text("quit", model.language),
             symbolName: "power",
@@ -110,9 +106,16 @@ final class StatusBarController: NSObject {
         if let screen = sensors.preferredScreen() { shelf.showExpanded(on: screen) }
     }
 
-    @objc private func newText() {
-        if let screen = sensors.preferredScreen() { shelf.showExpanded(on: screen) }
-        model.editorDraft = .text()
+    @objc private func toggleKeepShelfOpen() {
+        let next = !model.settings.shelfKeepOpen
+        model.updateSettings { $0.shelfKeepOpen = next }
+        if next {
+            if !shelf.isPanelVisible, let screen = sensors.preferredScreen() {
+                shelf.showExpanded(on: screen)
+            }
+        } else if shelf.isPanelVisible {
+            shelf.hide()
+        }
     }
 
     @objc private func openSettings() { settings.show() }
