@@ -9,5 +9,8 @@ enum OpsSurface {
     static var focused: Color { Color.primary.opacity(0.10) }
     static var focusStroke: Color { Color.white.opacity(0.55) }
     static var selected: Color { Color.accentColor.opacity(0.13) }
+    static var selectionSubtle: Color { Color.accentColor.opacity(0.08) }
+    static var divider: Color { Color.primary.opacity(0.10) }
+    static var dropTargetStroke: Color { Color.accentColor.opacity(0.30) }
 }
 #endif
