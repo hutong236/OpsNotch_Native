@@ -51,6 +51,15 @@ presentation_text = '\n'.join(
     if path == root / 'Sources/OpsNotchApp/ShelfWindowController.swift'
     or '/Sources/OpsNotchApp/Shelf/Presentation/' in path.as_posix()
 )
+localized_ui_text = '\n'.join(
+    text for path, text in files.items()
+    if path in {
+        root / 'Sources/OpsNotchApp/ShelfView.swift',
+        root / 'Sources/OpsNotchApp/StatusBarController.swift',
+    }
+    or '/Sources/OpsNotchApp/Shelf/' in path.as_posix()
+    or '/Sources/OpsNotchApp/Settings/' in path.as_posix()
+)
 checks={
  'no Tauri': 'tauri' not in all_text.lower(),
  'no React': 'react' not in all_text.lower(),
@@ -73,6 +82,7 @@ checks={
  '3.0 settings pages exist': all(path.is_file() for path in phase6_settings_required),
  'settings controller uses sidebar root': 'SettingsRootView(' in settings_controller,
  'legacy monolithic SettingsView removed': 'struct SettingsView: View' not in settings_controller,
+ '3.0 UI uses centralized localization': re.search(r'language\s*==\s*\.zhCN\s*\?', localized_ui_text) is None,
 }
 for name, ok in checks.items(): print(('PASS' if ok else 'FAIL'), name)
 if not all(checks.values()): sys.exit(1)
