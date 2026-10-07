@@ -44,9 +44,8 @@ final class ClipboardImageNormalizerTests: XCTestCase {
         )
         try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: url)
 
-        let decoded = try XCTUnwrap(
-            await BackgroundImageDecoder.thumbnail(at: url, maximumPixelSize: 128)
-        )
+        let result = await BackgroundImageDecoder.thumbnail(at: url, maximumPixelSize: 128)
+        let decoded = try XCTUnwrap(result)
 
         XCTAssertLessThanOrEqual(decoded.cgImage.width, 128)
         XCTAssertLessThanOrEqual(decoded.cgImage.height, 128)
