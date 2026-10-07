@@ -15,7 +15,7 @@ struct GeneralSettingsView: View {
                         Text("English").tag(AppLanguage.enUS)
                     }
                     .labelsHidden()
-                    .frame(width: 160)
+                    .frame(width: OpsControlMetrics.settingsCompactPickerWidth)
                 }
 
                 Divider()
@@ -42,7 +42,7 @@ struct GeneralSettingsView: View {
                         Text(L10n.text("currentDisplay", model.language)).tag(DisplayTarget.current)
                     }
                     .labelsHidden()
-                    .frame(width: 210)
+                    .frame(width: OpsControlMetrics.settingsPickerWidth)
                 }
             }
         }
