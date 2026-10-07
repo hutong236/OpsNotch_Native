@@ -55,7 +55,7 @@ struct ShelfRow: View {
         .contextMenu { actionMenu }
         .disabled(visualState.disabled)
         .onHover { hovered = $0 }
-        .task(id: resourceKey) { resource = ShelfRowImageCache.shared.image(for: item) }
+        .task(id: resourceKey) { resource = await ShelfRowImageCache.shared.image(for: item) }
     }
 
     private var resolvedVisualState: OpsRowVisualState {
@@ -179,7 +179,7 @@ final class ShelfRowImageCache {
     static let shared = ShelfRowImageCache()
     private let cache = NSCache<NSString, NSImage>()
     private init() { cache.countLimit = 128; cache.totalCostLimit = 32 * 1024 * 1024 }
-    func image(for item: ShelfPresentationItem, maximumPixelSize: Int = 96) -> NSImage? {
+    func image(for item: ShelfPresentationItem, maximumPixelSize: Int = 96) async -> NSImage? {
         let key: String
         let path: String
         let thumbnail: Bool
@@ -188,18 +188,24 @@ final class ShelfRowImageCache {
         } else if case .file(let value, _) = item.icon {
             path = value; key = "icon:\(value)"; thumbnail = false
         } else { return nil }
+
         if let cached = cache.object(forKey: key as NSString) { return cached }
-        // Decode only a small thumbnail instead of retaining full clipboard images.
+
         let image: NSImage
         if thumbnail {
-            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
-                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
-                    kCGImageSourceCreateThumbnailWithTransform: true
-                  ] as CFDictionary) else { return nil }
-            image = NSImage(cgImage: cgImage, size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
-        } else { image = NSWorkspace.shared.icon(forFile: path) }
+            guard let decoded = await BackgroundImageDecoder.thumbnail(
+                at: URL(fileURLWithPath: path),
+                maximumPixelSize: maximumPixelSize
+            ) else { return nil }
+            guard !Task.isCancelled else { return nil }
+            image = NSImage(
+                cgImage: decoded.cgImage,
+                size: NSSize(width: CGFloat(decoded.cgImage.width), height: CGFloat(decoded.cgImage.height))
+            )
+        } else {
+            image = NSWorkspace.shared.icon(forFile: path)
+        }
+
         let cost = image.representations.reduce(0) { total, representation in
             total + max(96 * 96 * 4, representation.pixelsWide * representation.pixelsHigh * 4)
         }

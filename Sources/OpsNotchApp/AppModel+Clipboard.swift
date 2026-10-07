@@ -4,52 +4,71 @@ import OpsNotchCore
 
 @MainActor
 extension AppModel {
-    /// 系统剪贴板自动收集入口。单趟捕获:store.captureText 在一次 mutate 内完成去重判定与写入,
-    /// 结果直接 apply 回内存,不再触发全量 reload(避免二次读写盘)。
-    func captureClipboardText(_ text: String, sourceAppName: String? = nil) {
+    /// Automatic clipboard capture persists off the main actor. The store is internally
+    /// serialized with its lock, so UI event handling stays responsive while JSON/file I/O runs.
+    func captureClipboardTextAsync(_ text: String, sourceAppName: String? = nil) async {
+        let store = self.store
         do {
-            apply(try store.captureText(text, sourceAppName: sourceAppName))
+            let value = try await Task.detached(priority: .utility) {
+                try store.captureText(text, sourceAppName: sourceAppName)
+            }.value
+            apply(value)
             showToast(L10n.text("clipboardCaught", language))
         } catch {
             showToast(error.localizedDescription)
         }
     }
 
-    /// Sensor 拖入文本的捕获入口:与剪贴板捕获语义一致,内容相同则上浮已有条目而非新增。
-    /// 拖放流程自身的 ✓ 反馈由 ShelfWindowController 负责,这里不再弹 toast。
+    /// Sensor drop remains a direct user action; its existing synchronous semantics are preserved.
     func captureDroppedText(_ text: String) {
         do { apply(try store.captureText(text)) }
         catch { showToast(error.localizedDescription) }
     }
 
-    /// Sensor 拖入 http/https URL 的捕获入口:与 captureText 对称,相同 URL 上浮而非新增。
     func captureDroppedURL(_ text: String) {
         do { apply(try store.captureURL(text)) }
         catch { showToast(error.localizedDescription) }
     }
 
-    /// Finder 等应用复制文件时，保留文件 URL 语义入柜，避免被 string flavor 降级成文件名/路径文本。
-    /// 文件/文件夹沿用当前 Reference / Copy-in 设置；`.app` 仍按应用条目保存。
-    func captureClipboardFiles(_ urls: [URL], sourceAppName: String? = nil) {
+    /// Clipboard file copies can include large files/directories. Move copy/reference resolution
+    /// and shelf.json updates off the main actor, then apply only the final snapshot on MainActor.
+    func captureClipboardFilesAsync(_ urls: [URL], sourceAppName: String? = nil) async {
         guard !urls.isEmpty else { return }
 
-        let applications = urls.filter { $0.pathExtension.lowercased() == "app" }
-        let paths = urls.filter { $0.pathExtension.lowercased() != "app" }
-
-        if !paths.isEmpty {
-            addPaths(paths, sourceAppName: sourceAppName)
+        let store = self.store
+        let mode = settings.addMode
+        do {
+            let value = try await Task.detached(priority: .utility) {
+                var latest: ShelfStore?
+                for url in urls {
+                    if url.pathExtension.lowercased() == "app" {
+                        latest = try store.addApplication(url, sourceAppName: sourceAppName)
+                    } else {
+                        latest = try store.addPath(
+                            url,
+                            mode: mode,
+                            sourceAppName: sourceAppName
+                        )
+                    }
+                }
+                return try latest ?? store.load()
+            }.value
+            apply(value)
+            showToast(L10n.text("clipboardCaught", language))
+        } catch {
+            showToast(error.localizedDescription)
         }
-        for application in applications {
-            addApplication(application, sourceAppName: sourceAppName)
-        }
-
-        showToast(L10n.text("clipboardCaught", language))
     }
 
-    /// 图片剪贴板捕获：由 ClipboardManager 统一转为 PNG 数据，再保存到受管目录。
-    func captureClipboardImageData(_ data: Data, sourceAppName: String? = nil) {
+    /// PNG data has already been normalized off the main actor by ClipboardManager.
+    /// Managed-file write + shelf.json mutation also stay off MainActor.
+    func captureClipboardImageDataAsync(_ data: Data, sourceAppName: String? = nil) async {
+        let store = self.store
         do {
-            apply(try store.captureImageData(data, sourceAppName: sourceAppName))
+            let value = try await Task.detached(priority: .utility) {
+                try store.captureImageData(data, sourceAppName: sourceAppName)
+            }.value
+            apply(value)
             showToast(L10n.text("clipboardImageCaught", language))
         } catch {
             showToast(error.localizedDescription)

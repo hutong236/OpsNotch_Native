@@ -48,7 +48,7 @@ struct ShelfInspectorView: View {
         .animation(.easeOut(duration: OpsMotion.duration(for: .standard, reduceMotion: reduceMotion)), value: item.id)
         .task(id: item.id + resourceDescriptor) {
             resource = nil
-            resource = ShelfRowImageCache.shared.image(for: item, maximumPixelSize: 640)
+            resource = await ShelfRowImageCache.shared.image(for: item, maximumPixelSize: 640)
         }
     }
 
