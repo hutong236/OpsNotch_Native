@@ -4,6 +4,18 @@
 
 ## 未发布
 
+### 新增
+
+- Ops Notch 3.0 使用 Command-first Quick Shelf：统一搜索 Clipboard、Favorites、Finder、Desktop 命令与安全操作，并加入 Context / Now / Favorites / Recent / Results 智能分区。
+- 新增动态 Inspector、显式 Peek / Expanded / Drop Target / Confirmation 状态，以及统一的键盘导航与动作路由。
+- 设置窗口改为原生 Sidebar 信息架构，并加入统一 Design System、Reduce Motion、Increase Contrast 与 VoiceOver 友好交互。
+- 增加 Snapshot / Smart Shelf ranking 缓存回归测试、UI polling 防回退规则与 8–24 小时长稳性能验收模板。
+
+### 发布工程
+
+- 发布工作流支持 `v3.0.0-beta.N`、`v3.0.0-rc.N` 与 `v3.0.0`；Beta/RC 会创建 GitHub Prerelease。
+- Prerelease Git tag 与 macOS Bundle 版本分离：例如 `v3.0.0-beta.1` 的 Bundle 仍使用 numeric `3.0.0 (300)`。
+
 ### 移除
 
 - 移除菜单栏隐藏图标、持续隐藏区、隐藏图标面板及其辅助功能扫描/代理点击能力；Ops Notch 保留普通菜单栏入口。
