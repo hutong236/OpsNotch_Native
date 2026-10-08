@@ -86,9 +86,9 @@ final class DragDropOverlayController {
     }
 
     private func targetFrame(near cursor: NSPoint, on screen: NSScreen) -> NSRect {
-        // 第二轮 Smoke 继续优先可发现性：先把目标再放大一档，等真机体验稳定后再回收到最终尺寸。
-        let size = NSSize(width: 360, height: 132)
-        let gap: CGFloat = 44
+        // A compact but still generous native drop target; keep its hit frame fixed during a drag.
+        let size = NSSize(width: 336, height: 116)
+        let gap: CGFloat = 36
         let inset: CGFloat = 12
         let visible = screen.visibleFrame
 
