@@ -86,9 +86,9 @@ final class DragDropOverlayController {
     }
 
     private func targetFrame(near cursor: NSPoint, on screen: NSScreen) -> NSRect {
-        // 第二轮 Smoke 继续优先可发现性：先把目标再放大一档，等真机体验稳定后再回收到最终尺寸。
-        let size = NSSize(width: 360, height: 132)
-        let gap: CGFloat = 44
+        // A compact but still generous native drop target; keep its hit frame fixed during a drag.
+        let size = NSSize(width: 336, height: 116)
+        let gap: CGFloat = 36
         let inset: CGFloat = 12
         let visible = screen.visibleFrame
 
@@ -124,75 +124,48 @@ final class NearbyDropView: NSVisualEffectView {
     var onPromiseStarted: (() -> Void)?
     var onPromisedFiles: (([URL]) -> Void)?
 
+    private enum Presentation {
+        case idle
+        case ready
+        case resolvingPromise
+    }
+
+    private let iconTile = NSView()
     private let iconView = NSImageView()
+    private let statusDot = NSView()
+    private let statusLabel = NSTextField(labelWithString: "")
     private let progressIndicator = NSProgressIndicator()
     private let titleLabel = NSTextField(labelWithString: "")
     private let hintLabel = NSTextField(labelWithString: "")
-    private var ready = false
-    private var resolvingPromise = false
+    private var presentation: Presentation = .idle
     private var language: AppLanguage = .zhCN
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        material = .hudWindow
-        blendingMode = .behindWindow
-        state = .active
-        wantsLayer = true
-        layer?.cornerRadius = 22
-        layer?.masksToBounds = true
+        configureAppearance()
         configureAccessibility()
-
-        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 34, weight: .semibold)
-        iconView.image = NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: nil)?
-            .withSymbolConfiguration(symbolConfiguration)
-        iconView.contentTintColor = .labelColor
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-
-        progressIndicator.style = .spinning
-        progressIndicator.controlSize = .regular
-        progressIndicator.isDisplayedWhenStopped = false
-        progressIndicator.translatesAutoresizingMaskIntoConstraints = false
-
-        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-        titleLabel.textColor = .labelColor
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        hintLabel.font = .systemFont(ofSize: 13)
-        hintLabel.textColor = .secondaryLabelColor
-        hintLabel.lineBreakMode = .byWordWrapping
-        hintLabel.maximumNumberOfLines = 2
-        hintLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(iconView)
-        addSubview(progressIndicator)
-        addSubview(titleLabel)
-        addSubview(hintLabel)
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 46),
-            iconView.heightAnchor.constraint(equalToConstant: 46),
-
-            progressIndicator.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
-            progressIndicator.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 18),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -22),
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 31),
-
-            hintLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -22),
-            hintLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            hintLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -20),
-        ])
-
+        configureContent()
         registerDropTypes()
+        apply(language: .zhCN)
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        configureAppearance()
         configureAccessibility()
+        configureContent()
         registerDropTypes()
+        apply(language: .zhCN)
+    }
+
+    private func configureAppearance() {
+        material = .popover
+        blendingMode = .behindWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 20
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
     }
 
     private func configureAccessibility() {
@@ -200,61 +173,177 @@ final class NearbyDropView: NSVisualEffectView {
         setAccessibilityRole(.group)
     }
 
+    private func configureContent() {
+        iconTile.wantsLayer = true
+        iconTile.layer?.cornerRadius = 14
+        iconTile.layer?.cornerCurve = .continuous
+        iconTile.translatesAutoresizingMaskIntoConstraints = false
+        iconTile.setAccessibilityElement(false)
+
+        let configuration = NSImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+        iconView.image = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration)
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.setAccessibilityElement(false)
+
+        statusDot.wantsLayer = true
+        statusDot.layer?.cornerRadius = 3
+        statusDot.translatesAutoresizingMaskIntoConstraints = false
+        statusDot.setAccessibilityElement(false)
+
+        statusLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.setAccessibilityElement(false)
+
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.setAccessibilityElement(false)
+
+        hintLabel.font = .systemFont(ofSize: 11.5)
+        hintLabel.textColor = .secondaryLabelColor
+        hintLabel.lineBreakMode = .byTruncatingTail
+        hintLabel.maximumNumberOfLines = 1
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        hintLabel.setAccessibilityElement(false)
+
+        progressIndicator.style = .spinning
+        progressIndicator.controlSize = .regular
+        progressIndicator.isDisplayedWhenStopped = false
+        progressIndicator.translatesAutoresizingMaskIntoConstraints = false
+        progressIndicator.setAccessibilityElement(false)
+
+        addSubview(iconTile)
+        iconTile.addSubview(iconView)
+        iconTile.addSubview(progressIndicator)
+        addSubview(statusDot)
+        addSubview(statusLabel)
+        addSubview(titleLabel)
+        addSubview(hintLabel)
+
+        NSLayoutConstraint.activate([
+            iconTile.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            iconTile.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconTile.widthAnchor.constraint(equalToConstant: 52),
+            iconTile.heightAnchor.constraint(equalToConstant: 52),
+
+            iconView.centerXAnchor.constraint(equalTo: iconTile.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconTile.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 30),
+            iconView.heightAnchor.constraint(equalToConstant: 30),
+
+            progressIndicator.centerXAnchor.constraint(equalTo: iconTile.centerXAnchor),
+            progressIndicator.centerYAnchor.constraint(equalTo: iconTile.centerYAnchor),
+
+            statusDot.leadingAnchor.constraint(equalTo: iconTile.trailingAnchor, constant: 16),
+            statusDot.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
+            statusDot.widthAnchor.constraint(equalToConstant: 6),
+            statusDot.heightAnchor.constraint(equalToConstant: 6),
+
+            statusLabel.leadingAnchor.constraint(equalTo: statusDot.trailingAnchor, constant: 7),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -18),
+            statusLabel.topAnchor.constraint(equalTo: topAnchor, constant: 24),
+
+            titleLabel.leadingAnchor.constraint(equalTo: statusDot.leadingAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -18),
+            titleLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 5),
+
+            hintLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            hintLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -18),
+            hintLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 5),
+            hintLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -16),
+        ])
+    }
+
     private func registerDropTypes() {
+        // Keep the native drag destination signature used by the CI static gate.
         registerForDraggedTypes([.fileURL, .URL, .string])
         registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.extraPasteboardTypes)
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
     func apply(language: AppLanguage) {
         self.language = language
-        resolvingPromise = false
+        presentation = .idle
         progressIndicator.stopAnimation(nil)
-        iconView.isHidden = false
-        let title = L10n.text("dropTitle", language)
-        let hint = L10n.text("dropHint", language)
-        titleLabel.stringValue = title
-        hintLabel.stringValue = hint
-        setAccessibilityLabel(title)
-        setAccessibilityHelp(hint)
+        render(animated: false)
     }
 
     func resetVisualState() {
-        resolvingPromise = false
+        presentation = .idle
         progressIndicator.stopAnimation(nil)
-        iconView.isHidden = false
-        ready = false
-        layer?.borderWidth = 0
         alphaValue = 1
+        render(animated: false)
     }
 
-    func setReady(_ newValue: Bool) {
-        guard !resolvingPromise, ready != newValue else { return }
-        ready = newValue
-        layer?.borderWidth = newValue ? 3 : 1
-        layer?.borderColor = (newValue ? NSColor.controlAccentColor : NSColor.separatorColor)
-            .withAlphaComponent(newValue ? 0.9 : 0.45)
-            .cgColor
-
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.08
-            animator().alphaValue = newValue ? 1.0 : 0.97
-        }
+    func setReady(_ ready: Bool) {
+        guard presentation != .resolvingPromise else { return }
+        let next: Presentation = ready ? .ready : .idle
+        guard presentation != next else { return }
+        presentation = next
+        render(animated: true)
     }
 
     private func showPromiseResolving() {
-        resolvingPromise = true
-        ready = false
-        iconView.isHidden = true
+        presentation = .resolvingPromise
         progressIndicator.startAnimation(nil)
-        layer?.borderWidth = 2
-        layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.65).cgColor
-        let title = language == .zhCN ? "正在接收文件…" : "Receiving file…"
-        let hint = language == .zhCN ? "文件准备完成后会自动放入暂存清单" : "It will be added to the Shelf when ready."
-        titleLabel.stringValue = title
-        hintLabel.stringValue = hint
-        setAccessibilityLabel(title)
-        setAccessibilityHelp(hint)
+        render(animated: false)
+    }
+
+    private func render(animated: Bool) {
+        statusLabel.stringValue = L10n.text("dropNearbyEyebrow", language)
+        switch presentation {
+        case .idle:
+            titleLabel.stringValue = L10n.text("dropNearbyIdleTitle", language)
+            hintLabel.stringValue = L10n.text("dropNearbyHint", language)
+        case .ready:
+            titleLabel.stringValue = L10n.text("dropTitle", language)
+            hintLabel.stringValue = L10n.text("dropNearbyHint", language)
+        case .resolvingPromise:
+            titleLabel.stringValue = L10n.text("receivingFile", language)
+            hintLabel.stringValue = L10n.text("dropNearbyPromiseHint", language)
+        }
+
+        setAccessibilityLabel(titleLabel.stringValue)
+        setAccessibilityHelp(hintLabel.stringValue)
+        iconView.isHidden = presentation == .resolvingPromise
+        updateColors()
+
+        let opacity: CGFloat = presentation == .idle ? 0.82 : 1
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = OpsMotion.duration(for: .quick)
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                iconView.animator().alphaValue = opacity
+            }
+        } else {
+            iconView.alphaValue = opacity
+        }
+    }
+
+    private func updateColors() {
+        let isReady = presentation == .ready
+        let isResolving = presentation == .resolvingPromise
+        let increasedContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let accent = NSColor.controlAccentColor
+
+        layer?.borderWidth = isReady ? 1.5 : 1
+        layer?.borderColor = (isReady ? accent : NSColor.separatorColor)
+            .withAlphaComponent(isReady ? 0.78 : (increasedContrast ? 0.65 : 0.38))
+            .cgColor
+
+        iconTile.layer?.backgroundColor = accent
+            .withAlphaComponent(isReady ? 0.20 : 0.11).cgColor
+        iconView.contentTintColor = isReady || isResolving ? accent : .labelColor
+        statusDot.layer?.backgroundColor = accent
+            .withAlphaComponent(isReady ? 1 : 0.72).cgColor
+        statusLabel.textColor = isReady ? accent : .secondaryLabelColor
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -265,11 +354,13 @@ final class NearbyDropView: NSVisualEffectView {
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        DropPayloadResolver.canRead(sender.draggingPasteboard) ? .copy : []
+        let isValid = DropPayloadResolver.canRead(sender.draggingPasteboard)
+        setReady(isValid)
+        return isValid ? .copy : []
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        guard !resolvingPromise else { return }
+        guard presentation != .resolvingPromise else { return }
         setReady(false)
         onDragExited?()
     }
@@ -296,4 +387,5 @@ final class NearbyDropView: NSVisualEffectView {
         )
     }
 }
+
 #endif
