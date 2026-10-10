@@ -39,19 +39,9 @@ extension AppModel {
         let mode = settings.addMode
         do {
             let value = try await Task.detached(priority: .utility) {
-                var latest: ShelfStore?
-                for url in urls {
-                    if url.pathExtension.lowercased() == "app" {
-                        latest = try store.addApplication(url, sourceAppName: sourceAppName)
-                    } else {
-                        latest = try store.addPath(
-                            url,
-                            mode: mode,
-                            sourceAppName: sourceAppName
-                        )
-                    }
-                }
-                return try latest ?? store.load()
+                try store.addClipboardPaths(
+                    urls, mode: mode, sourceAppName: sourceAppName
+                )
             }.value
             apply(value)
             showToast(L10n.text("clipboardCaught", language))
