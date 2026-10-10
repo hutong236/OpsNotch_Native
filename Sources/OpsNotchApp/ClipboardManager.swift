@@ -37,11 +37,16 @@ final class ClipboardManager {
         }
     }
 
+    private struct BufferedCapture {
+        let work: CaptureWork
+        let estimatedBytes: Int
+    }
+
     private let model: AppModel
     private var handledChangeCount: Int
     private var monitorTask: Task<Void, Never>?
     private var captureProcessingTask: Task<Void, Never>?
-    private var pendingCaptures: [CaptureWork] = []
+    private var pendingCaptures: [BufferedCapture] = []
     /// Includes the currently processing capture (not just the pending array).
     private var outstandingCaptureCount = 0
     private var outstandingCaptureBytes = 0
@@ -126,24 +131,24 @@ final class ClipboardManager {
         outstandingCaptureBytes = bytes > Int.max - outstandingCaptureBytes
             ? Int.max : outstandingCaptureBytes + bytes
         outstandingCaptureCount += 1
-        pendingCaptures.append(work)
+        pendingCaptures.append(BufferedCapture(work: work, estimatedBytes: bytes))
         startNextCaptureIfNeeded()
     }
 
-    private func finishedProcessing(_ work: CaptureWork) {
+    private func finishedProcessing(bytes: Int) {
         outstandingCaptureCount = max(0, outstandingCaptureCount - 1)
-        outstandingCaptureBytes = max(0, outstandingCaptureBytes - work.estimatedBytes)
+        outstandingCaptureBytes = max(0, outstandingCaptureBytes - bytes)
     }
 
     private func startNextCaptureIfNeeded() {
         guard captureProcessingTask == nil, !pendingCaptures.isEmpty else { return }
-        let work = pendingCaptures.removeFirst()
+        let buffered = pendingCaptures.removeFirst()
         captureProcessingTask = Task { @MainActor [weak self] in
             guard let self else { return }
             if !Task.isCancelled {
-                await self.process(work)
+                await self.process(buffered.work)
             }
-            self.finishedProcessing(work)
+            self.finishedProcessing(bytes: buffered.estimatedBytes)
             self.captureProcessingTask = nil
             self.startNextCaptureIfNeeded()
         }
