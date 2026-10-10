@@ -129,15 +129,18 @@ final class SensorManager {
             // File Promise 已在本窗口完成鼠标 drop；后台文件写入不应继续占用 Sensor 命中测试。
             self.finishNativeDragSessionAfterCurrentEvent()
         }
-        view.onPromisedFiles = { [weak self] urls in
-            guard let self else { return }
+        view.onPromisedFiles = { [weak self] urls, acknowledge in
+            guard let self else { acknowledge(false); return }
             self.lastActiveDisplayID = id
-            let accepted = self.handlePromised(urls: urls)
-            if accepted {
-                self.showAcceptedDropFeedback(on: screen)
-            } else {
-                self.model.showToast(self.model.language == .zhCN ? "文件接收失败" : "Could not receive promised file")
-                if !self.model.settings.shelfKeepOpen { self.shelf.scheduleHide(delay: 0.5) }
+            self.handlePromisedDrop(urls: urls) { [weak self] accepted in
+                acknowledge(accepted)
+                guard let self else { return }
+                if accepted {
+                    self.showAcceptedDropFeedback(on: screen)
+                } else {
+                    self.model.showToast(self.model.language == .zhCN ? "文件接收失败" : "Could not receive promised file")
+                    if !self.model.settings.shelfKeepOpen { self.shelf.scheduleHide(delay: 0.5) }
+                }
             }
         }
         panel.contentView = view
@@ -210,18 +213,19 @@ final class SensorManager {
         }
     }
 
-    private func handlePromised(urls: [URL]) -> Bool {
-        !urls.isEmpty && model.addPromisedPaths(urls) > 0
+    /// Capture promised files on a utility worker before the drop resolver is
+    /// allowed to reclaim its temporary source directory.
+    func handlePromisedDrop(urls: [URL], completion: @escaping (Bool) -> Void) {
+        guard !urls.isEmpty else { completion(false); return }
+        Task { @MainActor [weak self] in
+            guard let self else { completion(false); return }
+            completion(await self.model.addPromisedPathsAsync(urls))
+        }
     }
 
     /// 入柜处理,供 Sensor 与抽屉窗口两个拖放接收点(ShelfDropContainerView)共用。
     func handleDrop(payload: NativeDropPayload) -> Bool {
         handle(payload: payload)
-    }
-
-    /// File Promise 入柜处理，供 nearby / Sensor / Shelf 三个落点共用相同存储语义。
-    func handlePromisedDrop(urls: [URL]) -> Bool {
-        handlePromised(urls: urls)
     }
 
     private func screensForCurrentPolicy() -> [NSScreen] {
@@ -319,7 +323,7 @@ final class SensorView: NSView {
     var onDragExited: (() -> Void)?
     var onDrop: ((NativeDropPayload) -> Bool)?
     var onPromiseStarted: (() -> Void)?
-    var onPromisedFiles: (([URL]) -> Void)?
+    var onPromisedFiles: (([URL], @escaping (Bool) -> Void) -> Void)?
 
     // A native dragging destination needs no NSTrackingArea. In particular,
     // an always-active idle tracking area can cause repeated cursor generation.
@@ -371,9 +375,10 @@ final class SensorView: NSView {
                 dropLog.info("sensor drop \(payload.logSummary, privacy: .public)")
                 return self.onDrop?(payload) ?? false
             },
-            handlePromised: { [weak self] urls in
+            handlePromised: { [weak self] urls, acknowledge in
                 self?.resolvingPromise = false
-                promisedHandler?(urls)
+                guard let promisedHandler else { acknowledge(false); return }
+                promisedHandler(urls, acknowledge)
             }
         )
     }
