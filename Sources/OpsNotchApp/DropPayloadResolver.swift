@@ -9,9 +9,18 @@ final class DropPayloadResolver {
     static let shared = DropPayloadResolver()
 
     private var activePromiseQueues: [UUID: OperationQueue] = [:]
+    /// Image drops are also staging sessions. Keep them registered until
+    /// async persistence acknowledges them, not merely until the image is written.
+    private var activeImageSessions: Set<UUID> = []
+    private var releasingStagingSessions: Set<UUID> = []
     private let fileManager = FileManager.default
+    private let customStagingRoot: URL?
 
-    private init() {}
+    /// Allows isolated file-lifecycle tests without touching the user's
+    /// Application Support directory; production uses the default staging root.
+    init(stagingRoot: URL? = nil) {
+        customStagingRoot = stagingRoot
+    }
 
     static var promisePasteboardTypes: [NSPasteboard.PasteboardType] {
         NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
@@ -58,7 +67,7 @@ final class DropPayloadResolver {
     }
 
     func cleanupStaleStaging(rootURL: URL) {
-        guard activePromiseQueues.isEmpty else { return }
+        guard activePromiseQueues.isEmpty && activeImageSessions.isEmpty else { return }
         let stagingRoot = stagingRootURL(rootURL: rootURL)
         guard fileManager.fileExists(atPath: stagingRoot.path) else { return }
         do {
@@ -75,7 +84,7 @@ final class DropPayloadResolver {
         in destinationView: NSView,
         onPromiseStarted: () -> Void,
         handleImmediate: (NativeDropPayload) -> Bool,
-        handlePromised: @escaping ([URL]) -> Void
+        handlePromised: @escaping ([URL], @escaping (Bool) -> Void) -> Void
     ) -> Bool {
         let pasteboard = draggingInfo.draggingPasteboard
         let promised = filePromiseReceivers(from: draggingInfo, in: destinationView)
@@ -95,7 +104,7 @@ final class DropPayloadResolver {
         from pasteboard: NSPasteboard,
         onPromiseStarted: () -> Void,
         handleImmediate: (NativeDropPayload) -> Bool,
-        handlePromised: @escaping ([URL]) -> Void
+        handlePromised: @escaping ([URL], @escaping (Bool) -> Void) -> Void
     ) -> Bool {
         if let promised = pasteboard.readObjects(
             forClasses: [NSFilePromiseReceiver.self],
@@ -115,7 +124,7 @@ final class DropPayloadResolver {
         from pasteboard: NSPasteboard,
         onPromiseStarted: () -> Void,
         handleImmediate: (NativeDropPayload) -> Bool,
-        handlePromised: ([URL]) -> Void
+        handlePromised: @escaping ([URL], @escaping (Bool) -> Void) -> Void
     ) -> Bool {
         // 先读 pasteboard 明确声明的 fileURL/path。不能先用泛型 NSURL object reader，
         // 否则文件内容 flavor 可能被 AppKit 物化成 /tmp/... 并被错误持久化为源路径。
@@ -196,36 +205,50 @@ final class DropPayloadResolver {
         return value
     }
 
+    /// Once the drop pasteboard has supplied immutable bytes, filesystem I/O
+    /// must not execute on the AppKit drag event stack. The staging directory
+    /// remains valid until the consumer calls its completion acknowledgement.
     private func materializeImage(
         _ image: ImageDataPayload,
         onPromiseStarted: () -> Void,
-        completion: ([URL]) -> Void
+        completion: @escaping ([URL], @escaping (Bool) -> Void) -> Void
     ) -> Bool {
         let sessionID = UUID()
         let stagingURL = stagingRootURL()
             .appendingPathComponent(sessionID.uuidString, isDirectory: true)
         let fileURL = stagingURL.appendingPathComponent("Dragged Image.\(image.fileExtension)")
-
-        do {
-            try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: true)
-            try image.data.write(to: fileURL, options: .atomic)
-        } catch {
-            try? fileManager.removeItem(at: stagingURL)
-            dropLog.error("image drag materialization failed")
-            return false
-        }
-
+        activeImageSessions.insert(sessionID)
         onPromiseStarted()
-        dropLog.info("image drag materialized")
-        completion([fileURL])
-        try? fileManager.removeItem(at: stagingURL)
+
+        Task { @MainActor [weak self] in
+            let succeeded = await Task.detached(priority: .userInitiated) {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: stagingURL, withIntermediateDirectories: true
+                    )
+                    try image.data.write(to: fileURL, options: .atomic)
+                    return true
+                } catch {
+                    return false
+                }
+            }.value
+            guard let self else { return }
+            if succeeded {
+                dropLog.info("image drag materialized")
+            } else {
+                dropLog.error("image drag materialization failed")
+            }
+            completion(succeeded ? [fileURL] : []) { [weak self] _ in
+                self?.releaseStagingSession(sessionID, stagingURL: stagingURL)
+            }
+        }
         return true
     }
 
     private func beginReceiving(
         _ receivers: [NSFilePromiseReceiver],
         onPromiseStarted: () -> Void,
-        completion: @escaping ([URL]) -> Void
+        completion: @escaping ([URL], @escaping (Bool) -> Void) -> Void
     ) -> Bool {
         let sessionID = UUID()
         let stagingURL = stagingRootURL()
@@ -285,20 +308,40 @@ final class DropPayloadResolver {
         sessionID: UUID,
         stagingURL: URL,
         snapshot: PromiseSnapshot,
-        completion: ([URL]) -> Void
+        completion: ([URL], @escaping (Bool) -> Void) -> Void
     ) {
         guard activePromiseQueues[sessionID] != nil else { return }
         dropLog.info(
             "file promise receive finished success=\(snapshot.urls.count, privacy: .public) failure=\(snapshot.failures, privacy: .public)"
         )
 
-        completion(snapshot.urls)
-        activePromiseQueues[sessionID] = nil
-        try? fileManager.removeItem(at: stagingURL)
+        // A completion handler now means "consumer may begin persisting".
+        // Only the acknowledgement means managed-file storage is committed and
+        // it is safe to remove the source files from the staging directory.
+        completion(snapshot.urls) { [weak self] _ in
+            self?.releaseStagingSession(sessionID, stagingURL: stagingURL)
+        }
+    }
+
+    private func releaseStagingSession(_ sessionID: UUID, stagingURL: URL) {
+        guard activePromiseQueues[sessionID] != nil
+                || activeImageSessions.contains(sessionID) else { return }
+        guard releasingStagingSessions.insert(sessionID).inserted else { return }
+        // A promised directory can be large. Its recursive removal is another
+        // disk operation and must not block the main-thread drag callback.
+        Task { @MainActor [weak self] in
+            await Task.detached(priority: .utility) {
+                try? FileManager.default.removeItem(at: stagingURL)
+            }.value
+            self?.activePromiseQueues[sessionID] = nil
+            self?.activeImageSessions.remove(sessionID)
+            self?.releasingStagingSessions.remove(sessionID)
+        }
     }
 
     private func stagingRootURL() -> URL {
-        stagingRootURL(rootURL: ShelfStoreService.defaultRootURL())
+        customStagingRoot
+            ?? stagingRootURL(rootURL: ShelfStoreService.defaultRootURL())
     }
 
     private func stagingRootURL(rootURL: URL) -> URL {
@@ -306,12 +349,12 @@ final class DropPayloadResolver {
     }
 }
 
-private struct PromiseSnapshot {
+struct PromiseSnapshot {
     let urls: [URL]
     let failures: Int
 }
 
-private final class PromiseAccumulator: @unchecked Sendable {
+final class PromiseAccumulator: @unchecked Sendable {
     private let lock = NSLock()
     private var urls: [URL] = []
     private var failures = 0

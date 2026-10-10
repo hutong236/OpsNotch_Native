@@ -24,7 +24,7 @@ final class ShelfWindowController: NSObject {
     /// 抽屉窗口拖放入柜处理器,由 AppDelegate 注入(复用 SensorManager 的入柜逻辑)。
     var dropHandler: ((NativeDropPayload) -> Bool)?
     /// File Promise 完成后的入柜处理器。Promise 文件必须复制进 Shelf 管理目录，不能长期引用 staging。
-    var promisedFilesHandler: (([URL]) -> Bool)?
+    var promisedFilesHandler: (([URL], @escaping (Bool) -> Void) -> Void)?
     /// Shelf 可见性变化回调(可见?, 所在屏 displayID):供 Sensor 驱动入口指示点,事件驱动、无轮询。
     var onVisibilityChange: ((Bool, CGDirectDisplayID?) -> Void)?
     /// Capture the external window synchronously, before the panel takes keyboard focus.
@@ -62,7 +62,10 @@ final class ShelfWindowController: NSObject {
         // 落点不再只限刘海 Sensor(NSHostingView 自身不处理拖放,事件上溯到容器)。
         dropContainer.onDropPayload = { [weak self] payload in self?.acceptDrop(payload) ?? false }
         dropContainer.onPromiseStarted = { [weak self] in self?.promiseReceiveStarted() }
-        dropContainer.onPromisedFiles = { [weak self] urls in self?.acceptPromisedFiles(urls) }
+        dropContainer.onPromisedFiles = { [weak self] urls, acknowledge in
+            guard let self else { acknowledge(false); return }
+            self.acceptPromisedFiles(urls, acknowledge: acknowledge)
+        }
         dropContainer.addSubview(hostingView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -220,13 +223,22 @@ final class ShelfWindowController: NSObject {
         model.showToast(L10n.text("receivingFile", model.language))
     }
 
-    private func acceptPromisedFiles(_ urls: [URL]) {
-        let accepted = !urls.isEmpty && (promisedFilesHandler?(urls) ?? false)
-        if accepted {
-            showAcceptedDropFeedback()
-        } else {
+    private func acceptPromisedFiles(_ urls: [URL], acknowledge: @escaping (Bool) -> Void) {
+        guard !urls.isEmpty, let promisedFilesHandler else {
+            acknowledge(false)
             model.showToast(L10n.text("promisedFileReceiveFailed", model.language))
             if !model.settings.shelfKeepOpen { scheduleHide(delay: 0.5) }
+            return
+        }
+        promisedFilesHandler(urls) { [weak self] accepted in
+            acknowledge(accepted)
+            guard let self else { return }
+            if accepted {
+                self.showAcceptedDropFeedback()
+            } else {
+                self.model.showToast(L10n.text("promisedFileReceiveFailed", self.model.language))
+                if !self.model.settings.shelfKeepOpen { self.scheduleHide(delay: 0.5) }
+            }
         }
     }
 
@@ -437,7 +449,7 @@ final class ShelfPanel: NSPanel {
 final class ShelfDropContainerView: NSView {
     var onDropPayload: ((NativeDropPayload) -> Bool)?
     var onPromiseStarted: (() -> Void)?
-    var onPromisedFiles: (([URL]) -> Void)?
+    var onPromisedFiles: (([URL], @escaping (Bool) -> Void) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -472,8 +484,9 @@ final class ShelfDropContainerView: NSView {
                 dropLog.info("shelf drop \(payload.logSummary, privacy: .public)")
                 return self.onDropPayload?(payload) ?? false
             },
-            handlePromised: { [weak self] urls in
-                self?.onPromisedFiles?(urls)
+            handlePromised: { [weak self] urls, acknowledge in
+                guard let handler = self?.onPromisedFiles else { acknowledge(false); return }
+                handler(urls, acknowledge)
             }
         )
     }
