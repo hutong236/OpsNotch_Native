@@ -354,7 +354,8 @@ final class AppModel: ObservableObject {
                     return try latest ?? store.load()
                 }
                 return try store.addClipboardPaths(
-                    urls, mode: mode, sourceAppName: sourceAppName
+                    urls, mode: mode, sourceAppName: sourceAppName,
+                    applicationsAsReferences: false
                 )
             }.value
             try await reconcileClipboardCapture(snapshot, startedAt: startedAt)
