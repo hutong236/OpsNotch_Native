@@ -12,7 +12,6 @@ OpsNotch.app
 │   ├── SensorPanel Display-2
 │   └── SensorPanel Display-N
 │       └── SensorView
-│           ├── NSTrackingArea
 │           └── NSDraggingDestination
 │
 ├── ShelfWindowController          AppKit + SwiftUI Hosting
@@ -42,12 +41,11 @@ OpsNotch.app
 Sensor 是整个产品最 macOS-specific 的部分，因此不用 SwiftUI 手势模拟，而是直接使用：
 
 - `NSPanel`
-- `NSTrackingArea`
 - `registerForDraggedTypes`
 - `NSDraggingDestination`
 - `NSPasteboard`
 
-这样 Text Drag 和 File Drag 走同一条 macOS 原生 Drag Session。
+这样 Text Drag 和 File Drag 走同一条 macOS 原生 Drag Session。普通鼠标悬停不需要 `NSTrackingArea`；空闲 SensorPanel 通过 `orderOut` 完全退出窗口显示层级，仅在 `DragSessionCoordinator` 识别到真实外部拖拽时 `orderFront` 并接受 Drop，结束后立即再次 `orderOut`。
 
 ## 3. 多显示器
 
