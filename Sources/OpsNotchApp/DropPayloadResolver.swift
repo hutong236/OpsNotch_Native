@@ -13,6 +13,8 @@ final class DropPayloadResolver {
     /// async persistence acknowledges them, not merely until the image is written.
     private var activeImageSessions: Set<UUID> = []
     private var releasingStagingSessions: Set<UUID> = []
+    private var staleCleanupInFlight: Set<URL> = []
+    private static let quarantinedStagingPrefix = "drop-staging-trash-"
     private let fileManager = FileManager.default
     private let customStagingRoot: URL?
 
@@ -66,15 +68,46 @@ final class DropPayloadResolver {
         return types.contains { accepted.contains($0) }
     }
 
+    /// Startup recovery should never recursively delete large abandoned
+    /// promises on MainActor. Rename the old staging root into a quarantine
+    /// sibling first (same-volume rename is fast), then delete in a utility
+    /// task. New drops can safely recreate "drop-staging" immediately.
+    ///
+    /// A crash during cleanup leaves the quarantined sibling behind; the next
+    /// launch discovers and removes all prior quarantines as well.
     func cleanupStaleStaging(rootURL: URL) {
         guard activePromiseQueues.isEmpty && activeImageSessions.isEmpty else { return }
         let stagingRoot = stagingRootURL(rootURL: rootURL)
-        guard fileManager.fileExists(atPath: stagingRoot.path) else { return }
-        do {
-            try fileManager.removeItem(at: stagingRoot)
-            dropLog.info("file promise stale staging cleaned")
-        } catch {
-            dropLog.error("file promise stale staging cleanup failed")
+        if fileManager.fileExists(atPath: stagingRoot.path) {
+            let quarantine = rootURL.appendingPathComponent(
+                Self.quarantinedStagingPrefix + UUID().uuidString,
+                isDirectory: true
+            )
+            do {
+                try fileManager.moveItem(at: stagingRoot, to: quarantine)
+            } catch {
+                dropLog.error("file promise staging quarantine failed")
+                // Do not recursively remove the live staging root after a
+                // rename failure: future drop writers could be using it.
+            }
+        }
+
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: rootURL, includingPropertiesForKeys: nil
+        ) else { return }
+        let stale = entries.filter {
+            $0.lastPathComponent.hasPrefix(Self.quarantinedStagingPrefix)
+                && staleCleanupInFlight.insert($0).inserted
+        }
+        guard !stale.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            await Task.detached(priority: .utility) {
+                for url in stale {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }.value
+            for url in stale { self?.staleCleanupInFlight.remove(url) }
+            dropLog.info("file promise stale staging cleanup finished")
         }
     }
 
