@@ -20,12 +20,16 @@ struct ShelfItemActionDispatcher {
         case .copyShelfItem(let id):
             guard let item = item(id) else { return }
             if item.clipboardImage {
-                guard clipboard.copyImageFile(item.content) else { return }
-            } else {
-                let payload = ShelfLogic.copyPayload(items: [item])
-                guard !payload.isEmpty else { return }
-                clipboard.copyPayload(payload)
+                clipboard.copyImageFile(item.content) { [model] succeeded in
+                    guard succeeded else { return }
+                    model.recordUse(id)
+                    model.showToast(L10n.text("copied", model.language))
+                }
+                return
             }
+            let payload = ShelfLogic.copyPayload(items: [item])
+            guard !payload.isEmpty else { return }
+            clipboard.copyPayload(payload)
             model.recordUse(id)
             model.showToast(L10n.text("copied", model.language))
         case .copyPath(let path):
