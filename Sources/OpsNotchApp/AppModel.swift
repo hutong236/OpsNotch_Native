@@ -140,10 +140,12 @@ final class AppModel: ObservableObject {
             requestOpenFinderPath?(path, quickPathID)
         case .shelf(let item):
             if item.clipboardImage {
-                guard clipboard.copyImageFile(item.content) else { return }
-                recordUse(item.id)
-                showToast(L10n.text("copied", language))
-                requestDelayedHide?()
+                clipboard.copyImageFile(item.content) { [weak self] succeeded in
+                    guard let self, succeeded else { return }
+                    self.recordUse(item.id)
+                    self.showToast(L10n.text("copied", self.language))
+                    self.requestDelayedHide?()
+                }
                 return
             }
             let payload = ShelfLogic.copyPayload(items: [item])
@@ -409,9 +411,11 @@ final class AppModel: ObservableObject {
     func copySelected(using clipboard: ClipboardManager) {
         let selected = visibleItems.filter { selection.contains($0.id) }
         if selected.count == 1, let item = selected.first, item.clipboardImage {
-            guard clipboard.copyImageFile(item.content) else { return }
-            recordUse(item.id)
-            showToast(L10n.text("copied", language))
+            clipboard.copyImageFile(item.content) { [weak self] succeeded in
+                guard let self, succeeded else { return }
+                self.recordUse(item.id)
+                self.showToast(L10n.text("copied", self.language))
+            }
             return
         }
         let payload = ShelfLogic.copyPayload(items: selected)
