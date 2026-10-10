@@ -32,7 +32,7 @@ PR CI (`.github/workflows/ci.yml`) runs: `swift test`, `swift build`, and `scrip
 
 - Dependency direction is one-way: `OpsNotchApp` → `OpsNotchCore`. Never import AppKit/SwiftUI into Core.
 - **AppKit owns system interaction; SwiftUI owns content only.** Sensors, windows, drag & drop, pasteboard, status item stay AppKit. Do not reimplement notch/sensor/drag behavior with SwiftUI gestures.
-- Sensor is one transparent `NSPanel` per `NSScreen` using `NSTrackingArea` + `NSDraggingDestination`. Rebuild on `NSApplication.didChangeScreenParametersNotification` — do not reintroduce polling (V1.x polled every 1.5s).
+- Sensor is one transparent `NSPanel` per `NSScreen` using `NSDraggingDestination`. The idle panel stays ordered out (not just click-through); a recognized external drag orders it front, and drag completion orders it out. No always-active `NSTrackingArea` is needed. Rebuild on `NSApplication.didChangeScreenParametersNotification` — do not reintroduce polling (V1.x polled every 1.5s).
 - Clipboard Catch dedupes via `NSPasteboard.general.changeCount` baseline; when the app itself copies an item, ClipboardManager must update the baseline immediately or the same content re-enters Recent.
 - **Safe actions**: item actions may only open absolute local paths or http/https URLs, always via `SafeActionValidator.validate`. No shell/SSH/kubectl/arbitrary command execution, ever.
 - Storage stays compatible with legacy V0.x/V1.x `shelf.json` (root-array format, `ip`/`command` types migrate to Text). Tests cover these migrations — don't break them.
