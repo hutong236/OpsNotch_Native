@@ -23,6 +23,14 @@ final class SensorMouseEventPolicyTests: XCTestCase {
         XCTAssertEqual(ignoresMouseEvents, [true, false, true])
     }
 
+    func testIdleSensorPanelVisibilityTracksRecognizedDragLifecycle() {
+        let sessionStates = [false, true, false]
+        let panelVisibility = sessionStates.map {
+            SensorMouseEventPolicy.shouldPresentSensorPanel(externalDragSessionActive: $0)
+        }
+        XCTAssertEqual(panelVisibility, [false, true, false])
+    }
+
     // Idle operation must not require a process-wide mouse-up wakeup.
     func testGlobalMouseUpMonitorOnlyRunsDuringExternalDragSession() {
         XCTAssertFalse(
