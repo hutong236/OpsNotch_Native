@@ -32,20 +32,32 @@ final class DragDropOverlayController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovable = false
         panel.isReleasedWhenClosed = false
-        panel.ignoresMouseEvents = false
+        // Hidden or asynchronously receiving panels must not steal clicks.
+        panel.ignoresMouseEvents = true
         panel.contentView = dropView
         panel.orderOut(nil)
 
         dropView.onDragEntered = { [weak self] in self?.onDragEntered?() }
         dropView.onDragExited = { [weak self] in self?.onDragExited?() }
         dropView.onDrop = { [weak self] payload in self?.onDrop?(payload) ?? false }
-        dropView.onPromiseStarted = { [weak self] in self?.onPromiseStarted?() }
+        dropView.onPromiseStarted = { [weak self] in
+            guard let self else { return }
+            self.beginPromiseResolution()
+            self.onPromiseStarted?()
+        }
         dropView.onPromisedFiles = { [weak self] urls in self?.onPromisedFiles?(urls) }
     }
 
     var isVisible: Bool { panel.isVisible }
+    var isPointerPassthrough: Bool { panel.ignoresMouseEvents }
+
+    /// The drop already happened; keep progress visible without a click-blocking panel.
+    func beginPromiseResolution() {
+        panel.ignoresMouseEvents = true
+    }
 
     func show(near cursor: NSPoint, on screen: NSScreen, language: AppLanguage) {
+        panel.ignoresMouseEvents = false
         dropView.apply(language: language)
         dropView.setReady(false)
 
@@ -70,6 +82,7 @@ final class DragDropOverlayController {
     }
 
     func hide() {
+        panel.ignoresMouseEvents = true
         guard panel.isVisible else {
             visibleDisplayID = nil
             dropView.resetVisualState()
