@@ -319,10 +319,48 @@ final class AppModel: ObservableObject {
         catch { showToast(error.localizedDescription) }
     }
 
+    /// Native file drops and file-picker selections must not copy file contents
+    /// or rewrite shelf.json on AppKit's event-handling thread. Return promptly
+    /// to the drag session; publication follows once storage is committed.
     func addPaths(_ urls: [URL], forcedKind: ShelfKind? = nil, sourceAppName: String? = nil) {
-        for url in urls {
-            do { apply(try store.addPath(url, mode: settings.addMode, forcedKind: forcedKind, sourceAppName: sourceAppName)) }
-            catch { showToast(error.localizedDescription) }
+        guard !urls.isEmpty else { return }
+        Task { [weak self] in
+            await self?.addPathsAsync(urls, forcedKind: forcedKind, sourceAppName: sourceAppName)
+        }
+    }
+
+    /// Reuse the single-transaction Finder batch writer for native drops.
+    /// Forced kinds retain their existing addPath behavior for compatibility.
+    func addPathsAsync(
+        _ urls: [URL],
+        forcedKind: ShelfKind? = nil,
+        sourceAppName: String? = nil
+    ) async {
+        guard !urls.isEmpty else { return }
+        let store = self.store
+        let mode = settings.addMode
+        let startedAt = publishedStoreRevision
+
+        do {
+            let snapshot = try await Task.detached(priority: .userInitiated) {
+                if let forcedKind {
+                    var latest: ShelfStore?
+                    for url in urls {
+                        latest = try store.addPath(
+                            url, mode: mode, forcedKind: forcedKind,
+                            sourceAppName: sourceAppName
+                        )
+                    }
+                    return try latest ?? store.load()
+                }
+                return try store.addClipboardPaths(
+                    urls, mode: mode, sourceAppName: sourceAppName,
+                    applicationsAsReferences: false
+                )
+            }.value
+            try await reconcileClipboardCapture(snapshot, startedAt: startedAt)
+        } catch {
+            showToast(error.localizedDescription)
         }
     }
 
