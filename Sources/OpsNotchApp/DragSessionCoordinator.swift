@@ -29,7 +29,7 @@ final class DragSessionCoordinator {
 
     private(set) var state: State = .idle
     var dropHandler: ((NativeDropPayload) -> Bool)?
-    var promisedFilesHandler: (([URL]) -> Bool)?
+    var promisedFilesHandler: (([URL], @escaping (Bool) -> Void) -> Void)?
     /// Sensor 用它在真实外部拖拽期间临时关闭鼠标穿透，拖拽结束后立即恢复。
     var onExternalDragActivityChange: ((Bool) -> Void)?
 
@@ -51,8 +51,9 @@ final class DragSessionCoordinator {
         overlay.onPromiseStarted = { [weak self] in
             self?.overlayPromiseDidStart()
         }
-        overlay.onPromisedFiles = { [weak self] urls in
-            self?.performPromisedOverlayDrop(urls)
+        overlay.onPromisedFiles = { [weak self] urls, acknowledge in
+            guard let self else { acknowledge(false); return }
+            self.performPromisedOverlayDrop(urls, acknowledge: acknowledge)
         }
     }
 
@@ -217,8 +218,22 @@ final class DragSessionCoordinator {
         setExternalDragActivity(false)
     }
 
-    private func performPromisedOverlayDrop(_ urls: [URL]) {
-        let accepted = !urls.isEmpty && (promisedFilesHandler?(urls) ?? false)
+    private func performPromisedOverlayDrop(
+        _ urls: [URL], acknowledge: @escaping (Bool) -> Void
+    ) {
+        guard !urls.isEmpty, let promisedFilesHandler else {
+            acknowledge(false)
+            finishPromisedOverlayDrop(accepted: false)
+            return
+        }
+        promisedFilesHandler(urls) { [weak self] accepted in
+            // Only the finished background copy authorizes staging cleanup.
+            acknowledge(accepted)
+            self?.finishPromisedOverlayDrop(accepted: accepted)
+        }
+    }
+
+    private func finishPromisedOverlayDrop(accepted: Bool) {
         guard accepted else {
             overlay.hide()
             model.showToast(model.language == .zhCN ? "文件接收失败" : "Could not receive promised file")
