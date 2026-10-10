@@ -354,3 +354,17 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 - 无 recurring crash、卡死、剪贴板失效、快捷键重复触发或睡眠唤醒后事件倍增。
 - 若只能完成少于 8 小时的测试，**Phase 8 不得标记 COMPLETE**。
 - 最终 `v3.0.0` 发布前必须保留一份实际 8–24 小时记录；CI 通过不能替代该真机门禁。
+
+## 27. Ops Notch 3.0 隐藏状态 CPU / Sensor 窗口回归
+
+本项针对隐藏 Shelf 时活动监视器曾出现 CPU 175% 的现场报告。之前的 sample 指向 AppKit tracking area 与 AccessibilityFoundation 的光标生成路径，但并不能直接证实修复后的 CPU 降幅。
+
+1. **完全空闲**：关闭 Shelf、Settings、Quick Look 和浮动预览，不进行拖拽。等待 30 秒后检查 SensorPanel：每个屏幕对应的 SensorPanel 应 `isVisible == false`，鼠标仍可点击顶部区域下方程序。记录活动监视器 CPU 连续 5 分钟的均值和峰值（使用 Release 构建）。
+2. **普通鼠标移动**：在桌面、菜单栏、刘海附近往返移动鼠标至少 60 秒，不进行拖拽。SensorPanel 不应因普通鼠标移动显示，Shelf 不应误触发，CPU 不应出现持续异常。
+3. **识别到真实拖拽**：从 Finder 拖动文件到屏幕顶部 Sensor。拖拽尚未结束时 SensorPanel 可成为 Drop 目标，松开并成功入柜；结束时 SensorPanel 应退出显示层级。不应出现不可点击的透明死区。
+4. **失败/取消拖拽**：拖动时按 Esc、在其他位置松开、拖无效数据。拖拽状态必须恢复 Idle，所有 SensorPanel 再次不可见；随后必须可以立刻重新拖放。
+5. **多屏与布局变化**：测试双显示器、拔插显示器以及设置中的显示目标策略。新建 Sensor 在 Idle 期间也应保持 `isVisible == false`；多屏拖放完成后均不留高层级透明窗口。
+6. **交互回归**：主热键与菜单栏仍能展开 Shelf，Clipboard Catch 继续按既有 `changeCount` 策略捕获，拖文件、文本、URL、File Promise 到 Sensor/附近 Drop Zone 的现有行为不能退化。
+7. **客观对比**：同一台 Mac、同样显示器与输入设备、相同 Release 条件下，分别对修复前后录制 `sample <PID> 5` 与 5 分钟 CPU 均值。若隐藏时仍反复出现 `_NSTrackingAreaAKManager → NSCursor → AccessibilityFoundation`，再针对菜单栏 NSStatusItem 与系统光标辅助功能分别隔离排查。
+
+本项需要真机复测：CI 单元测试及静态检查通过不代表 CPU 异常已被实际验证解决。
