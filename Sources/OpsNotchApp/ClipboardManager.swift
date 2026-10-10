@@ -18,13 +18,38 @@ final class ClipboardManager {
         case files([URL], sourceAppName: String?)
         case image(Data, source: ClipboardImageNormalizer.Source, sourceAppName: String?)
         case text(String, sourceAppName: String?)
+
+        /// Count retained payload bytes, not only the number of pending tasks.
+        /// Paths and text are stored in UTF-8 once normalized; this conservative
+        /// estimate is sufficient to pause incoming clipboard reads under load.
+        var estimatedBytes: Int {
+            switch self {
+            case .files(let urls, _):
+                return urls.reduce(0) { total, url in
+                    let bytes = url.path.utf8.count
+                    return bytes > Int.max - total ? Int.max : total + bytes
+                }
+            case .image(let data, _, _):
+                return data.count
+            case .text(let text, _):
+                return text.utf8.count
+            }
+        }
+    }
+
+    private struct BufferedCapture {
+        let work: CaptureWork
+        let estimatedBytes: Int
     }
 
     private let model: AppModel
     private var handledChangeCount: Int
     private var monitorTask: Task<Void, Never>?
     private var captureProcessingTask: Task<Void, Never>?
-    private var pendingCaptures: [CaptureWork] = []
+    private var pendingCaptures: [BufferedCapture] = []
+    /// Includes the currently processing capture (not just the pending array).
+    private var outstandingCaptureCount = 0
+    private var outstandingCaptureBytes = 0
     private var lastCapturedTextFingerprint: ContentFingerprint?
     private var lastCapturedTextAt: TimeInterval = 0
     private var lastCapturedFilesFingerprint: ContentFingerprint?
@@ -70,6 +95,14 @@ final class ClipboardManager {
     func catchIfChanged() -> Bool {
         let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount != handledChangeCount else { return false }
+        // Avoid data(forType:) and NSString materialization while previous
+        // snapshots are consuming the memory budget. Do NOT acknowledge this
+        // changeCount: the newest clipboard contents will be retried once the
+        // asynchronous capture pipeline makes room.
+        guard ClipboardCaptureQueueBudget.shouldReadNextChange(
+            outstandingItemCount: outstandingCaptureCount,
+            outstandingByteCount: outstandingCaptureBytes
+        ) else { return false }
         handledChangeCount = pasteboard.changeCount
         let sourceAppName = NSWorkspace.shared.frontmostApplication?.localizedName
 
@@ -94,16 +127,28 @@ final class ClipboardManager {
     }
 
     private func enqueue(_ work: CaptureWork) {
-        pendingCaptures.append(work)
+        let bytes = work.estimatedBytes
+        outstandingCaptureBytes = bytes > Int.max - outstandingCaptureBytes
+            ? Int.max : outstandingCaptureBytes + bytes
+        outstandingCaptureCount += 1
+        pendingCaptures.append(BufferedCapture(work: work, estimatedBytes: bytes))
         startNextCaptureIfNeeded()
+    }
+
+    private func finishedProcessing(bytes: Int) {
+        outstandingCaptureCount = max(0, outstandingCaptureCount - 1)
+        outstandingCaptureBytes = max(0, outstandingCaptureBytes - bytes)
     }
 
     private func startNextCaptureIfNeeded() {
         guard captureProcessingTask == nil, !pendingCaptures.isEmpty else { return }
-        let work = pendingCaptures.removeFirst()
+        let buffered = pendingCaptures.removeFirst()
         captureProcessingTask = Task { @MainActor [weak self] in
-            guard let self, !Task.isCancelled else { return }
-            await self.process(work)
+            guard let self else { return }
+            if !Task.isCancelled {
+                await self.process(buffered.work)
+            }
+            self.finishedProcessing(bytes: buffered.estimatedBytes)
             self.captureProcessingTask = nil
             self.startNextCaptureIfNeeded()
         }
