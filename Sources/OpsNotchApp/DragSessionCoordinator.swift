@@ -181,8 +181,9 @@ final class DragSessionCoordinator {
             // 不能把仍在后台写入的 promise 当作取消；Sensor 继续保持拖拽命中直到 promise 完成。
             sessionRecognized = false
             baselineChangeCount = dragPasteboard.changeCount
-            // Promise 仍可继续异步解析，但本次鼠标手势已经结束，不再需要系统级 mouseUp 监听。
-            stopMouseUpMonitoring()
+            // The drop gesture is over. File reception can continue without
+            // keeping either a global mouse-up monitor or idle SensorPanels active.
+            setExternalDragActivity(false)
         default:
             cancelSession()
         }
@@ -209,6 +210,11 @@ final class DragSessionCoordinator {
         sessionRecognized = false
         baselineChangeCount = dragPasteboard.changeCount
         state = .resolvingPromise(displayID: id)
+        // NSFilePromiseReceiver writes asynchronously after performDragOperation.
+        // This callback is the reliable drop boundary: a global mouse-up event
+        // may never arrive because AppKit handled it in our own process.
+        // Keep the nearby progress UI, but stop intercepting ordinary clicks.
+        setExternalDragActivity(false)
     }
 
     private func performPromisedOverlayDrop(_ urls: [URL]) {
