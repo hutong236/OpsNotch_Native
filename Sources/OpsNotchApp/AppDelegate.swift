@@ -42,8 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shelf.dropHandler = { [weak sensors] payload in sensors?.handleDrop(payload: payload) ?? false }
 
         // Promise 与普通 drop 一样通过 SensorManager 汇聚存储语义；Promise 始终复制入受管目录。
-        let promisedFilesHandler: ([URL]) -> Bool = { [weak sensors] urls in
-            sensors?.handlePromisedDrop(urls: urls) ?? false
+        let promisedFilesHandler: ([URL], @escaping (Bool) -> Void) -> Void = { [weak sensors] urls, completion in
+            guard let sensors else { completion(false); return }
+            sensors.handlePromisedDrop(urls: urls, completion: completion)
         }
         shelf.promisedFilesHandler = promisedFilesHandler
 
