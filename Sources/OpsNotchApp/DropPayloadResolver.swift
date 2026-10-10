@@ -12,9 +12,15 @@ final class DropPayloadResolver {
     /// Image drops are also staging sessions. Keep them registered until
     /// async persistence acknowledges them, not merely until the image is written.
     private var activeImageSessions: Set<UUID> = []
+    private var releasingStagingSessions: Set<UUID> = []
     private let fileManager = FileManager.default
+    private let customStagingRoot: URL?
 
-    private init() {}
+    /// Allows isolated file-lifecycle tests without touching the user's
+    /// Application Support directory; production uses the default staging root.
+    init(stagingRoot: URL? = nil) {
+        customStagingRoot = stagingRoot
+    }
 
     static var promisePasteboardTypes: [NSPasteboard.PasteboardType] {
         NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
@@ -118,7 +124,7 @@ final class DropPayloadResolver {
         from pasteboard: NSPasteboard,
         onPromiseStarted: () -> Void,
         handleImmediate: (NativeDropPayload) -> Bool,
-        handlePromised: ([URL], @escaping (Bool) -> Void) -> Void
+        handlePromised: @escaping ([URL], @escaping (Bool) -> Void) -> Void
     ) -> Bool {
         // 先读 pasteboard 明确声明的 fileURL/path。不能先用泛型 NSURL object reader，
         // 否则文件内容 flavor 可能被 AppKit 物化成 /tmp/... 并被错误持久化为源路径。
@@ -320,6 +326,7 @@ final class DropPayloadResolver {
     private func releaseStagingSession(_ sessionID: UUID, stagingURL: URL) {
         guard activePromiseQueues[sessionID] != nil
                 || activeImageSessions.contains(sessionID) else { return }
+        guard releasingStagingSessions.insert(sessionID).inserted else { return }
         // A promised directory can be large. Its recursive removal is another
         // disk operation and must not block the main-thread drag callback.
         Task { @MainActor [weak self] in
@@ -328,11 +335,13 @@ final class DropPayloadResolver {
             }.value
             self?.activePromiseQueues[sessionID] = nil
             self?.activeImageSessions.remove(sessionID)
+            self?.releasingStagingSessions.remove(sessionID)
         }
     }
 
     private func stagingRootURL() -> URL {
-        stagingRootURL(rootURL: ShelfStoreService.defaultRootURL())
+        customStagingRoot
+            ?? stagingRootURL(rootURL: ShelfStoreService.defaultRootURL())
     }
 
     private func stagingRootURL(rootURL: URL) -> URL {
