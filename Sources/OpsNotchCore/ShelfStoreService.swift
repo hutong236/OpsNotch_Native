@@ -142,6 +142,83 @@ public final class ShelfStoreService: @unchecked Sendable {
         try addPath(url, mode: .reference, forcedKind: .application, sourceAppName: sourceAppName)
     }
 
+    /// Capture a Finder multi-selection as one storage transaction. The previous
+    /// per-URL loop decoded and rewrote the entire shelf for every file; doing
+    /// that for 20 files meant 20 JSON commits and 20 lock acquisitions.
+    ///
+    /// Files are prepared outside the shelf lock so other UI mutations can run
+    /// while a large directory is being copied. A single mutate then commits
+    /// the entire selection in original pasteboard order.
+    @discardableResult
+    public func addClipboardPaths(
+        _ sources: [URL],
+        mode: StorageMode,
+        sourceAppName: String? = nil
+    ) throws -> ShelfStore {
+        guard !sources.isEmpty else { return try load() }
+
+        var prepared: [ShelfItem] = []
+        prepared.reserveCapacity(sources.count)
+        var createdDirectories: [URL] = []
+        var committed = false
+        defer {
+            if !committed {
+                // A failed file copy or JSON commit must not leave orphaned
+                // managed directories or partially persisted shelf entries.
+                for directory in createdDirectories {
+                    try? fileManager.removeItem(at: directory)
+                }
+            }
+        }
+
+        for source in sources {
+            let values = try source.resourceValues(forKeys: [.isDirectoryKey, .nameKey])
+            let isDirectory = values.isDirectory ?? false
+            let isApplication = source.pathExtension.lowercased() == "app"
+            let kind: ShelfKind = isApplication ? .application : (isDirectory ? .folder : .file)
+            // Applications have always been referenced, even with copy mode on.
+            let itemMode: StorageMode = isApplication ? .reference : mode
+            let id = UUID()
+            let storedURL: URL
+
+            if itemMode == .copy {
+                try fileManager.createDirectory(
+                    at: managedFilesURL, withIntermediateDirectories: true
+                )
+                let parent = managedFilesURL.appendingPathComponent(
+                    id.uuidString, isDirectory: true
+                )
+                try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+                createdDirectories.append(parent)
+                let destination = parent.appendingPathComponent(
+                    source.lastPathComponent, isDirectory: isDirectory
+                )
+                try fileManager.copyItem(at: source, to: destination)
+                storedURL = destination
+            } else {
+                storedURL = source
+            }
+
+            let title = source.deletingPathExtension().lastPathComponent.nonEmpty
+                ?? source.lastPathComponent
+            prepared.append(ShelfItem(
+                id: id,
+                kind: kind,
+                title: title,
+                content: storedURL.path,
+                storageMode: itemMode,
+                fileExtension: source.pathExtension.nonEmpty,
+                sourceAppName: sourceAppName
+            ))
+        }
+
+        let value = try mutate { store in
+            store.items.append(contentsOf: prepared)
+        }
+        committed = true
+        return value
+    }
+
     @discardableResult
     public func setPinned(id: UUID, pinned: Bool) throws -> ShelfStore {
         try mutate { store in
