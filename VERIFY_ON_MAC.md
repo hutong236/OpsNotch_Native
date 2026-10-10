@@ -368,3 +368,16 @@ CI 在 `macos-26` 运行坐标/连续确认序列单元测试、`scripts/verify_
 7. **客观对比**：同一台 Mac、同样显示器与输入设备、相同 Release 条件下，分别对修复前后录制 `sample <PID> 5` 与 5 分钟 CPU 均值。若隐藏时仍反复出现 `_NSTrackingAreaAKManager → NSCursor → AccessibilityFoundation`，再针对菜单栏 NSStatusItem 与系统光标辅助功能分别隔离排查。
 
 本项需要真机复测：CI 单元测试及静态检查通过不代表 CPU 异常已被实际验证解决。
+
+
+## 28. File Promise 接收期间的点击穿透回归（3.0）
+
+本项验证异步拖放已经结束、后台文件仍在写入时，不会重新引入透明窗口死区或全局鼠标事件监听。
+
+1. 从支持 File Promise 的应用（例如照片或浏览器图片）拖放到 **附近 Drop 卡片**。松手后，卡片可继续显示“正在接收”及进度，但普通点击必须能到达卡片下方其他应用；顶部 SensorPanel 必须已不可见。
+2. 故意选择需要数秒传输的大文件，在写入尚未完成时点击卡片覆盖范围内的其他应用控件；不得发生点击被阻止。此时全局 mouse-up monitor 已注销。
+3. 传输完成后，卡片关闭、文件落入 Shelf；再次拖入不同文件，卡片必须重新启用 native drop hit-test，并正常接收。
+4. 对 **顶部 Sensor** 的 File Promise 重复测试：保持已有 onPromiseStarted 后结束拖拽的语义，后台写入不应要求继续保持 Sensor 可见。
+5. 中途取消拖拽、接收失败、切换显示器与重复拖放，检查卡片/顶层 Sensor 不残留，并确认 Clipboard Catch、普通文件/URL/文本入柜正常。
+
+CI 的窗口 hit-test 状态测试只验证代码状态切换，不代替真机 File Promise 和多显示器验证。
