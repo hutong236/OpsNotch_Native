@@ -6,11 +6,22 @@ import OpsNotchCore
 
 @MainActor
 final class AppModel: ObservableObject {
+    /// Tracks every locally published persistence snapshot. A background capture
+    /// may have committed earlier than a synchronous pin, removal, or settings
+    /// change but resume on MainActor later; its stale result must not overwrite
+    /// that newer UI state.
+    private(set) var publishedStoreRevision: UInt64 = 0
     @Published private(set) var items: [ShelfItem] = [] {
-        didSet { invalidateQuickShelfSnapshot() }
+        didSet {
+            publishedStoreRevision &+= 1
+            invalidateQuickShelfSnapshot()
+        }
     }
     @Published private(set) var settings = ShelfSettings() {
-        didSet { invalidateQuickShelfSnapshot() }
+        didSet {
+            publishedStoreRevision &+= 1
+            invalidateQuickShelfSnapshot()
+        }
     }
     let experience = ShelfExperienceModel()
     let snapshotProvider = ShelfSnapshotProvider()
