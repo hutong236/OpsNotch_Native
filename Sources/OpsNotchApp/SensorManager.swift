@@ -48,6 +48,10 @@ final class SensorManager {
             configure(panel: panel, for: screen)
             panels[id] = panel
         }
+
+        // Keep every idle sensor ordered out of the WindowServer window stack.
+        // A recognized external drag explicitly arms and presents the native drop targets.
+        applyMouseEventPolicyToPanels()
     }
 
     /// 兼容 ShelfWindowController 的可见性回调。
@@ -137,7 +141,8 @@ final class SensorManager {
             }
         }
         panel.contentView = view
-        panel.orderFrontRegardless()
+        // Deliberately do not orderFront here: the idle drop target has no
+        // pointer interactions and should not participate in cursor routing.
         return panel
     }
 
@@ -151,8 +156,18 @@ final class SensorManager {
         let ignoresMouseEvents = SensorMouseEventPolicy.ignoresMouseEvents(
             externalDragSessionActive: externalDragSessionActive
         )
+        let shouldPresent = SensorMouseEventPolicy.shouldPresentSensorPanel(
+            externalDragSessionActive: externalDragSessionActive
+        )
         for panel in panels.values {
             panel.ignoresMouseEvents = ignoresMouseEvents
+            if shouldPresent {
+                if !panel.isVisible { panel.orderFrontRegardless() }
+            } else if panel.isVisible {
+                // Mouse passthrough alone leaves a transparent, high-level window
+                // participating in cursor tracking. Remove it while no drag exists.
+                panel.orderOut(nil)
+            }
         }
     }
 
@@ -176,8 +191,9 @@ final class SensorManager {
             width: width,
             height: height
         )
-        panel.setFrame(frame, display: true)
-        panel.orderFrontRegardless()
+        if panel.frame != frame {
+            panel.setFrame(frame, display: false)
+        }
     }
 
     private func handle(payload: NativeDropPayload) -> Bool {
@@ -305,9 +321,8 @@ final class SensorView: NSView {
     var onPromiseStarted: (() -> Void)?
     var onPromisedFiles: (([URL]) -> Void)?
 
-    /// 保留一个无业务回调的 tracking area 作为原生 Sensor 结构的一部分；
-    /// ordinary pointer hover 不再驱动 Shelf 的显示、隐藏或状态变化。
-    private var tracking: NSTrackingArea?
+    // A native dragging destination needs no NSTrackingArea. In particular,
+    // an always-active idle tracking area can cause repeated cursor generation.
     private var resolvingPromise = false
 
     override init(frame frameRect: NSRect) {
@@ -324,19 +339,6 @@ final class SensorView: NSView {
         // 保留静态检查要求的基础类型，同时接受 Safari/Photos Promise、浏览器图片与 RTF 文本。
         registerForDraggedTypes([.fileURL, .URL, .string])
         registerForDraggedTypes([.fileURL, .URL, .string] + DropPayloadResolver.extraPasteboardTypes)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

@@ -12,7 +12,6 @@ OpsNotch.app
 │   ├── SensorPanel Display-2
 │   └── SensorPanel Display-N
 │       └── SensorView
-│           ├── NSTrackingArea
 │           └── NSDraggingDestination
 │
 ├── ShelfWindowController          AppKit + SwiftUI Hosting
@@ -42,12 +41,11 @@ OpsNotch.app
 Sensor 是整个产品最 macOS-specific 的部分，因此不用 SwiftUI 手势模拟，而是直接使用：
 
 - `NSPanel`
-- `NSTrackingArea`
 - `registerForDraggedTypes`
 - `NSDraggingDestination`
 - `NSPasteboard`
 
-这样 Text Drag 和 File Drag 走同一条 macOS 原生 Drag Session。
+这样 Text Drag 和 File Drag 走同一条 macOS 原生 Drag Session。普通鼠标悬停不需要 `NSTrackingArea`；空闲 SensorPanel 通过 `orderOut` 完全退出窗口显示层级，仅在 `DragSessionCoordinator` 识别到真实外部拖拽时 `orderFront` 并接受 Drop，结束后立即再次 `orderOut`。
 
 ## 3. 多显示器
 
@@ -101,7 +99,7 @@ NSPasteboard.general.changeCount
         作为 baseline
 ```
 
-由于 `NSPasteboard` 没有通用的剪贴板变更通知，`ClipboardManager` 在应用生命周期内以 100ms 间隔轻量检查 `changeCount`：
+由于 `NSPasteboard` 没有通用的剪贴板变更通知，`ClipboardManager` 在应用生命周期内轻量检查 `changeCount`：Shelf 可见时约 100ms，隐藏时约 400ms：
 
 ```text
 changeCount changed
@@ -111,7 +109,7 @@ read .string
 add Text to Recent
 ```
 
-没有变化时只做整数比较，不读取内容也不写磁盘。Sensor 的 `mouseEntered` 仍会调用一次 `catchIfChanged()` 作为即时兜底，因此连续复制多段文字时不需要每复制一次都先触碰刘海。
+没有变化时只做整数比较，不读取内容也不写磁盘。Sensor 不注册普通鼠标跟踪区域，剪贴板捕获不依赖鼠标经过刘海，连续复制多段文字依靠后台 `changeCount` 检测。
 
 如果 Text 是 Ops Notch 自己点击复制产生，ClipboardManager 会立即更新 baseline，避免监控任务把同一个内容重新加入 Recent。
 
