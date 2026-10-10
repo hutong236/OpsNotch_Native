@@ -153,7 +153,8 @@ public final class ShelfStoreService: @unchecked Sendable {
     public func addClipboardPaths(
         _ sources: [URL],
         mode: StorageMode,
-        sourceAppName: String? = nil
+        sourceAppName: String? = nil,
+        applicationsAsReferences: Bool = true
     ) throws -> ShelfStore {
         guard !sources.isEmpty else { return try load() }
 
@@ -174,7 +175,10 @@ public final class ShelfStoreService: @unchecked Sendable {
         for source in sources {
             let values = try source.resourceValues(forKeys: [.isDirectoryKey, .nameKey])
             let isDirectory = values.isDirectory ?? false
-            let isApplication = source.pathExtension.lowercased() == "app"
+            // Finder clipboard capture always references applications, while
+            // native drops historically treat .app directories as folders.
+            let isApplication = applicationsAsReferences
+                && source.pathExtension.lowercased() == "app"
             let kind: ShelfKind = isApplication ? .application : (isDirectory ? .folder : .file)
             // Applications have always been referenced, even with copy mode on.
             let itemMode: StorageMode = isApplication ? .reference : mode
