@@ -18,8 +18,12 @@ enum ItemActionService {
             }
         case .file:
             if item.clipboardImage {
-                succeeded = clipboard.copyImageFile(item.content)
-                if succeeded { model.showToast(L10n.text("copied", model.language)) }
+                clipboard.copyImageFile(item.content) { succeeded in
+                    guard succeeded else { return }
+                    model.showToast(L10n.text("copied", model.language))
+                    model.recordUse(item.id)
+                }
+                return
             } else {
                 succeeded = NSWorkspace.shared.open(URL(fileURLWithPath: item.content))
             }
