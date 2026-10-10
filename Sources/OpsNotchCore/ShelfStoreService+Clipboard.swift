@@ -48,8 +48,43 @@ public extension ShelfStoreService {
     @discardableResult
     func captureImageData(_ data: Data, sourceAppName: String? = nil) throws -> ShelfStore {
         guard !data.isEmpty else { return try load() }
-        let id = UUID()
         return try mutate { store in
+            // The 1-second live pasteboard suppression cannot deduplicate images
+            // recopied later. Reuse a recently captured managed image instead of
+            // persisting multiple identical PNGs. Limit filesystem lookups to
+            // recent entries; comparisons use memory-mapped data where possible.
+            let recentImageIndices = store.items.indices
+                .filter { store.items[$0].clipboardImage && store.items[$0].storageMode == .copy }
+                .sorted { lhs, rhs in
+                    let a = store.items[lhs]
+                    let b = store.items[rhs]
+                    return (a.updatedAt, a.createdAt, lhs) > (b.updatedAt, b.createdAt, rhs)
+                }
+                .prefix(16)
+            for index in recentImageIndices {
+                let existing = store.items[index]
+                let expectedParent = managedFilesURL
+                    .appendingPathComponent(existing.id.uuidString, isDirectory: true)
+                    .standardizedFileURL
+                let imageURL = URL(fileURLWithPath: existing.content).standardizedFileURL
+                // Never read an arbitrary referenced file as part of clipboard dedup.
+                guard imageURL.deletingLastPathComponent() == expectedParent,
+                      let values = try? imageURL.resourceValues(
+                          forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+                      ),
+                      values.isRegularFile == true,
+                      values.isSymbolicLink != true,
+                      values.fileSize == data.count,
+                      let previousData = try? Data(contentsOf: imageURL, options: .mappedIfSafe),
+                      previousData == data else { continue }
+                store.items[index].updatedAt = ShelfClock.now()
+                if let sourceAppName, !sourceAppName.isEmpty {
+                    store.items[index].sourceAppName = sourceAppName
+                }
+                return
+            }
+
+            let id = UUID()
             let parent = managedFilesURL.appendingPathComponent(id.uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
             let fileName = "clipboard-image-\(id.uuidString.prefix(8)).png"
