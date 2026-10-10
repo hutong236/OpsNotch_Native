@@ -9,7 +9,7 @@ final class DragDropOverlayController {
     var onDragExited: (() -> Void)?
     var onDrop: ((NativeDropPayload) -> Bool)?
     var onPromiseStarted: (() -> Void)?
-    var onPromisedFiles: (([URL]) -> Void)?
+    var onPromisedFiles: (([URL], @escaping (Bool) -> Void) -> Void)?
 
     private let panel: NearbyDropPanel
     private let dropView: NearbyDropView
@@ -45,7 +45,10 @@ final class DragDropOverlayController {
             self.beginPromiseResolution()
             self.onPromiseStarted?()
         }
-        dropView.onPromisedFiles = { [weak self] urls in self?.onPromisedFiles?(urls) }
+        dropView.onPromisedFiles = { [weak self] urls, acknowledge in
+            guard let handler = self?.onPromisedFiles else { acknowledge(false); return }
+            handler(urls, acknowledge)
+        }
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -135,7 +138,7 @@ final class NearbyDropView: NSVisualEffectView {
     var onDragExited: (() -> Void)?
     var onDrop: ((NativeDropPayload) -> Bool)?
     var onPromiseStarted: (() -> Void)?
-    var onPromisedFiles: (([URL]) -> Void)?
+    var onPromisedFiles: (([URL], @escaping (Bool) -> Void) -> Void)?
 
     private enum Presentation {
         case idle
@@ -394,8 +397,9 @@ final class NearbyDropView: NSVisualEffectView {
                 self.setReady(false)
                 return accepted
             },
-            handlePromised: { [weak self] urls in
-                self?.onPromisedFiles?(urls)
+            handlePromised: { [weak self] urls, acknowledge in
+                guard let handler = self?.onPromisedFiles else { acknowledge(false); return }
+                handler(urls, acknowledge)
             }
         )
     }
