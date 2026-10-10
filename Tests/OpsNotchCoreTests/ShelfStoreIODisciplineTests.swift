@@ -56,6 +56,45 @@ final class ShelfStoreIODisciplineTests: XCTestCase {
         XCTAssertEqual((rootObject["items"] as? [Any])?.count, 0)
     }
 
+    func testAtomicShelfReplacementNeverLeavesOldStagingFile() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+
+        for i in 0..<12 {
+            let saved = try service.captureText("snapshot \(i)")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: service.storeURL.path))
+            XCTAssertEqual(saved.items.count, i + 1)
+            let loaded = try service.load()
+            XCTAssertEqual(loaded.items.count, i + 1)
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: service.storeURL.appendingPathExtension("tmp").path
+                ),
+                "A committed shelf should not need a persistent staging file"
+            )
+        }
+    }
+
+    func testExpiredManagedImageStorageIsCleanedAfterStoreRewrite() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ShelfStoreService(rootURL: root)
+
+        var store = try service.captureImageData(Data([5, 6, 7]))
+        let managedImage = try XCTUnwrap(store.items.first?.content)
+        let parent = URL(fileURLWithPath: managedImage).deletingLastPathComponent()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: managedImage))
+
+        store.items[0].updatedAt = ShelfClock.now() - 7_200
+        store.settings.tempTTLHours = 1
+        _ = try service.save(store)
+        let reloaded = try service.load()
+
+        XCTAssertTrue(reloaded.items.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: parent.path))
+    }
+
     // MARK: - 紧凑编码
 
     func testCompactEncodingWritesParseableSingleLineJSON() throws {
