@@ -349,12 +349,12 @@ final class DropPayloadResolver {
     }
 }
 
-private struct PromiseSnapshot {
+struct PromiseSnapshot {
     let urls: [URL]
     let failures: Int
 }
 
-private final class PromiseAccumulator: @unchecked Sendable {
+final class PromiseAccumulator: @unchecked Sendable {
     private let lock = NSLock()
     private var urls: [URL] = []
     private var failures = 0
