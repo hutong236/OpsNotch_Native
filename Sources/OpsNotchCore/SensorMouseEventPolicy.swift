@@ -6,6 +6,13 @@ public enum SensorMouseEventPolicy {
         !externalDragSessionActive
     }
 
+    /// Idle sensors must be completely absent from WindowServer's visible
+    /// window stack, not merely configured to pass clicks through. Native
+    /// drag destinations are presented only after a real drag is recognized.
+    public static func shouldPresentSensorPanel(externalDragSessionActive: Bool) -> Bool {
+        !ignoresMouseEvents(externalDragSessionActive: externalDragSessionActive)
+    }
+
     /// A process-wide mouse-up monitor is only useful while a recognized external drag
     /// is in flight. Keeping it installed while idle wakes the app for every ordinary click.
     public static func shouldMonitorGlobalMouseUp(externalDragSessionActive: Bool) -> Bool {
