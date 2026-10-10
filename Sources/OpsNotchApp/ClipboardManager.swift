@@ -43,6 +43,10 @@ final class ClipboardManager {
     }
 
     private let model: AppModel
+    private let pasteboard: NSPasteboard
+    private let imageFileLoader: @Sendable (String) -> Data?
+    /// Newer copies must win even when an older disk read completes afterward.
+    private var imageCopyGeneration: UInt64 = 0
     private var handledChangeCount: Int
     private var monitorTask: Task<Void, Never>?
     private var captureProcessingTask: Task<Void, Never>?
@@ -58,9 +62,15 @@ final class ClipboardManager {
     private var lastCapturedImageAt: TimeInterval = 0
     var panelVisibleProvider: (() -> Bool)?
 
-    init(model: AppModel) {
+    init(
+        model: AppModel,
+        pasteboard: NSPasteboard = .general,
+        imageFileLoader: @escaping @Sendable (String) -> Data? = ClipboardImageFileLoader.readPNG
+    ) {
         self.model = model
-        self.handledChangeCount = NSPasteboard.general.changeCount
+        self.pasteboard = pasteboard
+        self.imageFileLoader = imageFileLoader
+        self.handledChangeCount = pasteboard.changeCount
     }
 
     func startMonitoring() {
@@ -93,7 +103,7 @@ final class ClipboardManager {
     /// asynchronously so AppKit event handling cannot be blocked by large clipboard contents.
     @discardableResult
     func catchIfChanged() -> Bool {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = self.pasteboard
         guard pasteboard.changeCount != handledChangeCount else { return false }
         // Avoid data(forType:) and NSString materialization while previous
         // snapshots are consuming the memory budget. Do NOT acknowledge this
@@ -203,28 +213,52 @@ final class ClipboardManager {
     }
 
     func copyFromApp(_ text: String) {
-        let pasteboard = NSPasteboard.general
+        invalidatePendingImageCopies()
+        let pasteboard = self.pasteboard
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         handledChangeCount = pasteboard.changeCount
     }
 
-    /// Managed clipboard images are stored as PNG. Copy the encoded bytes directly instead of
-    /// decoding to NSImage -> TIFF -> PNG again on MainActor.
-    @discardableResult
-    func copyImageFile(_ path: String) -> Bool {
-        guard let png = try? Data(contentsOf: URL(fileURLWithPath: path)), !png.isEmpty else {
-            return false
+    /// Disk I/O runs off MainActor; only publication to NSPasteboard happens
+    /// on MainActor. The completion fires once, after the clipboard is updated.
+    /// Later copy actions (or an external pasteboard change) supersede a stale
+    /// read so a slow image cannot overwrite more recent clipboard content.
+    func copyImageFile(_ path: String, completion: @escaping @MainActor (Bool) -> Void) {
+        invalidatePendingImageCopies()
+        let generation = imageCopyGeneration
+        let initialChangeCount = pasteboard.changeCount
+        let loader = imageFileLoader
+
+        Task { @MainActor [weak self] in
+            let png = await Task.detached(priority: .userInitiated) {
+                loader(path)
+            }.value
+
+            guard let self,
+                  generation == self.imageCopyGeneration,
+                  self.pasteboard.changeCount == initialChangeCount,
+                  let png, !png.isEmpty else {
+                completion(false)
+                return
+            }
+
+            self.pasteboard.clearContents()
+            let succeeded = self.pasteboard.setData(
+                png, forType: Self.pngPasteboardType
+            )
+            self.handledChangeCount = self.pasteboard.changeCount
+            completion(succeeded)
         }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setData(png, forType: Self.pngPasteboardType)
-        handledChangeCount = pasteboard.changeCount
-        return true
+    }
+
+    private func invalidatePendingImageCopies() {
+        imageCopyGeneration &+= 1
     }
 
     func copyPayload(_ payload: ShelfCopyPayload) {
-        let pasteboard = NSPasteboard.general
+        invalidatePendingImageCopies()
+        let pasteboard = self.pasteboard
         pasteboard.clearContents()
         if !payload.filePaths.isEmpty {
             pasteboard.writeObjects(payload.filePaths.map { URL(fileURLWithPath: $0) as NSURL })
@@ -236,7 +270,8 @@ final class ClipboardManager {
     }
 
     func markCurrentAsHandled() {
-        handledChangeCount = NSPasteboard.general.changeCount
+        invalidatePendingImageCopies()
+        handledChangeCount = pasteboard.changeCount
     }
 
     private nonisolated static func normalizedClipboardText(_ value: String) -> String {
