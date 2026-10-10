@@ -47,14 +47,16 @@ public final class ShelfStoreService: @unchecked Sendable {
         let didMigrate = store.version != versionBeforeMigration
         let expired = ShelfLogic.expiredIDs(items: store.items, settings: store.settings)
         var didExpire = false
+        let expiredManagedIDs = managedCopyIDs(in: store).intersection(expired)
         if !expired.isEmpty {
             store.items.removeAll { expired.contains($0.id) }
-            for id in expired { try? removeManagedDirectory(id: id) }
             didExpire = true
         }
         normalizeWorkingSet(&store)
         if didMigrate || didExpire {
             try writeUnlocked(store)
+            // Never remove user content until its JSON references are durably updated.
+            for id in expiredManagedIDs { try? removeManagedDirectory(id: id) }
         }
         return store
     }
@@ -66,8 +68,11 @@ public final class ShelfStoreService: @unchecked Sendable {
         var current = store
         current.version = ShelfStore.currentVersion
         normalizeWorkingSet(&current)
+        let managedBeforeLimit = managedCopyIDs(in: current)
         enforceItemLimit(&current)
+        let removedByLimit = managedBeforeLimit.subtracting(managedCopyIDs(in: current))
         try writeUnlocked(current)
+        for id in removedByLimit { try? removeManagedDirectory(id: id) }
         return current
     }
 
@@ -195,10 +200,9 @@ public final class ShelfStoreService: @unchecked Sendable {
     @discardableResult
     public func remove(ids: Set<UUID>) throws -> ShelfStore {
         try mutate { store in
-            let copies = store.items.filter { ids.contains($0.id) && $0.storageMode == .copy }.map(\.id)
             store.items.removeAll { ids.contains($0.id) }
             store.settings.workingSetItemIDs.removeAll { ids.contains($0) }
-            for id in copies { try? removeManagedDirectory(id: id) }
+            // mutate() removes the managed files only after committing shelf.json.
         }
     }
 
@@ -226,11 +230,18 @@ public final class ShelfStoreService: @unchecked Sendable {
             store = ShelfStore()
         }
         migrate(&store)
+        let managedBefore = managedCopyIDs(in: store)
         try body(&store)
+        // Include freshly created files too: they may be immediately evicted by the cap.
+        let managedAfterBody = managedCopyIDs(in: store)
         normalizeWorkingSet(&store)
         enforceItemLimit(&store)
+        let managedRemoved = managedBefore.union(managedAfterBody)
+            .subtracting(managedCopyIDs(in: store))
         store.version = ShelfStore.currentVersion
         try writeUnlocked(store)
+        // Keep removals inside the store lock, but after successful JSON replacement.
+        for id in managedRemoved { try? removeManagedDirectory(id: id) }
         return store
     }
 
@@ -248,9 +259,11 @@ public final class ShelfStoreService: @unchecked Sendable {
             }
             .prefix(overflow)
             .map(\.id))
-        let managedCopies = store.items.filter { evictIDs.contains($0.id) && $0.storageMode == .copy }.map(\.id)
         store.items.removeAll { evictIDs.contains($0.id) }
-        for id in managedCopies { try? removeManagedDirectory(id: id) }
+    }
+
+    private func managedCopyIDs(in store: ShelfStore) -> Set<UUID> {
+        Set(store.items.lazy.filter { $0.storageMode == .copy }.map(\.id))
     }
 
     private func ensureDirectories() throws {
@@ -296,12 +309,9 @@ public final class ShelfStoreService: @unchecked Sendable {
 
     private func writeUnlocked(_ store: ShelfStore) throws {
         let data = try encoder.encode(store)
-        let tmp = storeURL.appendingPathExtension("tmp")
-        try data.write(to: tmp, options: .atomic)
-        if fileManager.fileExists(atPath: storeURL.path) {
-            try fileManager.removeItem(at: storeURL)
-        }
-        try fileManager.moveItem(at: tmp, to: storeURL)
+        // Foundation stages and atomically replaces the destination. Unlike a
+        // remove-then-move sequence, a crash never leaves shelf.json absent.
+        try data.write(to: storeURL, options: .atomic)
     }
 
     private func removeManagedDirectory(id: UUID) throws {
