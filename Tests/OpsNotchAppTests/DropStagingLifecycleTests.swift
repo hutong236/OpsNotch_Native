@@ -41,7 +41,8 @@ final class DropStagingLifecycleTests: XCTestCase {
         await Task.yield()
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         try XCTUnwrap(finish)(true)
-        XCTAssertTrue(await waitUntilMissing(source, timeout: 5))
+        let cleaned = await waitUntilMissing(source, timeout: 5)
+        XCTAssertTrue(cleaned)
     }
 
     @MainActor
