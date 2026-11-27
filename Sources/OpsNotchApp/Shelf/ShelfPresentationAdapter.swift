@@ -81,7 +81,8 @@ enum ShelfPresentationAdapter {
         case .text:
             icon = .symbol(symbol(kind)); thumbnail = nil
             preview = item.content.isEmpty ? .unavailable : .text(item.content)
-            subtitle = item.content.replacingOccurrences(of: "\n", with: " ")
+            // The row is a summary; retain the full original in the preview and action model.
+            subtitle = ShelfDisplayText.bounded(item.content).replacingOccurrences(of: "\n", with: " ")
             copies = true
         case .url:
             icon = .symbol(symbol(kind)); thumbnail = nil; preview = .unavailable

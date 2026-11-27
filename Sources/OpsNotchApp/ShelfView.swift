@@ -30,10 +30,8 @@ struct ShelfRootView: View {
             }
         }
         .onHover { experience.setShelfHovered($0) }
-        .animation(
-            .easeOut(duration: OpsMotion.duration(for: .quick, reduceMotion: reduceMotion)),
-            value: presentation
-        )
+        // ShelfWindowController owns window frame/alpha animations. Avoid an
+        // overlapping SwiftUI transaction that interpolates arbitrary clipboard text.
     }
 
     private var expanded: some View {
@@ -205,7 +203,7 @@ struct ShelfRootView: View {
             }
         }
         .animation(.easeOut(duration: OpsMotion.duration(for: .standard, reduceMotion: reduceMotion)),
-                   value: experience.focusedShelfPresentationItem?.id)
+                   value: experience.focusedShelfPresentationItem != nil)
     }
 
     private var footer: some View {

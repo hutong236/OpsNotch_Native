@@ -9,7 +9,6 @@ struct ShelfInspectorView: View {
     let language: AppLanguage
     let dispatcher: ShelfItemActionDispatcher
     @State private var resource: NSImage?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
@@ -19,12 +18,12 @@ struct ShelfInspectorView: View {
             Divider().overlay(
                 OpsSurface.divider(increasedContrast: colorSchemeContrast == .increased)
             )
-            Text(item.title).font(OpsTypography.rowTitle).lineLimit(3)
+            Text(ShelfDisplayText.bounded(item.title)).font(OpsTypography.rowTitle).lineLimit(3)
             if let semanticLabel {
                 Text(semanticLabel).font(OpsTypography.metadata).foregroundStyle(.secondary)
             }
             ForEach(Array(item.metadata.enumerated()), id: \.offset) { _, value in
-                Text(value).font(OpsTypography.metadata).foregroundStyle(.secondary)
+                Text(ShelfDisplayText.bounded(value)).font(OpsTypography.metadata).foregroundStyle(.secondary)
             }
             Button { dispatcher.perform(item.primaryAction.intent) } label: {
                 Label(item.primaryAction.title, systemImage: item.primaryAction.symbolName)
@@ -45,7 +44,7 @@ struct ShelfInspectorView: View {
         .background(OpsSurface.card)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(L10n.text("shelfInspector", language)))
-        .animation(.easeOut(duration: OpsMotion.duration(for: .standard, reduceMotion: reduceMotion)), value: item.id)
+        // Selecting a different item must not animate its arbitrary text content.
         .task(id: item.id + resourceDescriptor) {
             resource = nil
             resource = await ShelfRowImageCache.shared.image(for: item, maximumPixelSize: 640)

@@ -31,13 +31,13 @@ struct ShelfRow: View {
                 icon.frame(width: OpsSpacing.xxLarge, height: OpsSpacing.xxLarge)
                 VStack(alignment: .leading, spacing: OpsSpacing.micro) {
                     HStack(spacing: OpsSpacing.xSmall) {
-                        Text(item.title).font(OpsTypography.rowTitle).lineLimit(1)
+                        Text(ShelfDisplayText.bounded(item.title)).font(OpsTypography.rowTitle).lineLimit(1)
                         if let badge = item.badge { ShelfBadge(text: badge) }
                     }
-                    Text(item.subtitle).font(OpsTypography.shelfSubtitle).foregroundStyle(.secondary)
+                    Text(ShelfDisplayText.bounded(item.subtitle)).font(OpsTypography.shelfSubtitle).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                     if !item.metadata.isEmpty {
-                        Text(item.metadata.joined(separator: " · ")).font(OpsTypography.metadata)
+                        Text(ShelfDisplayText.bounded(item.metadata.joined(separator: " · "))).font(OpsTypography.metadata)
                             .foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
@@ -49,7 +49,7 @@ struct ShelfRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(ShelfRowButtonStyle(state: resolvedVisualState))
-        .accessibilityLabel(Text(item.accessibilityLabel))
+        .accessibilityLabel(Text(ShelfDisplayText.bounded(item.accessibilityLabel, limit: 1024)))
         .accessibilityHint(Text(item.accessibilityHint))
         .overlay(alignment: .trailing) { accessories.padding(.trailing, OpsSpacing.xSmall) }
         .contextMenu { actionMenu }

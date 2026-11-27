@@ -297,7 +297,7 @@ private struct FloatingPreviewRoot: View {
 
 /// 可选中、可复制、自动换行、可滚动的文字预览区。
 /// SwiftUI 的 Text 不可选中,这里包一层 NSScrollView + NSTextView。
-private struct SelectableTextView: NSViewRepresentable {
+struct SelectableTextView: NSViewRepresentable {
     let text: String
     let fontSize: CGFloat
 
@@ -316,6 +316,7 @@ private struct SelectableTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.textContainer?.widthTracksTextView = true
+        textView.layoutManager?.allowsNonContiguousLayout = true
         textView.textContainerInset = NSSize(width: 8, height: 14)
         textView.backgroundColor = .clear
         scrollView.documentView = textView
